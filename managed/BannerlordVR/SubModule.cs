@@ -27,6 +27,8 @@ namespace BannerlordVR
             base.OnMissionBehaviorInitialize(mission);
             if (mission.GetMissionBehavior<VR.Physics.LivingRagdollMissionLogic>() == null)
                 mission.AddMissionBehavior(new VR.Physics.LivingRagdollMissionLogic());
+            if (VR.Physics.EnemyPhysicsSettings.Bleeding && mission.GetMissionBehavior<VR.Physics.BleedingMissionLogic>() == null)
+                mission.AddMissionBehavior(new VR.Physics.BleedingMissionLogic());
         }
 
         protected override void OnSubModuleLoad()
@@ -50,7 +52,8 @@ namespace BannerlordVR
             }
 
             VrHandCalibration.Load();
-            if (VR.Physics.EnemyPhysicsSettings.LivingRagdolls || VR.Physics.EnemyPhysicsSettings.RuntimeProbe)
+            if (VR.Physics.EnemyPhysicsSettings.LivingRagdolls ||
+                (VR.Physics.EnemyPhysicsSettings.RuntimeProbe && !VR.Physics.EnemyPhysicsSettings.WoundProbe))
                 VR.Physics.NativeRagdollBridge.Initialize();
             if (!VR.Physics.EnemyPhysicsSettings.RuntimeProbe) VrSystem.Initialize();
             else VrLog.Info("PHYSICS_PROBE mode: flat rendering; OpenXR initialization skipped for the isolated engine test.");

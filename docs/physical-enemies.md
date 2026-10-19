@@ -14,7 +14,8 @@ profilage de bataille en jeu n'a encore ete realise.
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
 | Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
 | Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
-| Cou | Contact natif distinct ; option de coupe longitudinale avec tete tenue par l'autre main, seuil de 12 cm et rejet des tremblements | Detection du geste testee mathematiquement, pas encore en VR ; saignement et lesion anatomique a faire |
+| Cou | Contact natif distinct ; option de coupe longitudinale avec tete tenue par l'autre main, seuil de 12 cm et rejet des tremblements | Detection du geste testee mathematiquement, pas encore en VR ; lesion anatomique a faire |
+| Saignement | Option distincte apres perte de vie reelle par coupe/perforation, doses differees via RegisterBlow, attribution et expiration ; profondeur maximale de penetration aggrave une blessure existante | Test terrestre isole reussi ; profils simplifies, pas de lesion volumetrique ni d'effets visuels ajoutes |
 | Retour haptique | Action OpenXR de vibration, requetes consommees sur le thread de rendu | Compile ; sensation et profils materiels non verifies avec casque |
 
 L'option de ragdoll vivant reagit egalement aux coups : une reaction de 600 ms est
@@ -51,7 +52,7 @@ Par defaut, le prototype est desactive. Une fois active :
   jusqu'a un corps ; elle remonte apres 180 echantillons de marge durable. Les corps
   tenus ne sont pas supprimes pour satisfaire une statistique.
 - Moyenne et p95/p99 des 256 derniers echantillons du travail du mod dans le journal.
-  Le cout du controleur de recuperation des vivants est inclus. Le travail de
+  Les couts du controleur de recuperation et des blessures sont inclus. Le travail de
   simulation interne du moteur et le rendu sont **exclus** : ce budget logiciel
   n'est pas une limite dure du temps de frame ni un benchmark de bataille.
 - Cavaliers, montures, montee/descente, chute/saut, echelles, objets utilisables,
@@ -134,9 +135,39 @@ allers-retours, refuse la locomotion seule et recommence apres perte de contact,
 changement d'ennemi, rupture de suivi ou changement important d'axe. Une coupe
 ne se repete pas tant que le contact reste continu. Les degats passent par
 `RegisterBlow`, avec une approximation d'armure ; aucun changement direct des
-points de vie. Le saignement differe et l'anatomie des lesions restent a faire.
+points de vie. Le saignement differe dispose d'une option distincte ; l'anatomie
+des lesions reste a faire.
 Seules les mathematiques du geste sont testees automatiquement : la detection
 native du cou et le resultat en VR ne sont pas encore valides.
+
+## Saignement experimental
+
+`enemy_physics_bleeding=1` enregistre les coupes et perforations du prototype
+seulement apres une perte de vie reelle d'au moins un point. Le profil depend
+de la partie touchee et du dommage initial apres armure ; il ne simule pas les
+vaisseaux. Une penetration plus profonde peut aggraver la blessure existante,
+avec un proxy borne a 20 cm ; le retrait ou les oscillations ne l'aggravent pas
+repetitivement. Les doses ulterieures n'appliquent pas une seconde reduction
+d'armure. Elles passent par `RegisterBlow`, sans ecriture directe de sante,
+sans force ajoutee et avec les drapeaux sans son et sans reaction d'impact.
+
+Le gestionnaire conserve au plus 64 blessures et traite au plus quatre entrees
+dues par tick. Chaque blessure produit au plus une dose de six points toutes
+les 500 ms, dure au plus huit secondes initialement et douze secondes en cas
+d'aggravation, avec un budget maximal de 96 points. Il n'accumule pas de rafale
+apres une longue interruption. Les blessures persistent lorsque les mains
+perdent le suivi ou que l'ennemi sort du rayon ; elles sont nettoyees a sa mort,
+a sa suppression ou en fin de mission. Un squelette remplace est recherche par
+nom d'os et partie du corps, sinon la blessure est abandonnee.
+
+Le 19 octobre 2026, un test sans casque sur un ennemi eloigne a observe un coup
+initial de deux points, deux doses differees d'un point, trois callbacks avec
+attribution au joueur, puis expiration et ennemi vivant a 96 points de vie.
+Journal local : `.analysis/wound-probe-20261019-pass.log`. Aucun ragdoll n'a ete
+active. Ce test ne valide pas le contact de lame VR, un saignement mortel ou le
+resultat visuel. Le commutateur de diagnostic `enemy_physics_wound_probe=1`
+necessite egalement `enemy_physics_runtime_probe=1` et le saignement active ;
+il est reserve a une bataille personnalisee terrestre, pas a une campagne.
 
 ## Test isole du backend vivant
 
@@ -190,7 +221,7 @@ detaillees dans [native-ragdoll-findings.md](native-ragdoll-findings.md).
 - [ ] Validation en mission du backend natif vivant code, de ses limites articulaires et collisions.
 - [ ] Maintien et desequilibre du corps, recuperation et reprise fiable de l'IA.
 - [ ] Contacts exacts arme/bouclier/corps, resistance de la lame et parade.
-- [ ] Saignement, geste d'egorgement, lesions et effet de la profondeur des coups.
+- [ ] Validation VR du saignement, du geste d'egorgement et de la profondeur ; lesions anatomiques et effets visuels.
 - [ ] Bras et tete saisis simultanement, deux mains sur un corps, limites anatomiques.
 - [ ] Essais VR : perte de suivi, recentrage, menu, mort, suppression du corps,
       echelle, cavalier/desarconnement, montage/demontage, changement de mission.
@@ -203,7 +234,7 @@ appels natifs de physique executes dans Bannerlord.
 
 Validation effectuee le 19 octobre 2026 : compilation Release C# sans avertissement,
 compilation native OpenXR reussie (avertissements deja presents dans les sources
-amont), 4 098 verifications physiques, de gestes et de transitions reussies, suite mathematique amont reussie,
+amont), 4 112 verifications physiques, de gestes, de blessures et de transitions reussies, suite mathematique amont reussie,
 chargement reel de la DLL native et verification des refus d'entree/haptique hors
 session. Le test de chargement n'initialise ni OpenXR ni les hooks de rendu.
 Les tests du controleur vivant utilisent un hote simule : ils prouvent l'ordre des

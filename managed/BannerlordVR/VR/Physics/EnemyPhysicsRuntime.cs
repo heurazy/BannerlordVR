@@ -29,6 +29,7 @@ namespace BannerlordVR.VR.Physics
         private static long _workStarted;
         private static Mission _mission;
         private static LivingRagdollMissionLogic _living;
+        private static BleedingMissionLogic _bleeding;
         private static Agent _player;
         private static int _cursor;
         private static float _time = -1, _lastLog;
@@ -46,6 +47,10 @@ namespace BannerlordVR.VR.Physics
         public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity)
         { if (!body.IsCorpse) _living?.Impact(body, point, velocity); }
+        public static void RecordWound(Agent source, EnemyBody body, BodyPoint point, Vec3 contact,
+            DamageTypes type, float healthLost, bool drawCut)
+        { _bleeding?.Record(source, body, point, contact, type, healthLost, drawCut); }
+        public static void DeepenWound(Agent victim, sbyte bone, float depth) => _bleeding?.Deepen(victim, bone, depth);
         private static EnemyBody[] CreateRecords()
         {
             var result = new EnemyBody[EnemyPhysicsSettings.Capacity];
@@ -61,6 +66,7 @@ namespace BannerlordVR.VR.Physics
             foreach (EnemyBody record in Records) record.Clear();
             _mission = null; _player = null; _cursor = 0; _time = -1;
             _living = null;
+            _bleeding = null;
             HandlingCombat = false; ActiveBodies = 0;
         }
 
@@ -78,7 +84,11 @@ namespace BannerlordVR.VR.Physics
                     NativeMethods.bvr_overlay_visible() != 0)
                 { Reset(); return; }
                 if (_mission != mission || _player != player)
-                { Reset(); _mission = mission; _player = player; _living = mission.GetMissionBehavior<LivingRagdollMissionLogic>(); }
+                {
+                    Reset(); _mission = mission; _player = player;
+                    _living = mission.GetMissionBehavior<LivingRagdollMissionLogic>();
+                    _bleeding = mission.GetMissionBehavior<BleedingMissionLogic>();
+                }
                 float now = mission.CurrentTime;
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
@@ -129,7 +139,7 @@ namespace BannerlordVR.VR.Physics
             finally
             {
                 if (measured) Budget.Record((Stopwatch.GetTimestamp() - _workStarted) * 1000.0 / Stopwatch.Frequency +
-                    (_living?.LastTickCpuMilliseconds ?? 0));
+                    (_living?.LastTickCpuMilliseconds ?? 0) + (_bleeding?.LastTickCpuMilliseconds ?? 0));
             }
         }
 

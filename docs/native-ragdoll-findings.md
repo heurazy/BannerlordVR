@@ -140,6 +140,43 @@ La depause de l'IA ne prouve pas encore une reprise naturelle de locomotion,
 de capsule ou d'animation. Aucun essai au casque, prise a deux mains, chute
 pres d'un cheval ou benchmark de grande bataille n'est couvert par ce resultat.
 
+## Identification des methodes d'effort, 19 octobre 2026
+
+Un second cycle isole a reproduit activation puis desactivation avec conservation
+de la vie, IA depausee et deplacement maximal du bassin de 0,548 m. Pendant
+l'etat actif, un diagnostic en lecture seule a suivi le mapping de l'os du bassin
+jusqu'au corps physique et lu deux entrees de sa table virtuelle : RVA
+`0x11acc0` pour la methode vectorielle et `0x11ade0` pour la methode scalaire
+utilisee par le wrapper `ApplyForceOnRagdoll`. Aucune de ces deux methodes n'a ete
+appelee par le diagnostic et aucune force n'a ete ajoutee. Journal local :
+`.analysis/force-api-probe-20261019-pass.log`.
+
+Le diagnostic valide les memes identites de mission, agent, squelette et thread
+que le pont de liberation, l'etat actif, les regions lues et l'appartenance des
+adresses retournees au module moteur identifie. Les DLL et la configuration
+originales ont ensuite ete restaurees et verifiees par SHA-256.
+
+REA a ensuite reconstruit les deux entrees concretes. La methode vectorielle
+appelle la table virtuelle du corps sous-jacent a l'offset `0x170`, avec les
+arguments mode `3` et reveil `1` ; la scalaire appelle l'offset `0xe8`. Preuves :
+`ev_ab80f503683e3abc4a1fcce0e242209bbc252d888a8b0bec22af2c3dff08ca11`
+et `ev_3ae59967650d3e722e47753238359b8641ed7b0a50bc249dbcfcaa1f1fb625e8`.
+Le wrapper natif divise le vecteur initial par cette valeur scalaire, preuve
+`ev_3038a178c5b8d03b039ed12f4541da2db5d6b7661c261a02be10e9aca4c7d48a`.
+
+Les chaines du moteur identifient PhysX 4.1.2. Le rapprochement avec les declarations
+virtuelles publiques PhysX 4.1 donne `getMass` au slot 29 (`0xe8`) et `addForce`
+au slot 46 (`0x170`). Le mode 3 est `eACCELERATION`. Cette identification est une
+inference d'ABI appuyee par les arguments et le calcul observes, pas une capture
+de l'execution de PhysX. Sources primaires :
+[PxRigidBody](https://github.com/NVIDIAGameWorks/PhysX/blob/4.1/physx/include/PxRigidBody.h)
+et [PxForceMode](https://github.com/NVIDIAGameWorks/PhysX/blob/4.1/physx/include/PxForceMode.h).
+Le chemin correspond ainsi a une force divisee par la masse avant integration,
+pas a une impulsion immediate. Multiplier les ressorts par le temps de frame
+avant cet appel les affaiblirait ; aucune telle correction speculative n'est ajoutee.
+La cadence exacte mission/solveur, les impacts sur un seul tick et la stabilite
+des prises restent a mesurer. Le bundle local est `.analysis/native-force-evidence.json`.
+
 ## Ce qui reste a prouver
 
 - Reproductibilite de l'activation et preservation de vie sur d'autres agents.

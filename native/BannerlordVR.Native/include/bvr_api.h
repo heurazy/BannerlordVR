@@ -49,6 +49,10 @@ typedef enum BvrStatus {
 BVR_API int32_t BVR_CALL bvr_ragdoll_prepare(void);
 BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
+/* Read-only developer evidence: module-relative implementations reached by
+   ApplyForceOnRagdoll's two virtual calls. Does not call either method. */
+BVR_API int32_t BVR_CALL bvr_ragdoll_force_api(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone, uintptr_t* vectorMethodRva, uintptr_t* scalarMethodRva);
 
 typedef enum BvrEye {
     BVR_EYE_LEFT  = 0,

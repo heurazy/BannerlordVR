@@ -57,6 +57,7 @@ namespace BannerlordVR.VR.Physics
         private bool _failed;
         private Entry _probeEntry;
         private bool _probeStarted, _probeFinished, _probeSawActive;
+        private bool _probeInspectedForceApi;
         private float _probeHealth, _probeMaxDisplacement;
         private Vec3 _probeOrigin;
         private RagdollState _probeLastState;
@@ -153,9 +154,9 @@ namespace BannerlordVR.VR.Physics
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
-            if (EnemyPhysicsSettings.RuntimeProbe || EnemyPhysicsSettings.LivingRagdolls)
+            if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
-            if (EnemyPhysicsSettings.RuntimeProbe)
+            if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe)
             {
                 try { StartProbe(); FollowProbe(); }
                 catch (Exception ex)
@@ -281,6 +282,11 @@ namespace BannerlordVR.VR.Physics
             if (state == RagdollState.Active)
             {
                 _probeSawActive = true;
+                if (!_probeInspectedForceApi)
+                {
+                    _probeInspectedForceApi = true;
+                    NativeRagdollBridge.LogForceApi(entry.Agent, Mission, entry.Skeleton, entry.Agent.Monster.PelvisBoneIndex);
+                }
                 _probeMaxDisplacement = Math.Max(_probeMaxDisplacement, (ProbePelvis(entry) - _probeOrigin).Length);
             }
         }

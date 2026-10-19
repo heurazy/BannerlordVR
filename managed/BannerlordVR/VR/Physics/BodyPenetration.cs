@@ -42,6 +42,8 @@ namespace BannerlordVR.VR.Physics
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
             { Release(); return false; }
+            if (!Body.IsCorpse) EnemyPhysicsRuntime.DeepenWound(Body.Agent, _bone,
+                System.Math.Max(0, (bladeTip - bladeBase).Length - along));
             Vec3 targetVelocity = _sampled ? InteractionMath.ClampMagnitude((bladePoint - _lastBladePoint) * (1 / dt), 8) : Vec3.Zero;
             _lastBladePoint = bladePoint; _sampled = true;
             Vec3 error = bladePoint - anchor;

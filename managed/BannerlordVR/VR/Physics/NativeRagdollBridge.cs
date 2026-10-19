@@ -91,6 +91,19 @@ namespace BannerlordVR.VR.Physics
             return status == 0;
         }
 
+        public static void LogForceApi(Agent agent, Mission mission, Skeleton skeleton, sbyte bone)
+        {
+            if (!Ready) return;
+            try
+            {
+                int status = bvr_ragdoll_force_api((UIntPtr)MissionPointer.GetValue(mission),
+                    (UIntPtr)AgentPointer.GetValue(agent), skeleton.Pointer, bone, out UIntPtr vector, out UIntPtr scalar);
+                VrLog.Info("FORCE_API readonly status=" + status + "; vector_method_rva=0x" + vector.ToUInt64().ToString("x") +
+                    "; scalar_method_rva=0x" + scalar.ToUInt64().ToString("x") + "; no_force_applied=True");
+            }
+            catch (Exception ex) { VrLog.Error("Read-only ragdoll force-method inspection unavailable.", ex); }
+        }
+
         private static string Failure(int status)
         {
             switch (status)
@@ -114,5 +127,8 @@ namespace BannerlordVR.VR.Physics
         private static extern int bvr_ragdoll_release(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
         [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_ragdoll_validate(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_force_api(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
+            int bone, out UIntPtr vectorMethodRva, out UIntPtr scalarMethodRva);
     }
 }
