@@ -23,6 +23,7 @@ internal static class Program
             ActiveRagdollTests.Run(Check);
             PenetrationJointTests.Run(Check);
             RagdollImpactTests.Run(Check);
+            PenetrationDamageTests.Run(Check);
             float t;
             Check(InteractionMath.SegmentBox(new Vec3(-2, 0, 0), new Vec3(2, 0, 0), new Vec3(-.1f, -1, -1), new Vec3(.1f, 1, 1), 0, out t) && Near(t, .475f), "Thin shield crossing reports first surface");
             Check(!InteractionMath.SegmentBox(new Vec3(-2, 2, 0), new Vec3(2, 2, 0), new Vec3(-.1f, -1, -1), new Vec3(.1f, 1, 1), 0, out t), "Shield can be bypassed above its bounds");

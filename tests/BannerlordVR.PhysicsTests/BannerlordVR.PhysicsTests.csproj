@@ -23,6 +23,7 @@
     <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollGrabRules.cs" Link="RagdollGrabRules.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/PenetrationJoint.cs" Link="PenetrationJoint.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollImpact.cs" Link="RagdollImpact.cs" />
+    <Compile Include="../../managed/BannerlordVR/VR/Physics/PenetrationDamage.cs" Link="PenetrationDamage.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/PushReaction.cs" Link="PushReaction.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollPinDrive.cs" Link="RagdollPinDrive.cs" />
   </ItemGroup>

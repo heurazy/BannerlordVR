@@ -325,7 +325,7 @@ namespace BannerlordVR.VR.Physics
                 float headHeight = _headBody >= 0 ? _position[_headBody].z - groundZ : float.MaxValue;
                 float rootOriginal = _captured[_bone[_pelvisBody]].origin.z;
                 GrabOutcome outcome = RagdollGrabRules.Evaluate(kind, referenceHeight, referenceOriginal, headHeight, rootOriginal);
-                if (outcome == GrabOutcome.Hold) continue;
+                if (outcome == GrabOutcome.Hold) { StepTowards(kind, body, now); continue; }
                 LastGrabOutcome = outcome;
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_RAGDOLL grab outcome={0} handle={1} reference_height={2:F3} original={3:F3} head={4:F3} time={5:F3}",
@@ -333,6 +333,21 @@ namespace BannerlordVR.VR.Physics
                 if (outcome == GrabOutcome.Destabilize) _cycle.Destabilize();
                 else { ReleaseHandle(h); _ungrab[h] = true; }
             }
+        }
+
+        // The pose root walks after the grabbed body, so pulling a standing
+        // enemy drags it along; release then moves the agent under its hips.
+        private float _lastStep = -1;
+        private void StepTowards(GrabHandle kind, int grabbedBody, float now)
+        {
+            float dt = _lastStep < 0 ? 0 : now - _lastStep;
+            _lastStep = now;
+            if (_cycle.Phase != ActiveRagdollPhase.Standing || dt <= 0) return;
+            int reference = RagdollGrabRules.StepsUnderHead(kind) && _headBody >= 0 ? _headBody : _pelvisBody;
+            Vec3 targetNow = _root.TransformToParent(_captured[_bone[reference]]).origin;
+            Vec2 offset = (_position[reference] - targetNow).AsVec2;
+            Vec2 step = RagdollGrabRules.Step(kind, offset, dt);
+            _root.origin = new Vec3(_root.origin.x + step.x, _root.origin.y + step.y, _root.origin.z);
         }
 
         // Ragdoll.SetBodyPositionToHips: the stand-up targets the pose placed

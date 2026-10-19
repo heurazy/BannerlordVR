@@ -107,7 +107,8 @@ namespace BannerlordVR.VR.Physics
                 JitWarmup.Prepare(typeof(ActiveRagdollBody), typeof(RagdollPinDrive), typeof(ActiveRagdollCycle),
                     typeof(PushReaction), typeof(RagdollGrabRules), typeof(PenetrationJoint), typeof(BodyPenetration),
                     typeof(PhysicsStepCounter), typeof(PhysicsStepGate), typeof(NativeRagdollBridge), typeof(LivingRagdollLease),
-                    typeof(LivingRagdollMissionLogic), typeof(InteractionMath));
+                    typeof(LivingRagdollMissionLogic), typeof(InteractionMath), typeof(PenetrationDamage), typeof(RagdollImpact),
+                    typeof(BloodFx), typeof(PhysicalHit), typeof(EnemyGrab));
         }
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
         public double LastTickCpuMilliseconds { get; private set; }
@@ -450,7 +451,7 @@ namespace BannerlordVR.VR.Physics
         private void RagdollCollision(Entry entry)
         {
             ActiveRagdollBody body = entry.Active;
-            float damage = RagdollImpact.Damage(body.ImpactSpeed);
+            float damage = RagdollImpact.Damage(body.ImpactSpeed) * PenetrationDamage.HealthScale(entry.Agent.HealthLimit);
             sbyte bone = body.ImpactBone;
             BoneBodyPartType part = entry.Agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
             Agent victim = entry.Agent;

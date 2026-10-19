@@ -86,6 +86,17 @@ namespace BannerlordVR.VR.Physics
                 null, DamageTypes.Blunt, damage, Math.Max(1, (int)Math.Round(damage)), 0, false, true, PushEffect.None);
         }
 
+        // B&S penetration damage happens after the blade already passed the
+        // material, so armour does not reduce it again.
+        public static float ApplyPenetration(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact,
+            float damage, DamageTypes type)
+        {
+            if (victim == null || !victim.IsActive() || !InteractionMath.IsFinite(contact) || !InteractionMath.IsFinite(damage) || damage < .5f) return 0;
+            var point = new BodyPoint { Bone = bone, Part = part, World = contact };
+            return Deliver(source, victim, point, contact, -Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
+                null, type, damage, Math.Max(1, Math.Min(500, (int)Math.Round(damage))), 0, type == DamageTypes.Pierce, false, PushEffect.None);
+        }
+
         public static void ApplyBloodLoss(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, int dose)
         {
             if (victim == null || !victim.IsActive() || dose <= 0 || !InteractionMath.IsFinite(contact)) return;
@@ -94,6 +105,7 @@ namespace BannerlordVR.VR.Physics
             var point = new BodyPoint { Bone = bone, Part = part, World = contact };
             Deliver(source, victim, point, contact, Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
                 null, DamageTypes.Cut, 0, Math.Min(6, dose), 0, false, true, PushEffect.None);
+            BloodFx.Burst(BloodFx.Kind.Drip, contact, -Vec3.Up);
         }
 
         private static float Deliver(Agent player, Agent victim, BodyPoint point, Vec3 contact,

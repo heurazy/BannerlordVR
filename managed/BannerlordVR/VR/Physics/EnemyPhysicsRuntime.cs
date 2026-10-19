@@ -272,6 +272,8 @@ namespace BannerlordVR.VR.Physics
                 if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
                     (blade || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
+                else if (!embedded && !drawing && blade && EnemyPhysicsSettings.ActiveRagdoll)
+                    TryPressure(index, hand, basePoint, tip, usage, player, dt);
                 if (hand.Grab.Held) hand.Grab.Tick(pose, dt);
             }
             hand.Previous = pose.origin;
@@ -362,6 +364,33 @@ namespace BannerlordVR.VR.Physics
             if (best != null && (!best.IsCorpse || best.HasNativePhysics)) hand.Grab.Begin(best, point, position);
         }
 
+        // Damager.TryHitByPressure: the point pushed slowly into a body along
+        // the blade (within penetrationPressureMaxDot 0.2 of its axis) enters
+        // without a strike; damage then comes from depth.
+        private const float PressureMaxDot = .2f, PressureMinSpeed = .05f;
+        private static void TryPressure(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage, Agent player, float dt)
+        {
+            if (!hand.Sampled || dt <= 0 || !BodyPenetration.ProfileFor(usage, true, out PenetrationProfile profile) ||
+                !PenetrationJoint.Get(profile).Pierce) return;
+            Vec3 axis = tip - start;
+            Vec3 motion = tip - hand.PreviousTip;
+            float length = motion.Length;
+            if (axis.Length < .05f || length / dt < PressureMinSpeed) return;
+            if (InteractionMath.Dot(motion * (1 / length), axis.NormalizedCopy()) < 1 - PressureMaxDot) return;
+            Agent agent = _mission.RayCastForClosestAgentsLimbs(hand.PreviousTip, tip, player.Index, .02f,
+                out float distance, out sbyte bone);
+            if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) return;
+            EnemyBody body = null;
+            foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
+            if (body == null || bone >= body.Skeleton.GetBoneCount()) return;
+            Vec3 contact = hand.PreviousTip + motion * (distance / length);
+            if (!Visible(hand.PreviousTip, contact, body) || EquipmentBlocks(body, hand.PreviousTip, tip, distance / length, .02f)) return;
+            BodyPoint point = body.ReadContact(bone);
+            if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
+            hand.Penetration.Begin(body, point, contact, profile, length / dt, player, true);
+            if (hand.Penetration.Body != null) NativeMethods.bvr_trigger_haptic(index, .3f, .03f);
+        }
+
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
             MissionWeapon weapon, EquipmentIndex slot, Agent player, float dt, float now, bool blade)
         {
@@ -414,7 +443,7 @@ namespace BannerlordVR.VR.Physics
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
-                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length);
+                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player);
             NativeMethods.bvr_trigger_haptic(index, .45f, .035f);
         }
 

@@ -25,6 +25,32 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
+        // Creature.UpdateStep with HandleRagdollData.moveStep: head, neck,
+        // shoulder and torso grabs walk the creature under its head with no
+        // dead zone at 3x speed; a wrist grab follows the torso beyond 4 cm
+        // (stepThreshold 0.2 x 0.2) at 1x; hands and legs do not step.
+        public static bool Steps(GrabHandle handle) =>
+            handle == GrabHandle.Head || handle == GrabHandle.Neck || handle == GrabHandle.Shoulder ||
+            handle == GrabHandle.Torso || handle == GrabHandle.Wrist;
+        public static bool StepsUnderHead(GrabHandle handle) => handle != GrabHandle.Wrist;
+        public static float StepThreshold(GrabHandle handle) => handle == GrabHandle.Wrist ? .04f : 0;
+        public static float StepSpeedMultiplier(GrabHandle handle) => handle == GrabHandle.Wrist ? 1 : 3;
+        // Locomotion.forwardSpeed 0.2 scales the offset into a move input;
+        // Bannerlord's walk tops out near 1.5 m/s for a dragged soldier.
+        public const float ForwardSpeed = .2f, StepRateScale = 4, MaxStepSpeed = 1.5f;
+
+        // Horizontal root displacement for one tick towards the reference.
+        public static TaleWorlds.Library.Vec2 Step(GrabHandle handle, TaleWorlds.Library.Vec2 offset, float dt)
+        {
+            if (!Steps(handle) || !InteractionMath.IsFinite(dt) || dt <= 0 || dt > .1f ||
+                !InteractionMath.IsFinite(offset.x) || !InteractionMath.IsFinite(offset.y)) return TaleWorlds.Library.Vec2.Zero;
+            float distance = offset.Length;
+            if (distance <= StepThreshold(handle)) return TaleWorlds.Library.Vec2.Zero;
+            float speed = System.Math.Min(MaxStepSpeed, distance * ForwardSpeed * StepSpeedMultiplier(handle) * StepRateScale);
+            float travel = System.Math.Min(distance, speed * dt);
+            return offset * (travel / distance);
+        }
+
         // Heights are creature-local, above the creature's ground origin.
         public static GrabOutcome Evaluate(GrabHandle handle, float referenceHeight, float referenceOriginalHeight,
             float headHeight, float rootOriginalHeight)

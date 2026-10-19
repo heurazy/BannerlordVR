@@ -256,6 +256,35 @@ un amortisseur différent à l'entrée et à la sortie (épée 1 000/500, dague
 (estoc : cuir ×1,5, mailles ×4, plates ×8). Vitesse minimale de pénétration
 par matière. Vibration de la manette proportionnelle à la force de freinage.
 
+**Saisie et déplacement** (`Creature.UpdateStep`) : tenu par la tête, le cou,
+une épaule ou le torse, un ennemi debout marche pour garder ses pieds sous sa
+tête (vitesse ×3) ; tenu par le poignet, il suit au-delà de 4 cm. La racine de
+la pose se déplace, et l'agent est replacé sous les hanches au relâchement.
+
+**Dégâts de pénétration** (`Damager.UpdatePenetration`) : au-delà d'une
+profondeur propre à chaque partie (cou 2 cm, tête et main 4 cm, ailleurs
+10 cm), la partie reçoit une fois les dégâts de pénétration de l'arme (épée 5,
+dague 7,5, pic 20, hache 25) multipliés par la partie (tête et cou ×32, torse
+×2, membres ×0,5). Une lame qui traverse (embrochage) ajoute 15 × 3 au torse
+pour une épée. Ces dégâts ne passent pas une seconde fois par l'armure. Les
+humains de B&S ont 50 points de vie : tous les dégâts B&S sont mis à l'échelle
+de la vie maximale de la victime Bannerlord (×2 pour 100). L'épaisseur
+traversée est estimée par zone (torse 30 cm, tête 20 cm, cou 12 cm), faute de
+test d'intérieur des collisionneurs dans Bannerlord.
+
+**Pénétration lente** (`TryHitByPressure`) : une pointe poussée lentement dans
+un corps, dans l'axe de la lame (à 0,2 près), entre sans coup ni vitesse
+minimale ; les dégâts viennent ensuite de la profondeur.
+
+**Impacts du corps** : une partie d'un corps déstabilisé qui perd brutalement
+sa vitesse au-delà de 5 m/s (3 m/s pour la tête) reçoit la courbe
+`Damager_Ragdoll` (jusqu'à 5 à 12 m/s, ×2 à l'échelle Bannerlord), attribuée au
+dernier qui l'a poussé.
+
+**Sang** : particules Bannerlord `psys_game_blood_sword_enter`, `_inside` et
+`_exit` à l'entrée, au glissement et au retrait de la lame, et
+`psys_game_blood_1` à chaque dose de saignement, à fréquence limitée.
+
 **Parade** : frapper l'arme ou le bouclier d'un ennemi qui attaque, à plus de
 1 m/s, interrompt son attaque et le met en recul (`BrainModuleMelee`), au plus
 une fois toutes les 1,5 s.
