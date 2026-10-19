@@ -657,11 +657,11 @@ namespace BannerlordVR.VR.Physics
             if (a == null) { a = b; b = null; }
             if (a == null) return;
             _sliceStarted = true;
-            SliceProbe(a, DismemberFx.Method.SkeletonScale, out _sliceSkeleton, out _sliceBone, "A_skeleton_scale");
+            SliceProbe(a, DismemberFx.Method.Rebuild, out _sliceSkeleton, out _sliceBone, "A_visual_rebuild");
             _sliceAgent = a;
             if (b != null && b != a)
             {
-                SliceProbe(b, DismemberFx.Method.LocalFrame, out _sliceSkeletonB, out _sliceBoneB, "B_local_frame");
+                SliceProbe(b, DismemberFx.Method.SkeletonScale, out _sliceSkeletonB, out _sliceBoneB, "B_skeleton_scale");
                 _sliceAgentB = b;
             }
             _sliceUntil = Mission.CurrentTime + 5; _sliceNext = Mission.CurrentTime + .25f;
@@ -693,8 +693,8 @@ namespace BannerlordVR.VR.Physics
                 _sliceAgentB?.State.ToString() ?? "-", _sliceSkeletonB?.GetCurrentRagdollState().ToString() ?? "-", b));
             if (Mission.CurrentTime < _sliceUntil) return;
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "DISMEMBER_PROBE result B_local_frame={0} B_samples={1} B_max_scale={2:F4}; A_skeleton_scale=CHECK_VISUALLY",
-                _sliceSamples >= 6 && _sliceMaxScaleB < .05f ? "PERSISTS" : "OVERWRITTEN", _sliceSamples, _sliceMaxScaleB));
+                "DISMEMBER_PROBE result A_visual_rebuild=CHECK_VISUALLY A_state={0} B_state={1}",
+                _sliceAgent.State, _sliceAgentB?.State.ToString() ?? "-"));
             _sliceAgent = null;
         }
         private Vec3 ProbePelvis(Entry entry) => entry.Agent.AgentVisuals.GetEntity().GetGlobalFrame()

@@ -71,7 +71,35 @@ namespace BannerlordVR.VR.Physics
             return false;
         }
 
-        public enum Method { SkeletonScale, LocalFrame, Both }
+        public enum Method { SkeletonScale, LocalFrame, Both, Rebuild }
+
+        // Bannerlord's own equipment refresh, then the body skin again without
+        // the head (SkinMask.HeadVisible), the way full helmets hide it.
+        // Run on the living agent, as for any equipment change, before the kill.
+        public static bool RebuildWithoutHead(Agent agent)
+        {
+            try
+            {
+                var equipment = new Equipment(agent.SpawnEquipment);
+                equipment[EquipmentIndex.Head] = EquipmentElement.Invalid;
+                agent.UpdateSpawnEquipmentAndRefreshVisuals(equipment);
+                MBAgentVisuals visuals = agent.AgentVisuals;
+                visuals.ClearVisualComponents(false, false);
+                agent.Mission.OnEquipItemsFromSpawnEquipment(agent, Agent.CreationType.FromCharacterObj);
+                SkinMask mask = equipment.GetSkinMeshesMask() & ~SkinMask.HeadVisible;
+                bool female = agent.IsFemale && agent.BodyPropertiesValue.Age >= 14f;
+                var skin = new SkinGenerationParams((int)mask, equipment.GetUnderwearType(female), (int)equipment.BodyMeshType,
+                    (int)equipment.HairCoverType, (int)equipment.BeardCoverType, (int)equipment.BodyDeformType, true,
+                    agent.Character.FaceDirtAmount, agent.IsFemale ? 1 : 0, agent.Character.Race, false, false, 0);
+                visuals.AddSkinMeshes(skin, agent.BodyPropertiesValue, true, false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                VrLog.Error("Head removal by visual rebuild failed.", ex);
+                return false;
+            }
+        }
         private struct Held { public Agent Agent; public Skeleton Skeleton; public sbyte Bone, Parent; }
         private static readonly List<Held> Maintained = new List<Held>();
         public static float LastPersistedScale { get; private set; } = float.NaN;
@@ -98,9 +126,11 @@ namespace BannerlordVR.VR.Physics
         public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed,
             Method method = Method.Both)
         {
+            if (method == Method.Rebuild || (method == Method.Both && kind == SliceJoint.Neck)) RebuildWithoutHead(victim);
             MBAgentVisuals visuals = victim.AgentVisuals;
-            if (method != Method.LocalFrame) visuals.ApplySkeletonScale(Vec3.One, 0, new[] { bone }, new[] { Vanished });
-            if (method != Method.SkeletonScale)
+            if (method == Method.SkeletonScale || method == Method.Both)
+                visuals.ApplySkeletonScale(Vec3.One, 0, new[] { bone }, new[] { Vanished });
+            if (method == Method.LocalFrame)
                 Maintained.Add(new Held { Agent = victim, Skeleton = visuals.GetSkeleton(), Bone = bone, Parent = parent });
             try
             {
