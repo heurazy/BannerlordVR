@@ -293,10 +293,12 @@ une fois toutes les 1,5 s.
 `dismembermentMinVelocity` (sabre 12 m/s, deux mains 11, hache 9, dague 13),
 lame et tranchant à moins de 30° de la perpendiculaire du membre, à moins de
 12 cm de l'articulation (cou, coude, poignet, genou, cheville), tranche la
-partie et tue (`sliceForceKill`). Bannerlord ne découpe pas les maillages :
-l'os tranché est réduit à rien par l'échelle d'os native du moteur, ce qui
-masque la tête et le casque, l'avant-bras et la main, ou le mollet et le pied.
-Le moignon saigne.
+partie et tue (`sliceForceKill`), avec du sang au moignon. La partie tranchée
+ne disparaît pas : trois méthodes ont été essayées en jeu le 19 octobre 2026.
+L'échelle d'os native (`ApplySkeletonScale`) n'a aucun effet visible sur un
+humain, un cadre d'os local réécrit à chaque tick est écrasé par le moteur, et
+la reconstruction de l'apparence sans tête a fait planter le jeu au passage en
+ragdoll du cadavre. Faute de méthode sûre, la séparation n'est pas reproduite.
 
 **Assommement** : un coup contondant à la tête au-delà du seuil de
 `DamageModifier_Blunt` (4 m/s sans protection, 13 à 14 m/s avec) fait tomber

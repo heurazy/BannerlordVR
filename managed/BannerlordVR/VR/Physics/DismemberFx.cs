@@ -17,7 +17,6 @@ namespace BannerlordVR.VR.Physics
     {
         private struct Joint { public SliceJoint Kind; public sbyte Bone, Parent, Child; }
         private static readonly Dictionary<Monster, Joint[]> Joints = new Dictionary<Monster, Joint[]>();
-        private static readonly Vec3 Vanished = new Vec3(.001f, .001f, .001f);
 
         private static Joint[] JointsOf(Agent agent, Skeleton skeleton)
         {
@@ -71,67 +70,15 @@ namespace BannerlordVR.VR.Physics
             return false;
         }
 
-        public enum Method { SkeletonScale, LocalFrame, Both, Rebuild }
-
-        // Bannerlord's own equipment refresh, then the body skin again without
-        // the head (SkinMask.HeadVisible), the way full helmets hide it.
-        // Run on the living agent, as for any equipment change, before the kill.
-        public static bool RebuildWithoutHead(Agent agent)
+        public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed)
         {
-            try
-            {
-                var equipment = new Equipment(agent.SpawnEquipment);
-                equipment[EquipmentIndex.Head] = EquipmentElement.Invalid;
-                agent.UpdateSpawnEquipmentAndRefreshVisuals(equipment);
-                MBAgentVisuals visuals = agent.AgentVisuals;
-                visuals.ClearVisualComponents(false, false);
-                agent.Mission.OnEquipItemsFromSpawnEquipment(agent, Agent.CreationType.FromCharacterObj);
-                SkinMask mask = equipment.GetSkinMeshesMask() & ~SkinMask.HeadVisible;
-                bool female = agent.IsFemale && agent.BodyPropertiesValue.Age >= 14f;
-                var skin = new SkinGenerationParams((int)mask, equipment.GetUnderwearType(female), (int)equipment.BodyMeshType,
-                    (int)equipment.HairCoverType, (int)equipment.BeardCoverType, (int)equipment.BodyDeformType, true,
-                    agent.Character.FaceDirtAmount, agent.IsFemale ? 1 : 0, agent.Character.Race, false, false, 0);
-                visuals.AddSkinMeshes(skin, agent.BodyPropertiesValue, true, false);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                VrLog.Error("Head removal by visual rebuild failed.", ex);
-                return false;
-            }
-        }
-        private struct Held { public Agent Agent; public Skeleton Skeleton; public sbyte Bone, Parent; }
-        private static readonly List<Held> Maintained = new List<Held>();
-        public static float LastPersistedScale { get; private set; } = float.NaN;
-
-        // Re-applied every mission tick: the engine rewrites bone frames from
-        // animation or ragdoll bodies, so a one-off local frame would not hold.
-        public static void Maintain()
-        {
-            for (int i = Maintained.Count - 1; i >= 0; i--)
-            {
-                Held h = Maintained[i];
-                if (h.Agent == null || h.Agent.AgentVisuals?.GetSkeleton()?.Pointer != h.Skeleton.Pointer)
-                { Maintained.RemoveAt(i); continue; }
-                LastPersistedScale = BoneScale(h.Skeleton, h.Bone);
-                MatrixFrame parent = h.Skeleton.GetBoneEntitialFrameWithIndex(h.Parent);
-                MatrixFrame local = parent.TransformToLocalNonOrthogonal(h.Skeleton.GetBoneEntitialFrameWithIndex(h.Bone));
-                local.rotation.Orthonormalize();
-                local.rotation.ApplyScaleLocal(Vanished);
-                h.Skeleton.SetBoneLocalFrame(h.Bone, local);
-            }
-        }
-        public static void Clear() => Maintained.Clear();
-
-        public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed,
-            Method method = Method.Both)
-        {
-            if (method == Method.Rebuild || (method == Method.Both && kind == SliceJoint.Neck)) RebuildWithoutHead(victim);
+            // Hiding the cut part was tried three ways in game on 19 Oct 2026:
+            // MBAgentVisuals.ApplySkeletonScale has no visible effect on humans,
+            // a per-tick local bone frame is overwritten by the engine, and
+            // rebuilding the visuals without the head crashed the game when
+            // the corpse went ragdoll. The cut keeps what B&S does besides the
+            // separation: the stump bleeds and sliceForceKill kills.
             MBAgentVisuals visuals = victim.AgentVisuals;
-            if (method == Method.SkeletonScale || method == Method.Both)
-                visuals.ApplySkeletonScale(Vec3.One, 0, new[] { bone }, new[] { Vanished });
-            if (method == Method.LocalFrame)
-                Maintained.Add(new Held { Agent = victim, Skeleton = visuals.GetSkeleton(), Bone = bone, Parent = parent });
             try
             {
                 MatrixFrame local = MatrixFrame.Identity;
@@ -143,7 +90,6 @@ namespace BannerlordVR.VR.Physics
             if (EnemyPhysicsSettings.Trace)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
-            // sliceForceKill: infinite damage through the normal blow path.
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
         }
 

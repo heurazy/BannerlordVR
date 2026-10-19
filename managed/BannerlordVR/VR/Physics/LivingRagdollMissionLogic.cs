@@ -331,7 +331,6 @@ namespace BannerlordVR.VR.Physics
             {
                 try
                 {
-                    if (EnemyPhysicsSettings.ActiveProbeDismember) DismemberProbeTick();
                     StartProbe(); FollowProbe();
                 }
                 catch (Exception ex)
@@ -407,7 +406,6 @@ namespace BannerlordVR.VR.Physics
                     VrLog.Error("Living ragdoll recovery failed; backend stopped for this mission.", ex);
                 }
             }
-            DismemberFx.Maintain();
             LastTickCpuMilliseconds = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
             if (_probeEntry != null && !_probeFinished && _probeEntry.Active.Configured)
             {
@@ -610,93 +608,6 @@ namespace BannerlordVR.VR.Physics
                 step, entry.Skeleton.GetAnimationAtChannel(0)));
         }
 
-        // Dismember probe: two enemies, two ways of hiding the head. A uses the
-        // engine skeleton scale (visible check only: bone frames do not show
-        // it), B rewrites the head's local frame every tick (measured: the
-        // frame read back before rewriting shows whether the engine kept it).
-        private Agent _sliceAgent, _sliceAgentB;
-        private Skeleton _sliceSkeleton, _sliceSkeletonB;
-        private sbyte _sliceBone = -1, _sliceBoneB = -1;
-        private float _sliceUntil, _sliceNext, _sliceMaxScaleB;
-        private int _sliceSamples;
-        private bool _sliceStarted;
-        private float _sliceRetry;
-        private void DismemberProbeTick()
-        {
-            if (Mission.Mode != MissionMode.Battle || Mission.MainAgent == null) return;
-            if (_probeBattleBegan < 0) _probeBattleBegan = Mission.CurrentTime;
-            // Armies start far apart: retry until an enemy is within 40 m, up to 2 min.
-            if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 2 && Mission.CurrentTime >= _sliceRetry)
-            {
-                _sliceRetry = Mission.CurrentTime + .5f;
-                StartDismemberProbe();
-                if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 120)
-                { _sliceStarted = true; VrLog.Info("DISMEMBER_PROBE result=INCONCLUSIVE reason=no_enemy_8_to_40m_within_2_min"); }
-            }
-            FollowDismemberProbe();
-        }
-        private void StartDismemberProbe()
-        {
-            Agent player = Mission.MainAgent;
-            Vec3 forward = player.LookDirection; forward.z = 0;
-            Agent a = null, b = null;
-            float bestA = float.MaxValue;
-            foreach (Agent agent in Mission.Agents)
-            {
-                if (!EnemyBody.Eligible(agent, player) || !agent.IsActive() || !agent.IsAIControlled) continue;
-                Vec3 to = agent.Position - player.Position;
-                float distance = to.Length;
-                if (distance < 8 || distance > 40) continue;
-                Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
-                if (skeleton == null || !DismemberFx.FindHead(agent, skeleton, out sbyte _, out sbyte _)) continue;
-                // A: the closest enemy roughly in front of the player.
-                bool ahead = forward.LengthSquared > 1e-4f && InteractionMath.Dot(to.NormalizedCopy(), forward.NormalizedCopy()) > .5f;
-                if (ahead && distance < bestA) { if (a != null && b == null) b = a; a = agent; bestA = distance; }
-                else if (b == null) b = agent;
-            }
-            if (a == null) { a = b; b = null; }
-            if (a == null) return;
-            _sliceStarted = true;
-            SliceProbe(a, DismemberFx.Method.Rebuild, out _sliceSkeleton, out _sliceBone, "A_visual_rebuild");
-            _sliceAgent = a;
-            if (b != null && b != a)
-            {
-                SliceProbe(b, DismemberFx.Method.SkeletonScale, out _sliceSkeletonB, out _sliceBoneB, "B_skeleton_scale");
-                _sliceAgentB = b;
-            }
-            _sliceUntil = Mission.CurrentTime + 5; _sliceNext = Mission.CurrentTime + .25f;
-        }
-        private void SliceProbe(Agent agent, DismemberFx.Method method, out Skeleton skeleton, out sbyte head, string label)
-        {
-            skeleton = agent.AgentVisuals.GetSkeleton();
-            DismemberFx.FindHead(agent, skeleton, out head, out sbyte parent);
-            MatrixFrame frame = agent.AgentVisuals.GetEntity().GetGlobalFrame();
-            Vec3 at = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(head)).origin;
-            Agent player = Mission.MainAgent;
-            Vec3 to = agent.Position - player.Position;
-            Vec3 f = player.LookDirection; f.z = 0;
-            float bearing = (float)(Math.Atan2(to.x * f.y - to.y * f.x, to.x * f.x + to.y * f.y) * 180 / Math.PI);
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "DISMEMBER_PROBE begin {0} agent={1} distance_m={2:F1} bearing_deg={3:F0} (0 = straight ahead, positive = left)",
-                label, agent.Index, to.Length, bearing));
-            DismemberFx.Slice(null, agent, head, parent, at, SliceJoint.Neck, 15, method);
-        }
-        private void FollowDismemberProbe()
-        {
-            if (_sliceAgent == null || Mission.CurrentTime < _sliceNext) return;
-            _sliceNext = Mission.CurrentTime + .5f;
-            float b = DismemberFx.LastPersistedScale;
-            if (_sliceAgentB != null && InteractionMath.IsFinite(b)) { _sliceMaxScaleB = Math.Max(_sliceMaxScaleB, b); _sliceSamples++; }
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "DISMEMBER_PROBE sample time={0:F3} A_state={1} A_ragdoll={2} B_state={3} B_ragdoll={4} B_head_scale_before_rewrite={5:F4}",
-                Mission.CurrentTime, _sliceAgent.State, _sliceSkeleton.GetCurrentRagdollState(),
-                _sliceAgentB?.State.ToString() ?? "-", _sliceSkeletonB?.GetCurrentRagdollState().ToString() ?? "-", b));
-            if (Mission.CurrentTime < _sliceUntil) return;
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "DISMEMBER_PROBE result A_visual_rebuild=CHECK_VISUALLY A_state={0} B_state={1}",
-                _sliceAgent.State, _sliceAgentB?.State.ToString() ?? "-"));
-            _sliceAgent = null;
-        }
         private Vec3 ProbePelvis(Entry entry) => entry.Agent.AgentVisuals.GetEntity().GetGlobalFrame()
             .TransformToParent(entry.Skeleton.GetBoneEntitialFrameWithIndex(entry.Agent.Monster.PelvisBoneIndex)).origin;
         private void StartProbe()
@@ -728,7 +639,6 @@ namespace BannerlordVR.VR.Physics
                 if (!EnemyBody.Eligible(agent, Mission.MainAgent) || !agent.IsActive() || agent.IsPaused ||
                     !agent.IsAIControlled || (agent.Position - Mission.MainAgent.Position).Length < 20) continue;
                 if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && agent.Velocity.Length > .3f) continue;
-                if (agent == _sliceAgent) continue;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled ||
                     agent.Monster.PelvisBoneIndex < 0 || agent.Monster.PelvisBoneIndex >= skeleton.GetBoneCount()) continue;
@@ -876,7 +786,6 @@ namespace BannerlordVR.VR.Physics
         public override void OnRemoveBehavior() => Shutdown();
         private void Shutdown()
         {
-            DismemberFx.Clear();
             _probeAgent = null; _probeSkeleton = null;
             if (_probeStarted && !_probeFinished)
             {
