@@ -28,11 +28,15 @@ namespace BannerlordVR.VR.Physics
         public bool Occupied => _host != null;
         public bool OwnsPhysics => _began && !_ended && Phase == LivingRagdollPhase.Simulating;
         public bool Faulted { get; private set; }
-        public bool Begin(ILivingRagdollHost host, float now)
+        // Grabs keep the historical 6 s ceiling; an active ragdoll that falls
+        // and stands up again (3 s ground settle + 3 s rise) needs a longer one.
+        public float MaxSeconds { get; private set; } = 6;
+        public bool Begin(ILivingRagdollHost host, float now, float maxSeconds = 6)
         {
+            if (!InteractionMath.IsFinite(maxSeconds) || maxSeconds < .5f || maxSeconds > 20) return false;
             if (Occupied || Faulted || !InteractionMath.IsFinite(now) || host == null ||
                 !host.Exists || !host.Alive || !host.Safe || !host.NativeDisabled) return false;
-            _host = host; _started = now; _heldUntil = now + .12f;
+            _host = host; _started = now; _heldUntil = now + .12f; MaxSeconds = maxSeconds;
             _changedPause = !host.Paused; _began = _ended = false;
             Phase = LivingRagdollPhase.Activating;
             try
@@ -67,7 +71,7 @@ namespace BannerlordVR.VR.Physics
                 RestorePause(); Forget(); return;
             }
             if (!InteractionMath.IsFinite(now)) { RequestRelease(_started); return; }
-            if (!_ended && (!_host.Safe || (_changedPause && !_host.Paused) || now > _heldUntil || now - _started > 6)) RequestRelease(now);
+            if (!_ended && (!_host.Safe || (_changedPause && !_host.Paused) || now > _heldUntil || now - _started > MaxSeconds)) RequestRelease(now);
             if (!Occupied) return;
             if (Phase == LivingRagdollPhase.Activating)
             {

@@ -10,6 +10,7 @@ namespace BannerlordVR.VR.Physics
         private Vec3 _localOffset;
         private Vec3 _lastTarget;
         public bool Held => Body != null;
+        public int HandIndex;
 
         public void Begin(EnemyBody body, int point, Vec3 hand)
         {
@@ -28,7 +29,11 @@ namespace BannerlordVR.VR.Physics
                     body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled) Release();
             }
         }
-        public void Release() { Body = null; _localOffset = Vec3.Zero; _lastTarget = Vec3.Zero; }
+        public void Release()
+        {
+            if (Body != null && EnemyPhysicsSettings.ActiveRagdoll) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
+            Body = null; _localOffset = Vec3.Zero; _lastTarget = Vec3.Zero;
+        }
 
         public void Tick(MatrixFrame hand, float dt)
         {
@@ -41,6 +46,12 @@ namespace BannerlordVR.VR.Physics
             if (error.Length > EnemyPhysicsSettings.BreakDistance) { Release(); return; }
             Vec3 targetVelocity = InteractionMath.ClampMagnitude((hand.origin - _lastTarget) * (1 / dt), 8);
             _lastTarget = hand.origin;
+            // Blade & Sorcery: the grip is a joint inside the whole-body drive.
+            if (EnemyPhysicsSettings.ActiveRagdoll && !Body.IsCorpse && Body.HasNativePhysics)
+            {
+                if (!EnemyPhysicsRuntime.HandleActiveGrab(Body, HandIndex, p, hand.origin, boneWorld, anchor)) Release();
+                return;
+            }
             if (Body.HasNativePhysics)
             {
                 Vec3 force = InteractionMath.SpringForce(error, p.Velocity - targetVelocity,

@@ -13,6 +13,7 @@ namespace BannerlordVR.VR.Physics
         private sealed class Hand
         {
             public readonly EnemyGrab Grab = new EnemyGrab();
+            public Hand(int index) { Grab.HandIndex = index; }
             public readonly BodyPenetration Penetration = new BodyPenetration();
             public readonly CutStroke Cut = new CutStroke();
             public bool Sampled, GripDown, SuppressTrigger;
@@ -23,7 +24,7 @@ namespace BannerlordVR.VR.Physics
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
         private static readonly EnemyBody[] Records = CreateRecords();
-        private static readonly Hand[] Hands = { new Hand(), new Hand() };
+        private static readonly Hand[] Hands = { new Hand(0), new Hand(1) };
         private static readonly AdaptivePhysicsBudget Budget = new AdaptivePhysicsBudget(
             EnemyPhysicsSettings.Capacity, EnemyPhysicsSettings.BudgetMilliseconds);
         private static long _workStarted;
@@ -45,8 +46,12 @@ namespace BannerlordVR.VR.Physics
         public static bool HasLivingLease(Agent agent) => _living?.HasLease(agent) == true;
         public static bool BeginLivingGrab(EnemyBody body) => !body.IsCorpse && _living?.KeepHeld(body, true) == true;
         public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
-        public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity)
-        { if (!body.IsCorpse) _living?.Impact(body, point, velocity); }
+        public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
+            => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
+        public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
+        public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
+            PushEffect push = PushEffect.None, float hitMass = 2)
+        { if (!body.IsCorpse) _living?.Impact(body, point, velocity, push, hitMass); }
         public static void RecordWound(Agent source, EnemyBody body, BodyPoint point, Vec3 contact,
             DamageTypes type, float healthLost, bool drawCut)
         { _bleeding?.Record(source, body, point, contact, type, healthLost, drawCut); }
@@ -392,8 +397,13 @@ namespace BannerlordVR.VR.Physics
             if (hit == null) return;
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
-            PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust);
-            if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity);
+            // Blade & Sorcery push: level from impact speed and material, effect
+            // from the human hit reaction table and the enemy's current action.
+            PushEffect push = hit.IsCorpse || _living == null ? PushEffect.None :
+                _living.EvaluatePush(hit, hitPoint, velocity, PhysicalHit.Material(usage, thrust));
+            PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+            if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
+                2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if (thrust && (hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls)) hand.Penetration.Begin(hit, hitPoint, contact);
             NativeMethods.bvr_trigger_haptic(index, .45f, .035f);
         }

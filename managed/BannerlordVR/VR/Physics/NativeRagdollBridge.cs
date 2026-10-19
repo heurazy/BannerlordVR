@@ -116,6 +116,21 @@ namespace BannerlordVR.VR.Physics
             return status == 0 && InteractionMath.IsFinite(mass);
         }
 
+        // Per-bone PhysX body masses: the mass of each body on the first bone
+        // mapped to it, zero elsewhere. Same validated path as ReadMass.
+        public static bool ReadBoneMasses(Agent agent, Mission mission, Skeleton skeleton, float[] boneMass)
+        {
+            if (!Ready || agent == null || !agent.IsActive() || skeleton == null || boneMass == null ||
+                boneMass.Length < skeleton.GetBoneCount() ||
+                agent.AgentVisuals?.GetSkeleton()?.Pointer != skeleton.Pointer) return false;
+            int status = bvr_ragdoll_bone_masses((UIntPtr)MissionPointer.GetValue(mission),
+                (UIntPtr)AgentPointer.GetValue(agent), skeleton.Pointer, skeleton.GetBoneCount(), boneMass,
+                out float total, out int count);
+            VrLog.Info("ACTIVE_RAGDOLL bone_masses status=" + status + "; bodies=" + count + "; total=" +
+                total.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+            return status == 0 && InteractionMath.IsFinite(total);
+        }
+
         private static string Failure(int status)
         {
             switch (status)
@@ -145,5 +160,8 @@ namespace BannerlordVR.VR.Physics
         [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_ragdoll_mass(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
             int boneCount, out float totalMass, out int bodyCount);
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_bone_masses(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
+            int boneCount, [Out] float[] boneMass, out float totalMass, out int bodyCount);
     }
 }

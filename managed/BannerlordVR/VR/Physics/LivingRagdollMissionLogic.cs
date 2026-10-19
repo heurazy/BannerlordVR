@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using TaleWorlds.Core;
@@ -17,6 +18,8 @@ namespace BannerlordVR.VR.Physics
             public Mission Mission;
             public readonly LivingRagdollLease Lease = new LivingRagdollLease();
             public readonly LivingBodyBalance Balance = new LivingBodyBalance();
+            public readonly ActiveRagdollBody Active = new ActiveRagdollBody();
+            public bool StartDestabilized;
             public bool ImpactPending;
             public sbyte ImpactBone;
             public Vec3 ImpactForce;
@@ -35,7 +38,9 @@ namespace BannerlordVR.VR.Physics
             {
                 if (!NativeRagdollBridge.Preflight(Agent, Mission, Skeleton))
                     throw new InvalidOperationException("Living ragdoll activation refused by recovery preflight.");
-                if (EnemyPhysicsSettings.ActiveBalance)
+                if (EnemyPhysicsSettings.ActiveRagdoll)
+                    VrLog.Info("ACTIVE_RAGDOLL capture ready=" + Active.Capture(Agent, Skeleton, StartDestabilized));
+                else if (EnemyPhysicsSettings.ActiveBalance)
                     VrLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
             }
@@ -54,7 +59,7 @@ namespace BannerlordVR.VR.Physics
                 Agent.EventControlFlags = 0;
             }
             public void ResumeDecisions() => Agent.ForceAiBehaviorSelection();
-            public void Clear() { Balance.Clear(); Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
+            public void Clear() { Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private readonly Entry[] _entries = CreateEntries();
         private readonly PhysicsStepCounter _clock = new PhysicsStepCounter();
@@ -94,7 +99,8 @@ namespace BannerlordVR.VR.Physics
                 if (entry.Agent == agent && entry.Lease.OwnsPhysics) return true;
             return false;
         }
-        public bool KeepHeld(EnemyBody body, bool allowBegin = false)
+        private static float LeaseSeconds => EnemyPhysicsSettings.ActiveRagdoll ? 14 : 6;
+        public bool KeepHeld(EnemyBody body, bool allowBegin = false, bool destabilized = false)
         {
             if (!Available || body.IsCorpse) return false;
             foreach (Entry entry in _entries)
@@ -109,11 +115,12 @@ namespace BannerlordVR.VR.Physics
             {
                 if (entry.Lease.Occupied || entry.Lease.Faulted) continue;
                 entry.Agent = body.Agent; entry.Skeleton = body.Skeleton; entry.Mission = Mission;
+                entry.StartDestabilized = destabilized;
                 try
                 {
                     if (!NativeRagdollBridge.Preflight(entry.Agent, Mission, entry.Skeleton))
                     { _failed = true; entry.Clear(); return false; }
-                    if (entry.Lease.Begin(entry, Mission.CurrentTime)) return true;
+                    if (entry.Lease.Begin(entry, Mission.CurrentTime, LeaseSeconds)) return true;
                     entry.Clear(); return false;
                 }
                 catch (Exception ex)
@@ -130,8 +137,9 @@ namespace BannerlordVR.VR.Physics
             foreach (Entry entry in _entries)
                 if (entry.Agent == agent && entry.Lease.Occupied) SafeRelease(entry);
         }
-        public void Impact(EnemyBody body, BodyPoint point, Vec3 velocity)
+        public void Impact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push = PushEffect.None, float hitMass = 2)
         {
+            if (EnemyPhysicsSettings.ActiveRagdoll) { ActiveImpact(body, point, velocity, push, hitMass); return; }
             if (!KeepHeld(body, true)) return;
             foreach (Entry entry in _entries)
             {
@@ -143,6 +151,91 @@ namespace BannerlordVR.VR.Physics
                 entry.ImpactDeadline = Mission.CurrentTime + .35f;
                 return;
             }
+        }
+        // B&S: the colliding item's momentum reaches the part through the
+        // contact over one simulation step. A destabilizing push hands the
+        // living enemy to the physical body; lesser pushes only nudge a body
+        // that is already simulated.
+        private void ActiveImpact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push, float hitMass)
+        {
+            if (!Available || body.IsCorpse || !InteractionMath.IsFinite(velocity)) return;
+            Vec3 force = velocity * (Math.Max(.5f, Math.Min(8, hitMass)) * 90);
+            Entry entry = Find(body.Agent);
+            if (entry == null)
+            {
+                if (push != PushEffect.Destabilize || !KeepHeld(body, true, true)) return;
+                entry = Find(body.Agent);
+                if (entry == null) return;
+            }
+            else if (push == PushEffect.Destabilize) entry.Active.Destabilize();
+            if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
+            entry.Active.QueuePush(point.Bone, force);
+        }
+        public bool HandleActive(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
+        {
+            Entry entry = Find(body.Agent);
+            if (entry == null || !entry.Lease.OwnsPhysics) return false;
+            entry.Lease.KeepHeld(Mission.CurrentTime);
+            return entry.Active.Handle(hand, point.Bone, Classify(body, point), handWorld, boneWorld, contact);
+        }
+        public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
+        // Human handle used by B&S for the part the hand closed on.
+        private static GrabHandle Classify(EnemyBody body, BodyPoint point)
+        {
+            string name = body.Skeleton.GetBoneName(point.Bone) ?? "";
+            switch (point.Part)
+            {
+                case BoneBodyPartType.Head: return GrabHandle.Head;
+                case BoneBodyPartType.Neck: return GrabHandle.Neck;
+                case BoneBodyPartType.Legs: return GrabHandle.Legs;
+                case BoneBodyPartType.ShoulderLeft:
+                case BoneBodyPartType.ShoulderRight: return GrabHandle.Shoulder;
+                case BoneBodyPartType.ArmLeft:
+                case BoneBodyPartType.ArmRight: return name.EndsWith("hand") ? GrabHandle.Hand : GrabHandle.Wrist;
+                default: return GrabHandle.Torso;
+            }
+        }
+        private Entry Find(Agent agent)
+        {
+            foreach (Entry entry in _entries) if (entry.Agent == agent && entry.Lease.Occupied) return entry;
+            return null;
+        }
+
+        // Context for the B&S human push table: idle without a target, attack
+        // while an attack is readied or released, guarding otherwise; a recent
+        // stagger escalates the next push.
+        private readonly Dictionary<Agent, Stagger> _staggers = new Dictionary<Agent, Stagger>();
+        private struct Stagger { public float Until; public PushEffect Effect; }
+        public PushEffect EvaluatePush(EnemyBody body, BodyPoint point, Vec3 velocity, PushMaterial material)
+        {
+            Agent agent = body.Agent;
+            if (agent == null || !agent.IsActive()) return PushEffect.None;
+            Entry held = Find(agent);
+            if (held != null && held.Active.Phase == ActiveRagdollPhase.Destabilized) return PushEffect.None;
+            float now = Mission.CurrentTime;
+            PushContext context;
+            if (_staggers.TryGetValue(agent, out Stagger stagger) && stagger.Until > now)
+                context = stagger.Effect == PushEffect.StaggerFull ? PushContext.StaggerFull : PushContext.Stagger;
+            else
+            {
+                Agent.ActionStage stage = agent.GetCurrentActionStage(1);
+                bool attacking = stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady ||
+                    stage == Agent.ActionStage.AttackRelease;
+                if (attacking) context = agent.Velocity.z > 1.5f ? PushContext.AttackJump : PushContext.Attack;
+                else context = agent.GetTargetAgent() == null ? PushContext.Idle : PushContext.Combat;
+            }
+            PushBodyZone zone = point.Part == BoneBodyPartType.Head || point.Part == BoneBodyPartType.Neck ||
+                point.Part == BoneBodyPartType.Legs ? PushBodyZone.HeadOrLeg : PushBodyZone.Torso;
+            int level = PushReaction.Level(material, velocity.Length);
+            PushEffect effect = PushReaction.HitEffect(level, zone, context);
+            if (effect == PushEffect.Destabilize && (!Available || !EnemyPhysicsSettings.ActiveRagdoll))
+                effect = PushEffect.StaggerFull;
+            if (effect != PushEffect.None && effect != PushEffect.Destabilize)
+                _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(effect), Effect = effect };
+            if (EnemyPhysicsSettings.RuntimeProbe)
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture, "PUSH material={0} speed={1:F2} level={2} zone={3} context={4} effect={5}",
+                    material, velocity.Length, level, zone, context, effect));
+            return effect;
         }
         public void ReleaseAll()
         {
@@ -167,7 +260,8 @@ namespace BannerlordVR.VR.Physics
             if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
-            if (EnemyPhysicsSettings.ActiveBalance && Mission.Mode == MissionMode.Battle) _clock.Ensure(Mission);
+            if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && Mission.Mode == MissionMode.Battle)
+                _clock.Ensure(Mission);
             if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll))
             {
@@ -187,7 +281,14 @@ namespace BannerlordVR.VR.Physics
                     if (entry == _probeEntry && !_probeFinished) ObserveProbe(entry);
                     if (entry.ReleasePending && entry.Alive && entry.NativeActive) entry.EndNative();
                     entry.Lease.Tick(Mission.CurrentTime);
-                    if (entry.Lease.OwnsPhysics && entry.NativeActive)
+                    if (entry.Lease.OwnsPhysics && entry.NativeActive && EnemyPhysicsSettings.ActiveRagdoll)
+                    {
+                        entry.Active.Tick(entry.Agent, entry.Skeleton, Mission, _clock);
+                        if (entry.Active.WantsHold) entry.Lease.KeepHeld(Mission.CurrentTime);
+                        if (entry == _probeEntry && !_probeFinished) ObserveActiveProbe(entry);
+                        if (entry.Active.ReadyToRelease) ReleaseRecovered(entry);
+                    }
+                    else if (entry.Lease.OwnsPhysics && entry.NativeActive)
                     {
                         entry.Balance.Tick(entry.Agent, entry.Skeleton, Mission, dt, _clock);
                         if (entry == _probeEntry && !_probeFinished && EnemyPhysicsSettings.ActiveBalance)
@@ -238,6 +339,92 @@ namespace BannerlordVR.VR.Physics
             }
             LastTickCpuMilliseconds = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
         }
+        // B&S ends the get-up by handing the body back to the animator where it
+        // stands. Bannerlord's animation restarts at the agent position, so the
+        // agent is first moved under the hips when the body travelled.
+        private void ReleaseRecovered(Entry entry)
+        {
+            bool moved = entry.Active.Moved;
+            Vec3 position = entry.Active.RecoveryPosition;
+            bool teleported = false;
+            // Agent.CanTeleport only reflects the deployment-phase order gate;
+            // SetPosition itself is valid for a dismounted agent in battle.
+            if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
+                (position - entry.Agent.Position).Length < 3)
+            { entry.Agent.TeleportToPosition(position); teleported = true; }
+            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3}",
+                Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported));
+            if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
+            SafeRelease(entry);
+        }
+        private bool _probePushed, _probeActiveReleased, _probeTeleported, _probeSawDestabilized, _probeSawStandUp, _probeSawRecovered;
+        private float _probeReleaseError, _probeStandingError, _probeMinPelvis = float.MaxValue;
+        private int _probeActiveSteps;
+        private void ObserveActiveProbe(Entry entry)
+        {
+            ActiveRagdollBody body = entry.Active;
+            _probeActiveSteps = body.AppliedSteps;
+            _probeSawDestabilized |= body.Phase == ActiveRagdollPhase.Destabilized;
+            _probeSawStandUp |= body.Phase == ActiveRagdollPhase.StandingUp;
+            _probeSawRecovered |= body.Phase == ActiveRagdollPhase.Recovered;
+            if (body.Configured) _probeMinPelvis = Math.Min(_probeMinPelvis, ProbePelvis(entry).z - _probeOrigin.z);
+            if (EnemyPhysicsSettings.ActiveProbeGrab) { ProbeGrab(entry); return; }
+            if (!_probePushed && body.Configured && body.Phase == ActiveRagdollPhase.Standing &&
+                Mission.CurrentTime - _probeBegan > 1.5f)
+            {
+                _probePushed = true;
+                _probeStandingError = body.MaxStandingError;
+                // A level 2 punch (B&S DamageModifier_Punch: above 6 m/s) from
+                // the agent's front, which destabilizes an idle human.
+                Vec3 back = -entry.Agent.LookDirection; back.z = 0;
+                if (back.LengthSquared < 1e-4f) back = Vec3.Forward;
+                back = back.NormalizedCopy() * 7;
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_PROBE push time={0:F3} standing_max_error_m={1:F3} effect={2}",
+                    Mission.CurrentTime, _probeStandingError,
+                    PushReaction.HitEffect(PushReaction.Level(PushMaterial.Punch, back.Length), PushBodyZone.Torso, PushContext.Idle)));
+                entry.Active.Destabilize();
+                entry.Active.QueuePush(entry.Agent.Monster.SpineUpperBoneIndex, back * (2f * 90));
+            }
+        }
+        // A virtual hand closes on the neck after 1 s of standing, then rises
+        // 40 cm over one second. Interactable_HumanHeadNeck lifts the root by
+        // more than 5 cm and must make the creature fall (liftBehaviour Fall).
+        private Vec3 _probeHand;
+        private bool _probeGrabbing, _probeGrabOutcome;
+        private void ProbeGrab(Entry entry)
+        {
+            ActiveRagdollBody body = entry.Active;
+            if (!body.Configured) return;
+            float t = Mission.CurrentTime - _probeBegan;
+            sbyte neck = -1;
+            for (sbyte b = 0; b < entry.Skeleton.GetBoneCount() && neck < 0; b++)
+                if ((entry.Skeleton.GetBoneName(b) ?? "").Contains("neck")) neck = b;
+            if (neck < 0) return;
+            MatrixFrame frame = entry.Agent.AgentVisuals.GetEntity().GetGlobalFrame();
+            MatrixFrame boneWorld = frame.TransformToParent(entry.Skeleton.GetBoneEntitialFrameWithIndex(neck));
+            if (!_probeGrabbing && !_probePushed && t > 1)
+            {
+                _probeGrabbing = _probePushed = true;
+                _probeStandingError = body.MaxStandingError;
+                _probeHand = boneWorld.origin;
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_PROBE grab neck time={0:F3} standing_max_error_m={1:F3}", Mission.CurrentTime, _probeStandingError));
+            }
+            if (!_probeGrabbing) return;
+            Vec3 hand = _probeHand + Vec3.Up * Math.Min(.4f, Math.Max(0, t - 1) * .4f);
+            if (body.LastGrabOutcome != GrabOutcome.Hold) _probeGrabOutcome = true;
+            if (body.Phase == ActiveRagdollPhase.Destabilized || t > 3)
+            {
+                _probeGrabbing = false;
+                body.ReleaseHandle(0);
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_PROBE grab release time={0:F3} outcome={1} phase={2}", Mission.CurrentTime, body.LastGrabOutcome, body.Phase));
+                return;
+            }
+            body.Handle(0, neck, GrabHandle.Neck, hand, boneWorld, boneWorld.origin);
+        }
         private Vec3 ProbePelvis(Entry entry) => entry.Agent.AgentVisuals.GetEntity().GetGlobalFrame()
             .TransformToParent(entry.Skeleton.GetBoneEntitialFrameWithIndex(entry.Agent.Monster.PelvisBoneIndex)).origin;
         private void StartProbe()
@@ -245,7 +432,7 @@ namespace BannerlordVR.VR.Physics
             if (_probeStarted || Mission.Mode != MissionMode.Battle || Mission.MainAgent == null) return;
             if (_probeBattleBegan < 0) _probeBattleBegan = Mission.CurrentTime;
             float elapsed = Mission.CurrentTime - _probeBattleBegan;
-            if (elapsed < (EnemyPhysicsSettings.ActiveBalance ? .05f : 3)) return;
+            if (elapsed < (EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll ? .05f : 3)) return;
             if (GameNetwork.IsMultiplayer || Game.Current?.GameType?.GetType().FullName != "TaleWorlds.MountAndBlade.CustomBattle.CustomGame")
             {
                 _probeStarted = _probeFinished = true;
@@ -268,7 +455,7 @@ namespace BannerlordVR.VR.Physics
             {
                 if (!EnemyBody.Eligible(agent, Mission.MainAgent) || !agent.IsActive() || agent.IsPaused ||
                     !agent.IsAIControlled || (agent.Position - Mission.MainAgent.Position).Length < 20) continue;
-                if (EnemyPhysicsSettings.ActiveBalance && agent.Velocity.Length > .3f) continue;
+                if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && agent.Velocity.Length > .3f) continue;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled ||
                     agent.Monster.PelvisBoneIndex < 0 || agent.Monster.PelvisBoneIndex >= skeleton.GetBoneCount()) continue;
@@ -288,7 +475,7 @@ namespace BannerlordVR.VR.Physics
                     VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "PHYSICS_PROBE begin agent={0} time={1:F3} health={2:F1} state={3} paused={4}",
                         agent.Index, Mission.CurrentTime, agent.Health, agent.State, agent.IsPaused));
-                    if (!entry.Lease.Begin(entry, Mission.CurrentTime))
+                    if (!entry.Lease.Begin(entry, Mission.CurrentTime, LeaseSeconds))
                     {
                         _probeFinished = true; entry.Clear();
                         VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=activation_rejected");
@@ -340,7 +527,15 @@ namespace BannerlordVR.VR.Physics
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "PHYSICS_PROBE result={0} active_seen={1} native_disabled={2} alive={3} paused={4} same_health={5} max_pelvis_displacement_m={6:F3}",
                 passed ? "PASS" : "FAIL", _probeSawActive, disabled, alive, paused, sameHealth, _probeMaxDisplacement));
-            if (EnemyPhysicsSettings.ActiveBalance)
+            if (EnemyPhysicsSettings.ActiveRagdoll)
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_PROBE result={0} standing_max_error_m={1:F3} pushed={2} destabilized={3} stood_up={4} recovered={5} released_by_cycle={6} release_pose_error_m={7:F3} teleported={8} lowest_pelvis_m={9:F3} force_steps={10} alive={11} same_health={12} unpaused={13} native_disabled={14}",
+                    passed && _probePushed && (!EnemyPhysicsSettings.ActiveProbeGrab || _probeGrabOutcome) && _probeSawDestabilized && _probeSawStandUp && _probeSawRecovered && _probeActiveReleased && _probeTeleported &&
+                        _probeStandingError < .15f && _probeMinPelvis < -.4f ? "PASS" : "FAIL",
+                    _probeStandingError, _probePushed, _probeSawDestabilized, _probeSawStandUp, _probeSawRecovered,
+                    _probeActiveReleased, _probeReleaseError, _probeTeleported, _probeMinPelvis, _probeActiveSteps,
+                    alive, sameHealth, !paused, disabled));
+            else if (EnemyPhysicsSettings.ActiveBalance)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1} skipped_ticks={6} physx_steps_while_supported={7} max_rise_m={8:F3}",
                     passed && _probeBalanceCaptured && _probeBalanceTicks >= 10 && !_probeBalanceFell && _probeMaxDrop < .25f && _probeMaxRise < .1f ? "PASS" : "FAIL",

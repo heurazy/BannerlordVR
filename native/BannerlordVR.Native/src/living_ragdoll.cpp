@@ -90,8 +90,11 @@ int32_t BVR_CALL bvr_ragdoll_force_api(uintptr_t mission, uintptr_t agent, uintp
     return BVR_OK;
 }
 
-int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
-    int32_t bone_count, float* total_mass, int32_t* body_count)
+// Shared walk over the active ragdoll's unique PhysX bodies. bone_mass, when
+// supplied, receives each body's mass on the first bone mapped to it and zero
+// on every other bone, so managed code applies one force per physical body.
+static int32_t ragdoll_bodies(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
+    int32_t bone_count, float* bone_mass, float* total_mass, int32_t* body_count)
 {
     if (!total_mass || !body_count) return BVR_SESSION_NOT_READY;
     *total_mass = 0; *body_count = 0;
@@ -110,6 +113,7 @@ int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t 
     if (!data || !readable(static_cast<uint8_t*>(data) + 0x1000, 8)) return -30;
     void* bones = read<void*>(data, 0x1000);
     if (!bones || !readable(bones, 0x209 + bone_count)) return -30;
+    if (bone_mass) for (int bone = 0; bone < bone_count; ++bone) bone_mass[bone] = 0;
     void* seen[64]{};
     int count = 0;
     float total = 0;
@@ -133,11 +137,25 @@ int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t 
             read<uintptr_t>(table, 0x190) != module_base + 0x11acc0) return -33;
         const float mass = get_mass(body);
         if (!std::isfinite(mass) || mass <= 0 || mass > 500) return -34;
+        if (bone_mass) bone_mass[bone] = mass;
         total += mass; seen[count++] = body;
     }
     if (count == 0 || !std::isfinite(total) || total > 500) return -34;
     *total_mass = total; *body_count = count;
     return BVR_OK;
+}
+
+int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
+    int32_t bone_count, float* total_mass, int32_t* body_count)
+{
+    return ragdoll_bodies(mission, agent, skeleton_value, bone_count, nullptr, total_mass, body_count);
+}
+
+int32_t BVR_CALL bvr_ragdoll_bone_masses(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
+    int32_t bone_count, float* bone_mass, float* total_mass, int32_t* body_count)
+{
+    if (!bone_mass) return BVR_SESSION_NOT_READY;
+    return ragdoll_bodies(mission, agent, skeleton_value, bone_count, bone_mass, total_mass, body_count);
 }
 
 int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission_value, uintptr_t agent_value, uintptr_t skeleton_value)

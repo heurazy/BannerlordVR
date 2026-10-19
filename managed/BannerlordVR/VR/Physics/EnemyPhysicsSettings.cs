@@ -16,6 +16,12 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool WeaponDamage = VrConfig.Bool("enemy_physics_weapon_damage", false);
         public static readonly bool LivingRagdolls = VrConfig.Bool("enemy_physics_living_ragdoll", false);
         public static readonly bool ActiveBalance = VrConfig.Bool("enemy_physics_active_balance", false);
+        // Blade & Sorcery creature drive: every ragdoll body pinned to the
+        // animated pose, destabilization, fall and stand-up. Supersedes the
+        // pelvis/chest balance when both are enabled.
+        public static readonly bool ActiveRagdoll = VrConfig.Bool("enemy_physics_active_ragdoll", false);
+        // Runtime probe variant: a virtual hand grabs the neck and lifts it.
+        public static readonly bool ActiveProbeGrab = VrConfig.Bool("enemy_physics_active_probe_grab", false);
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

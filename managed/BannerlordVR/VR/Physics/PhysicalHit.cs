@@ -11,7 +11,8 @@ namespace BannerlordVR.VR.Physics
         // This prototype uses an explicit armor-aware damage approximation, not
         // a claim to reproduce the native combat model's full damage calculation.
         public static void Apply(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
-                                 Vec3 velocity, MissionWeapon weapon, EquipmentIndex slot, bool thrust)
+                                 Vec3 velocity, MissionWeapon weapon, EquipmentIndex slot, bool thrust,
+                                 PushEffect push = PushEffect.None)
         {
             Vec3 direction = velocity.NormalizedCopy();
             float speed = velocity.Length;
@@ -29,7 +30,24 @@ namespace BannerlordVR.VR.Physics
             DamageTypes damageType = usage == null ? DamageTypes.Blunt : thrust ? usage.ThrustDamageType : usage.SwingDamageType;
             float raw = usage == null ? Math.Min(30, speed * speed * 1.5f) :
                 (thrust ? usage.ThrustDamage : usage.SwingDamage) * Math.Min(1.5f, speed / (thrust ? 2.5f : 5));
-            Register(player, body, point, contact, direction, weapon, slot, usage, damageType, raw, thrust);
+            Register(player, body, point, contact, direction, weapon, slot, usage, damageType, raw, thrust, false, push);
+        }
+
+        // Blade & Sorcery material of a VR hit, for its push level table.
+        public static PushMaterial Material(WeaponComponentData usage, bool thrust)
+        {
+            if (usage == null) return PushMaterial.Punch;
+            if (thrust) return PushMaterial.Pierce;
+            if (usage.SwingDamageType == DamageTypes.Blunt) return usage.WeaponLength > 90 ? PushMaterial.Blunt : PushMaterial.BluntLight;
+            switch (usage.WeaponClass)
+            {
+                case WeaponClass.OneHandedAxe:
+                case WeaponClass.TwoHandedAxe:
+                case WeaponClass.LowGripPolearm: return PushMaterial.SlashAxe;
+                case WeaponClass.TwoHandedSword:
+                case WeaponClass.TwoHandedPolearm: return PushMaterial.SlashHeavy;
+                default: return PushMaterial.Slash;
+            }
         }
 
         public static void ApplyDrawCut(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
@@ -47,13 +65,13 @@ namespace BannerlordVR.VR.Physics
 
         private static void Register(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
             Vec3 direction, MissionWeapon weapon, EquipmentIndex slot, WeaponComponentData usage,
-            DamageTypes damageType, float raw, bool thrust, bool drawCut = false)
+            DamageTypes damageType, float raw, bool thrust, bool drawCut = false, PushEffect push = PushEffect.None)
         {
             float armor = body.Agent.GetBaseArmorEffectivenessForBodyPart(point.Part);
             float damage = raw * (point.Part == BoneBodyPartType.Head ? 1.5f : 1) / (1 + Math.Max(0, armor) * .045f);
             Agent victim = body.Agent;
             float lost = Deliver(player, victim, point, contact, direction, weapon, slot, usage,
-                damageType, raw, Math.Max(1, Math.Min(150, (int)damage)), Math.Max(0, raw - damage), thrust, false);
+                damageType, raw, Math.Max(1, Math.Min(150, (int)damage)), Math.Max(0, raw - damage), thrust, false, push);
             if (lost > 0 && body.Agent == victim)
                 EnemyPhysicsRuntime.RecordWound(player, body, point, contact, damageType, lost, drawCut);
         }
@@ -65,13 +83,19 @@ namespace BannerlordVR.VR.Physics
             // quiet, non-staggering blow, not another weapon impact through armor.
             var point = new BodyPoint { Bone = bone, Part = part, World = contact };
             Deliver(source, victim, point, contact, Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
-                null, DamageTypes.Cut, 0, Math.Min(6, dose), 0, false, true);
+                null, DamageTypes.Cut, 0, Math.Min(6, dose), 0, false, true, PushEffect.None);
         }
 
         private static float Deliver(Agent player, Agent victim, BodyPoint point, Vec3 contact,
             Vec3 direction, MissionWeapon weapon, EquipmentIndex slot, WeaponComponentData usage,
-            DamageTypes damageType, float raw, int damage, float absorbed, bool thrust, bool bloodLoss)
+            DamageTypes damageType, float raw, int damage, float absorbed, bool thrust, bool bloodLoss, PushEffect push)
         {
+            // B&S staggers play as Bannerlord knockbacks; their recoil amount
+            // (0.2 / 0.6 / 1) becomes the stun period. A destabilization is
+            // handed to the physical body instead of a knockdown animation.
+            float stun = bloodLoss ? 0 : push == PushEffect.None || push == PushEffect.Destabilize ? .2f : PushReaction.Recoil(push);
+            BlowFlags flags = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff :
+                push == PushEffect.StaggerMedium || push == PushEffect.StaggerFull ? BlowFlags.KnockBack : BlowFlags.None;
             Mission mission = Mission.Current;
             int victimIndex = victim.Index;
             float before = victim.Health;
@@ -83,8 +107,8 @@ namespace BannerlordVR.VR.Physics
                 AttackType = AgentAttackType.Standard, BaseMagnitude = raw,
                 InflictedDamage = damage,
                 AbsorbedByArmor = absorbed, DamageCalculated = true,
-                DefenderStunPeriod = bloodLoss ? 0 : .2f, MovementSpeedDamageModifier = bloodLoss ? 0 : 1,
-                BlowFlag = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff : BlowFlags.None
+                DefenderStunPeriod = stun, MovementSpeedDamageModifier = bloodLoss ? 0 : 1,
+                BlowFlag = flags
             };
             blow.WeaponRecord.FillAsMeleeBlow(weapon.IsEmpty ? null : weapon.Item, usage,
                 usage == null ? -1 : (int)slot, player?.Monster.MainHandItemBoneIndex ?? -1);
@@ -93,7 +117,7 @@ namespace BannerlordVR.VR.Physics
                 CombatCollisionResult.StrikeAgent, usage == null ? -1 : (int)slot,
                 (int)blow.StrikeType, (int)damageType, point.Bone, point.Part,
                 player?.Monster.MainHandBoneIndex ?? -1, Agent.UsageDirection.AttackUp, -1,
-                CombatHitResultFlags.NormalHit, 1, 0, 0, bloodLoss ? 0 : .2f, 0, 0, 0, 0,
+                CombatHitResultFlags.NormalHit, 1, 0, 0, stun, 0, 0, 0, 0,
                 Vec3.Up, direction, contact, Vec3.Zero, Vec3.Zero, victim.Velocity, Vec3.Up);
             collision.BaseMagnitude = blow.BaseMagnitude;
             collision.MovementSpeedDamageModifier = blow.MovementSpeedDamageModifier;
