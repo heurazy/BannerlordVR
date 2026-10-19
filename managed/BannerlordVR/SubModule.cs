@@ -71,6 +71,8 @@ namespace BannerlordVR
             VrBreadcrumb.Set(VrBreadcrumb.AppTick);
 
             VrSystem.Tick();
+            if (!VrSystem.IsActive || Mission.Current == null)
+                VR.Physics.EnemyPhysicsRuntime.Reset();
 
             // BEFORE the IsActive gate below, and that is the point: this is what
             // puts the main menu and the campaign map in the headset, and neither
@@ -140,6 +142,7 @@ namespace BannerlordVR
 
         protected override void OnSubModuleUnloaded()
         {
+            VR.Physics.EnemyPhysicsRuntime.Reset();
             // Before anything else: the game keeps running long enough to read
             // input after this, and it must read the real thing.
             VrInputManager.Restore();

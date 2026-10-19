@@ -2,6 +2,11 @@
 
 **Play Mount & Blade II: Bannerlord in PCVR with tracked hands, physical combat, and OpenXR.**
 
+> Fork development: [nearby enemy physics prototype](docs/physical-enemies.md).
+> Opt-in, compiled and mathematically tested; not yet validated in VR. Full living
+> enemy ragdolls and Blade & Sorcery feature parity are still unfinished. The
+> remainder of this README is the upstream project's documentation.
+
 Swing your sword, raise your shield, draw a bow by hand, and reach for weapons on your body. Look around naturally with six degrees of freedom (6DoF) head tracking, with stereo views produced by the game's renderer.
 
 Disclaimer: The mod is build with the help of Claude Code.

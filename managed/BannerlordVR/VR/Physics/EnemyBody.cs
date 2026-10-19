@@ -1,0 +1,102 @@
+using System;
+using TaleWorlds.Core;
+using TaleWorlds.Engine;
+using TaleWorlds.Library;
+using TaleWorlds.MountAndBlade;
+
+namespace BannerlordVR.VR.Physics
+{
+    public struct BodyPoint
+    {
+        public sbyte Bone;
+        public BoneBodyPartType Part;
+        public float Radius;
+        public Vec3 World;
+        public Vec3 Velocity;
+    }
+
+    // One record per admitted nearby agent, never one per member of the army.
+    public sealed class EnemyBody
+    {
+        public Agent Agent;
+        public Skeleton Skeleton;
+        public readonly BodyPoint[] Points = new BodyPoint[16];
+        public int Count;
+        public float LastHitLeft = -10, LastHitRight = -10;
+        public MatrixFrame Frame;
+        private bool _sampled;
+        public void Clear()
+        {
+            Agent = null; Skeleton = null; Count = 0; _sampled = false;
+        }
+        public bool IsCorpse => Agent.State == AgentState.Killed || Agent.State == AgentState.Unconscious;
+        public bool HasNativePhysics => IsCorpse && Skeleton.GetCurrentRagdollState() == RagdollState.Active;
+
+        public bool Bind(Agent agent)
+        {
+            Agent = agent;
+            Skeleton = agent.AgentVisuals?.GetSkeleton();
+            if (Skeleton == null) return false;
+            Count = 0; _sampled = false;
+            LastHitLeft = LastHitRight = -10;
+            int bones = Skeleton.GetBoneCount();
+            for (sbyte i = 0; i < bones && i >= 0 && Count < Points.Length; i++)
+            {
+                string name = (Skeleton.GetBoneName(i) ?? "").ToLowerInvariant();
+                BoneBodyPartType part;
+                float radius;
+                if (name == "head") { part = BoneBodyPartType.Head; radius = .13f; }
+                else if (name == "neck") { part = BoneBodyPartType.Neck; radius = .09f; }
+                else if (name == "spine2" || name == "spine_2") { part = BoneBodyPartType.Chest; radius = .23f; }
+                else if (name == "pelvis") { part = BoneBodyPartType.Abdomen; radius = .22f; }
+                else if (name == "l_hand" || name == "r_hand" || name == "l_forearm" || name == "r_forearm")
+                { part = name[0] == 'l' ? BoneBodyPartType.ArmLeft : BoneBodyPartType.ArmRight; radius = .09f; }
+                else if (name == "l_calf" || name == "r_calf" || name == "l_foot" || name == "r_foot")
+                { part = BoneBodyPartType.Legs; radius = .12f; }
+                else continue;
+                Points[Count++] = new BodyPoint { Bone = i, Part = part, Radius = radius };
+            }
+            return Count > 0;
+        }
+
+        public bool Sample(float dt)
+        {
+            var visuals = Agent.AgentVisuals;
+            var entity = visuals?.GetEntity();
+            if (entity == null || Agent.IsFadingOut()) return false;
+            // Equipment/LOD or scene rebuild may replace the skeleton; discard the cache.
+            var current = visuals.GetSkeleton();
+            if (current == null || current.Pointer != Skeleton.Pointer) return false;
+            Frame = entity.GetGlobalFrame();
+            for (int i = 0; i < Count; i++)
+            {
+                BodyPoint point = Points[i];
+                Vec3 position = Frame.TransformToParent(Skeleton.GetBoneEntitialFrameWithIndex(point.Bone)).origin;
+                if (!InteractionMath.IsFinite(position)) return false;
+                point.Velocity = _sampled ? InteractionMath.ClampMagnitude((position - point.World) * (1 / dt), 15) : Vec3.Zero;
+                point.World = position;
+                Points[i] = point;
+            }
+            _sampled = true;
+            return true;
+        }
+
+        public static bool Eligible(Agent agent, Agent player)
+        {
+            if (agent == null || agent == player || !agent.IsHuman || agent.MountAgent != null || agent.RiderAgent != null) return false;
+            if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return false;
+            if (!agent.IsEnemyOf(player) || agent.IsUsingGameObject || agent.IsInLadderQueue) return false;
+            if (agent.GetScriptedFlags() != Agent.AIScriptedFrameFlags.None) return false;
+            if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return false;
+            if (agent.State != AgentState.Active) return true;
+            for (int channel = 0; channel < 2; channel++)
+            {
+                var action = agent.GetCurrentActionType(channel);
+                if (action == Agent.ActionCodeType.Mount || action == Agent.ActionCodeType.Dismount ||
+                    action == Agent.ActionCodeType.Fall || (action >= Agent.ActionCodeType.JumpStart && action <= Agent.ActionCodeType.JumpEndHard) ||
+                    (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear)) return false;
+            }
+            return true;
+        }
+    }
+}

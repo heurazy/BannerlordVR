@@ -124,9 +124,6 @@ namespace BannerlordVR.VR
 
                 DescribeSkeletonOnce(skeleton);
 
-                // Before anything is written this frame, so it sees the bones as
-                // the animation left them. See VrArmSeam for what it is asking.
-                VrArmSeam.BeforeWrites(skeleton);
                 _pendingCount = 0;
 
                 // THE ROOT'S PLACEMENT, CAPTURED BEFORE IT CAN BE LOST.
@@ -243,11 +240,7 @@ namespace BannerlordVR.VR
                 // hand would do the same walk down the skeleton twice.
                 skeleton.UpdateEntitialFramesFromLocalFrames();
 
-                // Only now do the entitial frames reflect this frame's writes, so
-                // this is the one point where "did it land" is a real question.
-                for (int i = 0; i < _pendingCount; i++)
-                    VrArmSeam.AfterWrite(skeleton, _pendingBone[i], _pendingWanted[i]);
-
+                // Compare the solved pose after the final rebuild.
                 TraceAlignment(agent, skeleton, agentGlobal);
 
                 if (!_loggedDriving)
@@ -569,9 +562,7 @@ namespace BannerlordVR.VR
             // does, reached through a solved shoulder and elbow instead of leaving
             // them wherever the animation had them. If it declines, nothing has
             // been written and the original one-bone path runs unchanged.
-            VrArmChain chain;
-            bool solved = VrArmBones.TryChainForHand(agent, visuals, skeleton, slot.Bone, out chain)
-                          && VrArmIk.Solve(skeleton, chain, inAgent);
+            bool solved = Physics.CompliantPose.Arm(skeleton, slot.Bone, inAgent);
 
             if (!solved)
             {
@@ -596,8 +587,10 @@ namespace BannerlordVR.VR
                 // wrist is set back by the grip offset that is the ITEM bone, not
                 // the hand - measuring the hand against the controller would now
                 // report the offset itself as an error.
-                _pendingGripBone[_pendingCount] =
-                    (solved && chain.Item >= 0) ? chain.Item : slot.Bone;
+                sbyte itemBone = slot.Role == HandRole.Main
+                    ? agent.Monster.MainHandItemBoneIndex : agent.Monster.OffHandItemBoneIndex;
+                _pendingGripBone[_pendingCount] = itemBone >= 0 && itemBone < skeleton.GetBoneCount()
+                    ? itemBone : slot.Bone;
 
                 _pendingCount++;
             }
@@ -637,7 +630,7 @@ namespace BannerlordVR.VR
         /// </summary>
         private static void TraceAlignment(Agent agent, Skeleton skeleton, MatrixFrame agentGlobal)
         {
-            if (!VrArmIk.Debug || _pendingCount == 0)
+            if (!VrConfig.Bool("arm_debug", false) || _pendingCount == 0)
                 return;
 
             if (++_alignTick < 90)
@@ -749,9 +742,6 @@ namespace BannerlordVR.VR
             _pendingCount = 0;
             _haveRoot = false;
             _root = -1;
-            VrArmSeam.Reset();
-            VrArmBones.Reset();
-            VrArmIk.Reset();
             VrHandSlots.Reset();
         }
     }
