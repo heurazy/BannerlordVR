@@ -287,7 +287,7 @@ namespace BannerlordVR.VR.Physics
                 effect = PushEffect.StaggerFull;
             if (effect != PushEffect.None && effect != PushEffect.Destabilize)
                 _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(effect), Effect = effect };
-            if (EnemyPhysicsSettings.RuntimeProbe)
+            if (EnemyPhysicsSettings.Trace)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture, "PUSH material={0} speed={1:F2} level={2} zone={3} context={4} effect={5}",
                     material, velocity.Length, level, zone, context, effect));
             return effect;
@@ -455,7 +455,7 @@ namespace BannerlordVR.VR.Physics
             BoneBodyPartType part = entry.Agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
             Agent victim = entry.Agent;
             float lost = PhysicalHit.ApplyRagdollImpact(body.LastPusher, victim, bone, part, body.ImpactPoint, damage);
-            if (EnemyPhysicsSettings.RuntimeProbe)
+            if (EnemyPhysicsSettings.Trace)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "RAGDOLL_IMPACT agent={0} bone={1} part={2} speed={3:F2} damage={4:F2} health_lost={5:F2} time={6:F3}",
                     victim.Index, bone, part, body.ImpactSpeed, damage, lost, Mission.CurrentTime));
