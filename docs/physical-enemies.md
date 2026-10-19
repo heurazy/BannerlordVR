@@ -289,10 +289,26 @@ dernier qui l'a poussé.
 1 m/s, interrompt son attaque et le met en recul (`BrainModuleMelee`), au plus
 une fois toutes les 1,5 s.
 
-**Non repris** : le KO (présent dans les données mais jamais déclenché par le
-code de cette version de B&S) et le démembrement, impossible sans découpe des
+**Démembrement** : une coupe (pas un estoc) plus rapide que
+`dismembermentMinVelocity` (sabre 12 m/s, deux mains 11, hache 9, dague 13),
+lame et tranchant à moins de 30° de la perpendiculaire du membre, à moins de
+12 cm de l'articulation (cou, coude, poignet, genou, cheville), tranche la
+partie et tue (`sliceForceKill`). Bannerlord ne découpe pas les maillages :
+l'os tranché est réduit à rien par l'échelle d'os native du moteur, ce qui
+masque la tête et le casque, l'avant-bras et la main, ou le mollet et le pied.
+Le moignon saigne.
+
+**Assommement** : un coup contondant à la tête au-delà du seuil de
+`DamageModifier_Blunt` (4 m/s sans protection, 13 à 14 m/s avec) fait tomber
+l'ennemi quelle que soit sa posture. La durée d'assommement des humains vaut 0
+dans B&S, donc l'ennemi se relève selon le cycle normal.
+
+**Non repris tel quel** : la partie tranchée n'est pas un objet séparé, faute
+de découpe des
 maillages dans Bannerlord. Pendant le ragdoll, l'animation de Bannerlord ne
-tourne pas : la cible est la pose figée au moment de l'activation, alors que
+tourne pas : mesuré le 19 octobre 2026, le canal d'animation 0 reste figé
+(même image sur 2 s, aucun nom d'animation) en Standing comme en
+Destabilized. La cible reste donc la pose capturée à l'activation, alors que
 B&S continue d'animer la créature.
 
 ### Essais en jeu (19 octobre 2026, sans casque)

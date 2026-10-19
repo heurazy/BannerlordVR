@@ -120,6 +120,10 @@ namespace BannerlordVR.VR.Physics
                 push == PushEffect.StaggerMedium || push == PushEffect.StaggerFull ? BlowFlags.KnockBack : BlowFlags.None;
             Mission mission = Mission.Current;
             int victimIndex = victim.Index;
+            // A lethal blow without attacker crashes the custom battle morale
+            // model (null affector); an unattributed ragdoll fall or a probe
+            // cut is the victim's own accident.
+            if (player == null) player = victim;
             float before = victim.Health;
             var blow = new Blow(player?.Index ?? -1)
             {
