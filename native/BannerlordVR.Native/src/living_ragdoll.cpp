@@ -71,7 +71,7 @@ int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission_value, uintptr_t agent_v
     auto agent = reinterpret_cast<void*>(agent_value);
     auto skeleton = reinterpret_cast<void*>(skeleton_value);
     if (!readable(agent, 0xc60)) return -20;
-    if (!readable(skeleton, 0x2a0)) return -21;
+    if (!readable(skeleton, 0x180)) return -21;
     // Validate the actual two mission fields read by the helper. Requiring the
     // entire 18 MB mission to share one VirtualQuery region rejects valid heaps.
     if (!mission_value || mission_value + 0x11849f0 < mission_value ||
@@ -82,7 +82,10 @@ int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission_value, uintptr_t agent_v
     if (read<int32_t>(agent, 0x560) != 1) return -23;
     if (read<uintptr_t>(agent, 0xab8) != mission_value) return -24;
     void* body = read<void*>(agent, 0x810);
-    if (!body || body != read<void*>(skeleton, 0x298) || !readable(body, 0x180))
+    // MBAgentVisuals.GetSkeleton already returns entity+0x298's value. The
+    // agent's cached skeleton at +0x810 must equal that returned pointer itself.
+    // Applying the entity offset to the skeleton again compares unrelated data.
+    if (!body || body != skeleton)
         return -25;
     const uintptr_t begin = read<uintptr_t>(mission, 0x11849e0);
     const uintptr_t end = read<uintptr_t>(mission, 0x11849e8);

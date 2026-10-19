@@ -100,6 +100,8 @@ namespace BannerlordVR.VR.Physics
                 entry.Agent = body.Agent; entry.Skeleton = body.Skeleton; entry.Mission = Mission;
                 try
                 {
+                    if (!NativeRagdollBridge.Preflight(entry.Agent, Mission, entry.Skeleton))
+                    { _failed = true; entry.Clear(); return false; }
                     if (entry.Lease.Begin(entry, Mission.CurrentTime)) return true;
                     entry.Clear(); return false;
                 }
@@ -244,6 +246,12 @@ namespace BannerlordVR.VR.Physics
                 {
                     if (entry.Lease.Occupied) continue;
                     entry.Agent = agent; entry.Skeleton = skeleton; entry.Mission = Mission;
+                    if (!NativeRagdollBridge.Preflight(agent, Mission, skeleton))
+                    {
+                        _probeStarted = _probeFinished = true; entry.Clear();
+                        VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=native_recovery_preflight_refused");
+                        return;
+                    }
                     _probeStarted = true; _probeEntry = entry; _probeHealth = agent.Health;
                     _probeOrigin = ProbePelvis(entry); _probeLastState = RagdollState.Disabled;
                     VrLog.Info(string.Format(CultureInfo.InvariantCulture,

@@ -10,7 +10,7 @@ profilage de bataille en jeu n'a encore ete realise.
 | Interaction | Implementation actuelle | Limite |
 | --- | --- | --- |
 | Poings | Gachette pour fermer le poing vide, raycast natif des membres entre deux poses, os retourne par le moteur, vitesse minimale, delai de 350 ms par cible et par main | Equilibrage et mouvement des cibles pendant le tick a verifier en jeu |
-| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation observee en mission, premiere recuperation en echec ; correction native a valider ; pas encore d'equilibre debout pilote par ressorts |
+| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation et desactivation observees sur un ennemi sans casque ; saisies/efforts VR non valides ; pas encore d'equilibre debout pilote par ressorts |
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
 | Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
 | Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
@@ -93,10 +93,13 @@ Le fichier d'exemple n'ecrase aucune calibration existante. `motion_hands=1` et
 les essais de lame et de penetration ; ils sont desactives par defaut.
 `enemy_physics_living_ragdoll=1` active separement le backend natif des vivants,
 sur saisie d'un point du corps ou penetration. Il reste desactive par defaut.
-Le premier essai en jeu active le ragdoll mais echoue a observer sa desactivation
-dans le delai de recuperation. Son utilisation jouable n'est donc pas validee.
+Le premier essai en jeu active le ragdoll mais echoue a observer sa desactivation.
+Apres correction, un probe isole observe activation, mouvement et desactivation
+avec conservation de la vie et depause de l'IA. Son utilisation jouable en VR
+n'est pas encore validee.
 La correction native est limitee au moteur dont l'empreinte est documentee dans
-`native-ragdoll-findings.md` ; toute autre version est refusee. Elle reste a tester.
+`native-ragdoll-findings.md` ; toute autre version est refusee. Les efforts,
+le relevement naturel et la locomotion apres saisie restent a tester.
 
 Compilation sans installation automatique :
 

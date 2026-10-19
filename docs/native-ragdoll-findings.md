@@ -76,7 +76,7 @@ Le journal integral est conserve localement dans
 `.analysis/runtime-probe-20261019-first.log`. Les DLL et la configuration
 installees avant le test ont ete restaurees, avec verification SHA-256.
 
-## Correction de recuperation a valider
+## Correction de recuperation
 
 La routine native `0x18060dee0` commence par refuser les etats autres que 3 et 4
 (`Unconscious` et `Killed` dans l'enumeration reconstruite). Son traitement du
@@ -97,7 +97,7 @@ Le controleur attend toujours `Disabled` avant de rendre normalement l'IA.
 Une liberation demandee pendant `NeedsActivation` est differee jusqu'a l'etat actif.
 
 La correction compile, et ses refus hors moteur sont verifies par le test de
-chargement natif. Sa recuperation dans une mission reste a observer. Les nouvelles
+chargement natif. Les nouvelles
 preuves completes sont dans `.analysis/native-recovery-evidence.json`.
 
 Un essai intermediaire a confirme l'empreinte et l'entree native, mais a refuse
@@ -105,6 +105,40 @@ l'activation car le thread de mission differe du thread de demarrage. Ce resulta
 `INCONCLUSIVE` n'a modifie aucun agent. Le pont etablit desormais son thread
 depuis le callback de la mission courante et conserve le refus des appels issus
 d'un autre thread ; le temps d'attente du probe commence apres le deploiement.
+
+Le preflight a ensuite refuse une comparaison incorrecte entre squelette et
+entite, avant toute activation. Le callback genere `MBAgentVisuals.get_skeleton`
+porte l'ID 290 ; la table native REA citee plus haut l'associe a `0x1806fcce0`.
+Un desassemblage cible complementaire avec Capstone, conserve dans
+`.analysis/native-get-skeleton-capstone.json`, montre que ce getter retourne deja
+la valeur `entity + 0x298`. Ce desassemblage est une reconstruction statique
+complementaire, pas un resultat REA ni une execution. Le garde compare donc
+directement ce pointeur au squelette mis en cache par l'agent, sans lui reappliquer
+l'offset d'entite. Le controle memoire de mission porte sur les deux champs
+effectivement lus, sans exiger une unique region virtuelle de 18 Mo.
+
+## Probe corrige reussi, 19 octobre 2026
+
+Dans une bataille personnalisee terrestre sans OpenXR, sur le meme moteur et
+un ennemi IA a pied initialement actif a 100 points de vie, le journal observe :
+
+| Temps de mission | Observation |
+| --- | --- |
+| 4,936 s | Activation demandee, IA mise en pause |
+| 4,943 s | `ActiveFirstTick` |
+| 4,948 s | `Active` |
+| 5,543 s | `Disabled`, controleur en recuperation |
+| meme tick | `PASS`, agent vivant, IA depausee, sante identique |
+
+Le deplacement maximal mesure du bassin est de 0,618 m. Aucune force de prise
+ou d'impact ni aucun degat n'ont ete ajoutes par le probe. Le journal est conserve
+dans `.analysis/runtime-probe-20261019-pass.log`. Les DLL managed/native et la
+configuration originales ont ensuite ete restaurees et verifiees par SHA-256.
+
+Ce resultat valide ce seul cycle d'activation/desactivation sur ce seul agent.
+La depause de l'IA ne prouve pas encore une reprise naturelle de locomotion,
+de capsule ou d'animation. Aucun essai au casque, prise a deux mains, chute
+pres d'un cheval ou benchmark de grande bataille n'est couvert par ce resultat.
 
 ## Ce qui reste a prouver
 
