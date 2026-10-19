@@ -43,6 +43,15 @@ namespace BannerlordVR.VR.Physics
         private readonly bool[] _ungrab = new bool[RagdollPinDrive.MaxHandles];
         private readonly Vec3[] _hand = new Vec3[RagdollPinDrive.MaxHandles];
         public GrabOutcome LastGrabOutcome { get; private set; }
+        // Ragdoll collision damage bookkeeping (RagdollImpact).
+        private readonly Vec3[] _lastSample = new Vec3[MaxBodies], _sampleVelocity = new Vec3[MaxBodies];
+        private readonly float[] _impactUntil = new float[MaxBodies];
+        private bool _velocitySampled;
+        public Agent LastPusher { get; set; }
+        public sbyte ImpactBone { get; private set; } = -1;
+        public float ImpactSpeed { get; private set; }
+        public Vec3 ImpactPoint { get; private set; }
+        public int Impacts { get; private set; }
         public bool Configured => _configured;
         // True on the tick that bound the bodies (native mass read, tree build).
         public bool ConfiguredThisTick { get; private set; }
@@ -66,6 +75,8 @@ namespace BannerlordVR.VR.Physics
             AppliedSteps = SkippedTicks = 0; MaxStandingError = LastPoseError = RootSpeed = 0;
             _pendingBone = -1; _pendingImpulse = Vec3.Zero;
             _lastInteraction = 0; _headBody = -1; LastGrabOutcome = GrabOutcome.Hold;
+            _velocitySampled = false; LastPusher = null; ImpactBone = -1; ImpactSpeed = 0; Impacts = 0;
+            for (int i = 0; i < MaxBodies; i++) _impactUntil[i] = 0;
             for (int h = 0; h < _grabs.Length; h++) { _grabs[h] = default(GrabSlot); _ungrab[h] = false; }
         }
 
@@ -218,6 +229,7 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < _drive.Count; i++)
                 _position[i] = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(_bone[i])).origin;
             Vec3 pelvis = _position[_pelvisBody];
+            DetectImpacts(now);
             float sampleDt = _lastRootSample < 0 ? 0 : now - _lastRootSample;
             if (sampleDt > 0) RootSpeed = (pelvis - _lastPelvis).Length / sampleDt;
             _lastPelvis = pelvis; _lastRootSample = now;
@@ -262,6 +274,32 @@ namespace BannerlordVR.VR.Physics
             _gate.Applied(clock.Steps);
             _lastApplied = now;
             AppliedSteps++;
+        }
+
+        // Only a falling (destabilized) body collides with enough speed; the
+        // strongest impact of the tick is reported to the mission logic.
+        private void DetectImpacts(float now)
+        {
+            ImpactBone = -1; ImpactSpeed = 0;
+            float dt = _lastRootSample < 0 ? 0 : now - _lastRootSample;
+            if (dt <= 0 || dt > .1f) { _velocitySampled = false; }
+            for (int i = 0; i < _drive.Count; i++)
+            {
+                Vec3 velocity = _velocitySampled ? (_position[i] - _lastSample[i]) * (1 / dt) : Vec3.Zero;
+                if (_velocitySampled && _cycle.Phase == ActiveRagdollPhase.Destabilized && now >= _impactUntil[i])
+                {
+                    float change = (_sampleVelocity[i] - velocity).Length;
+                    float speed = RagdollImpact.Detect(_sampleVelocity[i].Length, velocity.Length, change, i == _headBody);
+                    if (speed > ImpactSpeed)
+                    {
+                        ImpactSpeed = speed; ImpactBone = _bone[i]; ImpactPoint = _position[i];
+                        _impactUntil[i] = now + RagdollImpact.Cooldown;
+                    }
+                }
+                _sampleVelocity[i] = velocity; _lastSample[i] = _position[i];
+            }
+            if (ImpactBone >= 0) Impacts++;
+            _velocitySampled = true;
         }
 
         private void UpdateHandles(Skeleton skeleton, MatrixFrame frame, float now)

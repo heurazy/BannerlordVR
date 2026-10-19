@@ -76,6 +76,16 @@ namespace BannerlordVR.VR.Physics
                 EnemyPhysicsRuntime.RecordWound(player, body, point, contact, damageType, lost, drawCut);
         }
 
+        // B&S ragdoll collision: blunt, without a weapon, attributed to whoever
+        // last pushed the body (BrainModuleHitReaction.lastHitSource).
+        public static float ApplyRagdollImpact(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, float damage)
+        {
+            if (victim == null || !victim.IsActive() || !InteractionMath.IsFinite(contact) || !InteractionMath.IsFinite(damage) || damage < .5f) return 0;
+            var point = new BodyPoint { Bone = bone, Part = part, World = contact };
+            return Deliver(source, victim, point, contact, -Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
+                null, DamageTypes.Blunt, damage, Math.Max(1, (int)Math.Round(damage)), 0, false, true, PushEffect.None);
+        }
+
         public static void ApplyBloodLoss(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, int dose)
         {
             if (victim == null || !victim.IsActive() || dose <= 0 || !InteractionMath.IsFinite(contact)) return;

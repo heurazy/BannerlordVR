@@ -199,6 +199,7 @@ namespace BannerlordVR.VR.Physics
             else if (push == PushEffect.Destabilize) entry.Active.Destabilize();
             if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
             entry.Active.QueuePush(point.Bone, force);
+            entry.Active.LastPusher = Mission.MainAgent;
         }
         public bool HandleActive(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
         {
@@ -312,6 +313,7 @@ namespace BannerlordVR.VR.Physics
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
+            int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
             if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
@@ -340,6 +342,7 @@ namespace BannerlordVR.VR.Physics
                     if (entry.Lease.OwnsPhysics && entry.NativeActive && EnemyPhysicsSettings.ActiveRagdoll)
                     {
                         entry.Active.Tick(entry.Agent, entry.Skeleton, Mission, _clock);
+                        if (entry.Active.ImpactBone >= 0) RagdollCollision(entry);
                         if (entry.Active.WantsHold) entry.Lease.KeepHeld(Mission.CurrentTime);
                         if (entry == _probeEntry && !_probeFinished) ObserveActiveProbe(entry);
                         else if (!_probeFinished) ObserveProbeLoad(entry);
@@ -413,8 +416,8 @@ namespace BannerlordVR.VR.Physics
                             phases |= 1 << (int)entry.Active.Phase;
                         }
                         VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                            "ACTIVE_PROBE spike ms={0:F3} time={1:F3} leases={2} phases_mask={3} releases_this_tick={4}",
-                            LastTickCpuMilliseconds, Mission.CurrentTime, occupied, phases, _releasesThisTick));
+                            "ACTIVE_PROBE spike ms={0:F3} time={1:F3} leases={2} phases_mask={3} releases_this_tick={4} gc0_during_tick={5}",
+                            LastTickCpuMilliseconds, Mission.CurrentTime, occupied, phases, _releasesThisTick, GC.CollectionCount(0) - collections));
                     }
                     _probeCpuMax = Math.Max(_probeCpuMax, LastTickCpuMilliseconds);
                 }
@@ -444,6 +447,22 @@ namespace BannerlordVR.VR.Physics
             _releasesThisTick++;
             SafeRelease(entry);
         }
+        private void RagdollCollision(Entry entry)
+        {
+            ActiveRagdollBody body = entry.Active;
+            float damage = RagdollImpact.Damage(body.ImpactSpeed);
+            sbyte bone = body.ImpactBone;
+            BoneBodyPartType part = entry.Agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
+            Agent victim = entry.Agent;
+            float lost = PhysicalHit.ApplyRagdollImpact(body.LastPusher, victim, bone, part, body.ImpactPoint, damage);
+            if (EnemyPhysicsSettings.RuntimeProbe)
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "RAGDOLL_IMPACT agent={0} bone={1} part={2} speed={3:F2} damage={4:F2} health_lost={5:F2} time={6:F3}",
+                    victim.Index, bone, part, body.ImpactSpeed, damage, lost, Mission.CurrentTime));
+            if (entry == _probeEntry) { _probeImpacts++; _probeImpactLoss += lost; }
+        }
+        private int _probeImpacts;
+        private float _probeImpactLoss;
         private bool OnNavmesh(Vec3 position)
         {
             var face = new PathFaceRecord(-1, -1, -1);
@@ -653,7 +672,8 @@ namespace BannerlordVR.VR.Physics
             bool alive = entry.Alive;
             bool disabled = alive && entry.NativeDisabled;
             bool paused = alive && entry.Agent.IsPaused;
-            bool sameHealth = alive && Math.Abs(entry.Agent.Health - _probeHealth) < .01f;
+            // B&S ragdoll collisions may legitimately cost a few points on the fall.
+            bool sameHealth = alive && Math.Abs(entry.Agent.Health - (_probeHealth - _probeImpactLoss)) < .01f;
             bool passed = _probeSawActive && disabled && !paused && sameHealth && !entry.Lease.Faulted &&
                 (_probeMaxDisplacement > .02f || (EnemyPhysicsSettings.ActiveBalance && _probeBalanceTicks >= 10));
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
@@ -661,13 +681,13 @@ namespace BannerlordVR.VR.Physics
                 passed ? "PASS" : "FAIL", _probeSawActive, disabled, alive, paused, sameHealth, _probeMaxDisplacement));
             if (EnemyPhysicsSettings.ActiveRagdoll)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                    "ACTIVE_PROBE result={0} standing_max_error_m={1:F3} pushed={2} destabilized={3} stood_up={4} recovered={5} released_by_cycle={6} release_pose_error_m={7:F3} teleported={8} lowest_pelvis_m={9:F3} force_steps={10} alive={11} same_health={12} unpaused={13} native_disabled={14} cpu_ms_mean={15:F4} cpu_ms_max_steady={16:F4} cpu_ms_activation_tick={18:F4} agents={17}",
+                    "ACTIVE_PROBE result={0} standing_max_error_m={1:F3} pushed={2} destabilized={3} stood_up={4} recovered={5} released_by_cycle={6} release_pose_error_m={7:F3} teleported={8} lowest_pelvis_m={9:F3} force_steps={10} alive={11} same_health={12} unpaused={13} native_disabled={14} cpu_ms_mean={15:F4} cpu_ms_max_steady={16:F4} cpu_ms_activation_tick={18:F4} agents={17} impacts={19} impact_health_lost={20:F1}",
                     passed && _probePushed && (!EnemyPhysicsSettings.ActiveProbeGrab || _probeGrabOutcome) && _probeSawDestabilized && _probeSawStandUp && _probeSawRecovered && _probeActiveReleased && _probeTeleported &&
                         _probeStandingError < .15f && _probeMinPelvis < -.4f ? "PASS" : "FAIL",
                     _probeStandingError, _probePushed, _probeSawDestabilized, _probeSawStandUp, _probeSawRecovered,
                     _probeActiveReleased, _probeReleaseError, _probeTeleported, _probeMinPelvis, _probeActiveSteps,
                     alive, sameHealth, !paused, disabled, _probeCpuTicks == 0 ? 0 : _probeCpuTotal / _probeCpuTicks, _probeCpuMax,
-                    Mission.Agents.Count, _probeCpuActivationMax));
+                    Mission.Agents.Count, _probeCpuActivationMax, _probeImpacts, _probeImpactLoss));
             else if (EnemyPhysicsSettings.ActiveBalance)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1} skipped_ticks={6} physx_steps_while_supported={7} max_rise_m={8:F3}",
@@ -677,6 +697,7 @@ namespace BannerlordVR.VR.Physics
             if (alive)
             {
                 _probeAgent = entry.Agent; _probeSkeleton = entry.Skeleton;
+                _probeHealth = entry.Agent.Health; // follow-up watches for later loss only
                 _probeFollowUntil = Mission.CurrentTime + 10;
                 _probeNextFollow = Mission.CurrentTime;
                 _probeRecoveryOrigin = entry.Agent.Position;
