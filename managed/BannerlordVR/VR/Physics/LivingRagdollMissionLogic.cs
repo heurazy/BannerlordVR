@@ -620,16 +620,23 @@ namespace BannerlordVR.VR.Physics
         private float _sliceUntil, _sliceNext, _sliceMaxScaleB;
         private int _sliceSamples;
         private bool _sliceStarted;
+        private float _sliceRetry;
         private void DismemberProbeTick()
         {
             if (Mission.Mode != MissionMode.Battle || Mission.MainAgent == null) return;
             if (_probeBattleBegan < 0) _probeBattleBegan = Mission.CurrentTime;
-            if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 2) StartDismemberProbe();
+            // Armies start far apart: retry until an enemy is within 40 m, up to 2 min.
+            if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 2 && Mission.CurrentTime >= _sliceRetry)
+            {
+                _sliceRetry = Mission.CurrentTime + .5f;
+                StartDismemberProbe();
+                if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 120)
+                { _sliceStarted = true; VrLog.Info("DISMEMBER_PROBE result=INCONCLUSIVE reason=no_enemy_8_to_40m_within_2_min"); }
+            }
             FollowDismemberProbe();
         }
         private void StartDismemberProbe()
         {
-            _sliceStarted = true;
             Agent player = Mission.MainAgent;
             Vec3 forward = player.LookDirection; forward.z = 0;
             Agent a = null, b = null;
@@ -648,7 +655,8 @@ namespace BannerlordVR.VR.Physics
                 else if (b == null) b = agent;
             }
             if (a == null) { a = b; b = null; }
-            if (a == null) { VrLog.Info("DISMEMBER_PROBE result=INCONCLUSIVE reason=no_enemy_8_to_40m"); return; }
+            if (a == null) return;
+            _sliceStarted = true;
             SliceProbe(a, DismemberFx.Method.SkeletonScale, out _sliceSkeleton, out _sliceBone, "A_skeleton_scale");
             _sliceAgent = a;
             if (b != null && b != a)
