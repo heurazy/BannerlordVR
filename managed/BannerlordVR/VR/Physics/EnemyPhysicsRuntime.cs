@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using BannerlordVR.Interop;
 using TaleWorlds.Core;
 using TaleWorlds.Engine;
@@ -12,7 +13,7 @@ namespace BannerlordVR.VR.Physics
         private sealed class Hand
         {
             public readonly EnemyGrab Grab = new EnemyGrab();
-            public readonly CorpsePenetration Penetration = new CorpsePenetration();
+            public readonly BodyPenetration Penetration = new BodyPenetration();
             public bool Sampled, GripDown, SuppressTrigger;
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
@@ -22,7 +23,11 @@ namespace BannerlordVR.VR.Physics
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
         private static readonly EnemyBody[] Records = CreateRecords();
         private static readonly Hand[] Hands = { new Hand(), new Hand() };
+        private static readonly AdaptivePhysicsBudget Budget = new AdaptivePhysicsBudget(
+            EnemyPhysicsSettings.Capacity, EnemyPhysicsSettings.BudgetMilliseconds);
+        private static long _workStarted;
         private static Mission _mission;
+        private static LivingRagdollMissionLogic _living;
         private static Agent _player;
         private static int _cursor;
         private static float _time = -1, _lastLog;
@@ -33,6 +38,13 @@ namespace BannerlordVR.VR.Physics
             return HandlingCombat && Hands[left ? 0 : 1].SuppressTrigger;
         }
         public static int ActiveBodies { get; private set; }
+        public static bool SupportsLivingBody => _living?.Available == true;
+        public static bool OwnsLivingPhysics(Agent agent) => _living?.Simulating(agent) == true;
+        public static bool HasLivingLease(Agent agent) => _living?.HasLease(agent) == true;
+        public static bool BeginLivingGrab(EnemyBody body) => !body.IsCorpse && _living?.KeepHeld(body, true) == true;
+        public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
+        public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity)
+        { if (!body.IsCorpse) _living?.Impact(body, point, velocity); }
         private static EnemyBody[] CreateRecords()
         {
             var result = new EnemyBody[EnemyPhysicsSettings.Capacity];
@@ -42,15 +54,18 @@ namespace BannerlordVR.VR.Physics
 
         public static void Reset()
         {
+            _living?.ReleaseAll();
             foreach (Hand hand in Hands) hand.Reset();
             Array.Clear(Bodies, 0, Bodies.Length);
             foreach (EnemyBody record in Records) record.Clear();
             _mission = null; _player = null; _cursor = 0; _time = -1;
+            _living = null;
             HandlingCombat = false; ActiveBodies = 0;
         }
 
         public static void Tick(Mission mission, float dt)
         {
+            bool measured = false;
             try
             {
                 Agent player = mission?.MainAgent;
@@ -62,7 +77,7 @@ namespace BannerlordVR.VR.Physics
                     NativeMethods.bvr_overlay_visible() != 0)
                 { Reset(); return; }
                 if (_mission != mission || _player != player)
-                { Reset(); _mission = mission; _player = player; }
+                { Reset(); _mission = mission; _player = player; _living = mission.GetMissionBehavior<LivingRagdollMissionLogic>(); }
                 float now = mission.CurrentTime;
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
@@ -72,17 +87,20 @@ namespace BannerlordVR.VR.Physics
                 // Disable the first sample: no sweep may start at world origin.
                 if (elapsed <= 0) { ClearHands(); return; }
                 dt = elapsed;
+                measured = true;
+                _workStarted = Stopwatch.GetTimestamp();
                 HandlingCombat = true;
                 ActiveBodies = 0;
                 for (int i = 0; i < Bodies.Length; i++)
                 {
                     EnemyBody body = Bodies[i];
                     if (body == null) continue;
-                    if (!EnemyBody.Eligible(body.Agent, player) ||
+                    if (!EnemyBody.Eligible(body.Agent, player, _living?.HasLease(body.Agent) == true) ||
                         (body.Agent.Position - player.Position).Length > EnemyPhysicsSettings.ExitRadius || !body.Sample(dt))
                         Remove(i);
                     else ActiveBodies++;
                 }
+                ShedUnheldBodies(player);
                 Scan(mission, player, dt);
                 if (NativeMethods.bvr_get_input_state(out BvrInputState input) != (int)BvrStatus.Ok)
                 { ClearHands(); return; }
@@ -97,13 +115,40 @@ namespace BannerlordVR.VR.Physics
                 if (now - _lastLog > 10)
                 {
                     _lastLog = now;
-                    VrLog.Info($"Enemy physics prototype: {ActiveBodies}/{Bodies.Length} nearby bodies; scan budget {EnemyPhysicsSettings.ScanBudget}.");
+                    VrLog.Info(string.Format("Enemy physics: {0}/{1} bodies (adaptive limit {2}); CPU mean {3:F3} ms, p95 {4:F3}, p99 {5:F3}; budget {6:F2} ms. CPU work only, not total frame time.",
+                        ActiveBodies, Bodies.Length, Budget.BodyLimit, Budget.Mean,
+                        Budget.Percentile(.95), Budget.Percentile(.99), Budget.Milliseconds));
                 }
             }
             catch (Exception ex)
             {
                 Reset(); _failed = true;
                 VrLog.Error("Enemy physics disabled for this session after an error; all grabs released.", ex);
+            }
+            finally
+            {
+                if (measured) Budget.Record((Stopwatch.GetTimestamp() - _workStarted) * 1000.0 / Stopwatch.Frequency +
+                    (_living?.LastTickCpuMilliseconds ?? 0));
+            }
+        }
+
+        private static bool AdmissionTimeRemaining =>
+            (Stopwatch.GetTimestamp() - _workStarted) * 1000.0 / Stopwatch.Frequency < Budget.Milliseconds * .35;
+
+        private static void ShedUnheldBodies(Agent player)
+        {
+            while (ActiveBodies > Budget.BodyLimit)
+            {
+                int remove = -1; float farthest = -1;
+                for (int i = 0; i < Bodies.Length; i++)
+                {
+                    EnemyBody b = Bodies[i];
+                    if (b == null || Held(b)) continue;
+                    float distance = (b.Agent.Position - player.Position).LengthSquared;
+                    if (distance > farthest) { farthest = distance; remove = i; }
+                }
+                if (remove < 0) break; // Never drop a held body just to improve a statistic.
+                Remove(remove); ActiveBodies--;
             }
         }
 
@@ -114,6 +159,7 @@ namespace BannerlordVR.VR.Physics
         }
         private static void Remove(int i)
         {
+            if (Bodies[i] != null) _living?.Release(Bodies[i].Agent);
             foreach (Hand hand in Hands)
             {
                 if (hand.Grab.Body == Bodies[i]) hand.Grab.Release();
@@ -132,6 +178,7 @@ namespace BannerlordVR.VR.Physics
             int budget = Math.Min(count, EnemyPhysicsSettings.ScanBudget);
             for (int n = 0; n < budget; n++)
             {
+                if ((n & 15) == 0 && !AdmissionTimeRemaining) break;
                 if (_cursor >= count) _cursor = 0;
                 Agent agent = agents[_cursor++];
                 if (agent == player) continue;
@@ -143,8 +190,8 @@ namespace BannerlordVR.VR.Physics
                 {
                     EnemyBody b = Bodies[i];
                     if (b?.Agent == agent) { found = true; break; }
-                    if (b == null) { chosen = i; farthest = float.MaxValue; }
-                    else if (farthest != float.MaxValue && !Held(b))
+                    if (b == null && ActiveBodies < Budget.BodyLimit) { chosen = i; farthest = float.MaxValue; }
+                    else if (b != null && farthest != float.MaxValue && !Held(b))
                     {
                         float d = (b.Agent.Position - player.Position).LengthSquared;
                         if (d > farthest) { farthest = d; chosen = i; }
@@ -153,8 +200,11 @@ namespace BannerlordVR.VR.Physics
                 if (found || chosen < 0 || !EnemyBody.Eligible(agent, player)) continue;
                 // Reuse the record and its arrays after releasing any stale reference.
                 EnemyBody candidate = Records[chosen];
+                bool occupied = Bodies[chosen] != null;
                 Remove(chosen);
-                if (candidate.Bind(agent) && candidate.Sample(dt)) Bodies[chosen] = candidate;
+                if (candidate.Bind(agent) && candidate.Sample(dt))
+                { Bodies[chosen] = candidate; if (!occupied) ActiveBodies++; }
+                else { candidate.Clear(); if (occupied) ActiveBodies--; }
             }
             ActiveBodies = 0;
             for (int i = 0; i < Bodies.Length; i++) if (Bodies[i] != null) ActiveBodies++;
@@ -229,8 +279,10 @@ namespace BannerlordVR.VR.Physics
                 {
                     BodyPoint p = body.Points[i];
                     string name = body.Skeleton.GetBoneName(p.Bone) ?? "";
-                    // Living grabs currently support head/neck/hands; corpse joints support all admitted points.
-                    if (!body.IsCorpse && p.Part != BoneBodyPartType.Head && p.Part != BoneBodyPartType.Neck && !name.EndsWith("hand")) continue;
+                    // The pose fallback supports head/hands; the native living
+                    // backend exposes the full admitted body when explicitly enabled.
+                    if (!body.IsCorpse && !SupportsLivingBody && p.Part != BoneBodyPartType.Head &&
+                        p.Part != BoneBodyPartType.Neck && !name.EndsWith("hand")) continue;
                     float d = (p.World - position).Length;
                     if (d < distance && Visible(position, p.World, body)) { distance = d; best = body; point = i; }
                 }
@@ -241,43 +293,74 @@ namespace BannerlordVR.VR.Physics
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
             MissionWeapon weapon, EquipmentIndex slot, Agent player, float dt, float now, bool blade)
         {
-            EnemyBody hit = null; int hitPoint = -1; float earliest = 2;
+            EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
-            foreach (EnemyBody body in Bodies)
+            for (int s = 0; s <= (blade ? samples : 0); s++)
             {
-                if (body == null || now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f) continue;
-                // Until shield/weapon mesh contact is implemented, conservatively preserve guards.
-                if (!body.IsCorpse && (body.Agent.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true ||
-                    (body.Agent.GetCurrentActionType(1) >= Agent.ActionCodeType.DefendFist &&
-                     body.Agent.GetCurrentActionType(1) <= Agent.ActionCodeType.DefendLeftStaff))) continue;
-                for (int s = 0; s <= (blade ? samples : 0); s++)
+                float along = blade ? (float)s / samples : 0;
+                Vec3 previous = hand.PreviousBase + (hand.PreviousTip - hand.PreviousBase) * along;
+                Vec3 current = start + (tip - start) * along;
+                float length = (current - previous).Length;
+                if (length < 1e-5f) continue;
+                // Query the engine's real limb colliders and returned bone, not
+                // guessed spheres. Closest-agent selection also prevents hitting
+                // an admitted enemy through a nearer ally or excluded rider.
+                Agent agent = _mission.RayCastForClosestAgentsLimbs(previous, current, player.Index,
+                    blade ? .025f : .065f, out float distance, out sbyte bone);
+                if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) continue;
+                float fraction = distance / length;
+                if (fraction >= earliest) continue;
+                EnemyBody body = null;
+                foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
+                if (body == null || now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f ||
+                    bone >= body.Skeleton.GetBoneCount()) continue;
+                Vec3 c = previous + (current - previous) * fraction;
+                if (!Visible(previous, c, body)) continue;
+                if (EquipmentBlocks(body, previous, current, fraction, blade ? .025f : .065f))
                 {
-                    float along = blade ? (float)s / samples : 0;
-                    Vec3 previous = hand.PreviousBase + (hand.PreviousTip - hand.PreviousBase) * along;
-                    Vec3 current = start + (tip - start) * along;
-                    for (int p = 0; p < body.Count; p++)
-                    {
-                        BodyPoint point = body.Points[p];
-                        // Relative sweep accounts for target motion too.
-                        Vec3 oldCenter = point.World - point.Velocity * dt;
-                        if (InteractionMath.SegmentSphere(previous - oldCenter, current - point.World, Vec3.Zero,
-                            point.Radius + (blade ? .025f : .065f), out float fraction) && fraction < earliest)
-                        {
-                            Vec3 c = previous + (current - previous) * fraction;
-                            if (!Visible(previous, c, body)) continue;
-                            earliest = fraction; hit = body; hitPoint = p; contact = c;
-                            velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
-                        }
-                    }
+                    NativeMethods.bvr_trigger_haptic(index, .15f, .02f);
+                    continue;
                 }
+                BodyPoint point = body.ReadContact(bone);
+                if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
+                earliest = fraction; hit = body; hitPoint = point; contact = c;
+                velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
             }
             if (hit == null) return;
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
             PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust);
-            if (thrust && hit.IsCorpse) hand.Penetration.Begin(hit, hitPoint, contact);
+            if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity);
+            if (thrust && (hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls)) hand.Penetration.Begin(hit, hitPoint, contact);
             NativeMethods.bvr_trigger_haptic(index, .45f, .035f);
+        }
+
+        private static bool EquipmentBlocks(EnemyBody body, Vec3 start, Vec3 end, float bodyFraction, float radius)
+        {
+            if (body.IsCorpse) return false;
+            return ItemBlocks(body.Agent, body.Agent.GetOffhandWieldedItemIndex(), start, end, bodyFraction, radius) ||
+                ItemBlocks(body.Agent, body.Agent.GetPrimaryWieldedItemIndex(), start, end, bodyFraction, radius);
+        }
+
+        private static bool ItemBlocks(Agent agent, EquipmentIndex slot, Vec3 start, Vec3 end, float bodyFraction, float radius)
+        {
+            if (slot == EquipmentIndex.None) return false;
+            WeaponComponentData item = agent.Equipment[slot].CurrentUsageItem;
+            if (item == null || (!item.IsShield && !item.IsMeleeWeapon)) return false;
+            WeakGameEntity entity = agent.GetWeaponEntityFromEquipmentSlot(slot);
+            if (!entity.IsValid) return false;
+            MatrixFrame frame = entity.GetGlobalFrame();
+            BoundingBox bounds = entity.GetLocalBoundingBox();
+            // Some modded items have no usable bounds. Preserve a held shield
+            // conservatively in that case; never invent a weapon mesh.
+            if (!InteractionMath.IsFinite(bounds.min) || !InteractionMath.IsFinite(bounds.max) ||
+                (bounds.max - bounds.min).LengthSquared < 1e-6f) return item.IsShield;
+            float scale = Math.Min(frame.rotation.s.Length, Math.Min(frame.rotation.f.Length, frame.rotation.u.Length));
+            if (scale < .001f) return item.IsShield;
+            return InteractionMath.SegmentBox(frame.TransformToLocalNonOrthogonal(start),
+                frame.TransformToLocalNonOrthogonal(end), bounds.min, bounds.max, radius / scale,
+                out float fraction) && fraction <= bodyFraction;
         }
     }
 }

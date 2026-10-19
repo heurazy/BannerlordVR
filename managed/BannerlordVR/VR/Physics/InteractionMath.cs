@@ -47,6 +47,28 @@ namespace BannerlordVR.VR.Physics
             fraction = (float)t;
             return true;
         }
+        public static bool SegmentBox(Vec3 start, Vec3 end, Vec3 min, Vec3 max, float padding, out float fraction)
+        {
+            fraction = 0;
+            if (!IsFinite(start) || !IsFinite(end) || !IsFinite(min) || !IsFinite(max) || !IsFinite(padding) || padding < 0 ||
+                min.x > max.x || min.y > max.y || min.z > max.z) return false;
+            double enter = 0, exit = 1;
+            for (int axis = 0; axis < 3; axis++)
+            {
+                double a = axis == 0 ? start.x : axis == 1 ? start.y : start.z;
+                double b = axis == 0 ? end.x : axis == 1 ? end.y : end.z;
+                double lo = (axis == 0 ? min.x : axis == 1 ? min.y : min.z) - padding;
+                double hi = (axis == 0 ? max.x : axis == 1 ? max.y : max.z) + padding;
+                double delta = b - a;
+                if (Math.Abs(delta) < 1e-12) { if (a < lo || a > hi) return false; continue; }
+                double first = (lo - a) / delta, last = (hi - a) / delta;
+                if (first > last) { double swap = first; first = last; last = swap; }
+                enter = Math.Max(enter, first); exit = Math.Min(exit, last);
+                if (enter > exit) return false;
+            }
+            fraction = (float)enter;
+            return true;
+        }
         // Error is target - body. Relative velocity is body - target.
         public static Vec3 SpringForce(Vec3 error, Vec3 relativeVelocity, float stiffness, float damping, float maximum)
         {

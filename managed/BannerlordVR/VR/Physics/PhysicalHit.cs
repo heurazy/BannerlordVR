@@ -10,10 +10,9 @@ namespace BannerlordVR.VR.Physics
         // RegisterBlow preserves mortality rules, hit events and kill attribution.
         // This prototype uses an explicit armor-aware damage approximation, not
         // a claim to reproduce the native combat model's full damage calculation.
-        public static void Apply(Agent player, EnemyBody body, int pointIndex, Vec3 contact,
+        public static void Apply(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
                                  Vec3 velocity, MissionWeapon weapon, EquipmentIndex slot, bool thrust)
         {
-            BodyPoint point = body.Points[pointIndex];
             Vec3 direction = velocity.NormalizedCopy();
             float speed = velocity.Length;
             if (speed < .01f) return;

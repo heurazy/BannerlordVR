@@ -9,19 +9,29 @@ profilage de bataille en jeu n'a encore ete realise.
 
 | Interaction | Implementation actuelle | Limite |
 | --- | --- | --- |
-| Poings | Gachette pour fermer le poing vide, contact balaye entre deux poses, vitesse minimale, delai de 350 ms par cible et par main | Volumes spheriques approches, equilibrage a verifier en jeu |
-| Saisie vivante | Grip de la main vide pres de la tete, du cou ou d'une main ; orientation du cou et rotation des articulations du bras | Pose uniquement : pas de ragdoll actif complet, pas d'immobilisation de l'IA ni de deplacement de sa capsule |
+| Poings | Gachette pour fermer le poing vide, raycast natif des membres entre deux poses, os retourne par le moteur, vitesse minimale, delai de 350 ms par cible et par main | Equilibrage et mouvement des cibles pendant le tick a verifier en jeu |
+| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Backend vivant compile et teste par automate, pas encore observe dans une mission ; pas encore d'equilibre debout pilote par ressorts |
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
-| Coup de lame/estoc | Second reglage experimental, balayages le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; pas de contact exact avec les maillages |
-| Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s | Uniquement les corps, pas de resistance mecanique de l'arme tenue ni de lesion volumetrique |
+| Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
+| Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
 | Cou | Volume distinct et degats de coupe/perforation comme les autres parties | Pas encore de geste d'egorgement specifique, saignement ou lesion anatomique |
 | Retour haptique | Action OpenXR de vibration, requetes consommees sur le thread de rendu | Compile ; sensation et profils materiels non verifies avec casque |
+
+L'option de ragdoll vivant reagit egalement aux coups : une reaction de 600 ms est
+demandee, et l'effort du coup est mis en attente jusqu'a confirmation de l'activation.
+Le moteur ne recoit aucune force sur un ragdoll absent. Cela ne constitue pas encore
+un controleur d'equilibre debout : l'ennemi peut s'effondrer pendant cette reaction.
 
 Les degats passent par `Agent.RegisterBlow` : attribution au joueur, evenements de
 coup et regles de mortalite du jeu. La valeur du dommage utilise une formule
 explicite simplifiee tenant compte de l'armure ; ce n'est pas le calcul natif
-complet. Les cibles munies d'un bouclier en main ou en garde sont ecartees des
-coups physiques en attendant des collisions de parade plus precises.
+complet. Les membres sont interroges par `Mission.RayCastForClosestAgentsLimbs` :
+un allie ou cavalier plus proche bloque la trajectoire sans recevoir les degats
+de ce prototype. Les armes et boucliers utilisent leurs boites locales reelles,
+transformees dans leur orientation actuelle. On peut toucher autour d'un bouclier ;
+il ne protege plus automatiquement tout le corps. Sans boite exploitable sur un
+bouclier ajoute par un mod, une protection conservatrice demeure. Les maillages
+exacts et la trajectoire du bouclier entre deux poses restent a traiter.
 
 ## Budget et transitions
 
@@ -35,6 +45,15 @@ Par defaut, le prototype est desactive. Une fois active :
   tenues ou transpercees sont prioritaires tout en restant soumises au rayon de sortie.
 - Tableaux de corps reutilises, au plus 16 points par corps, au plus 33 trajets
   d'echantillons d'arme par main. La selection ne parcourt pas toute l'armee a chaque tick.
+- Budget CPU logiciel de 1,5 ms par defaut (`enemy_physics_budget_ms`). Les nouvelles
+  admissions n'utilisent que 35 % de cette cible ; leur boucle verifie le temps
+  tous les 16 candidats. Apres surcharge durable, la limite descend progressivement
+  jusqu'a un corps ; elle remonte apres 180 echantillons de marge durable. Les corps
+  tenus ne sont pas supprimes pour satisfaire une statistique.
+- Moyenne et p95/p99 des 256 derniers echantillons du travail du mod dans le journal.
+  Le cout du controleur de recuperation des vivants est inclus. Le travail de
+  simulation interne du moteur et le rendu sont **exclus** : ce budget logiciel
+  n'est pas une limite dure du temps de frame ni un benchmark de bataille.
 - Cavaliers, montures, montee/descente, chute/saut, echelles, objets utilisables,
   positions assises et drapeaux scripts sont exclus. Cela doit etre confirme
   pendant les transitions de chaque animation du jeu, pas seulement a l'arret.
@@ -49,10 +68,21 @@ Par defaut, le prototype est desactive. Une fois active :
   du poignet peut declencher une attaque de lame. Les obstacles sont verifies par
   rayon du moteur en ignorant l'entite du joueur.
 
-Le mod ne change pas le root des ennemis, leur navigation, leur IA ni leur etat
-vivant en cadavre pour provoquer artificiellement un ragdoll. Le controle physique
-complet d'un ennemi vivant reste a developper avec une restauration fiable de l'IA,
-de la capsule, des contacts et de l'animation.
+Le mod n'ecrit pas directement le root ni la navigation d'un ennemi et n'appelle
+pas `AddAsCorpse` ou une methode de mort pour activer le backend vivant. Le ragdoll
+est gere par le moteur. Avec cette option experimentale, l'IA est mise en pause
+temporairement et ses entrees de mouvement sont neutralisees. Une pause deja
+presente n'est pas retiree par le mod. Le retour a la locomotion et a l'equilibre
+debout, le suivi de la capsule et la stabilite aux transitions restent a observer.
+
+Le controleur distingue activation, simulation et recuperation : 350 ms maximum
+pour constater l'activation, 6 s maximum de prise en charge, puis demande de fin
+et attente de l'etat natif `Disabled`. Une vraie mort transfere le ragdoll au jeu.
+Les callbacks de fin de mission et de suppression nettoient les references avant
+la destruction des agents. Une montee a cheval demande immediatement le relachement.
+Un delai de recuperation depasse 1,5 s restaure l'IA et desactive ce backend pour
+la mission, sans ecriture speculative dans la memoire du jeu. Cela ne prouve pas
+que le moteur a effectivement retire le ragdoll : ce cas doit etre teste en mission.
 
 ## Activation et verification
 
@@ -61,6 +91,9 @@ Voir `config/EnemyPhysics.preview.cfg`. Ajouter ces reglages au fichier personne
 Le fichier d'exemple n'ecrase aucune calibration existante. `motion_hands=1` et
 `enemy_physics=1` sont necessaires. `enemy_physics_weapon_damage=1` active separement
 les essais de lame et de penetration ; ils sont desactives par defaut.
+`enemy_physics_living_ragdoll=1` active separement le backend natif des vivants,
+sur saisie d'un point du corps ou penetration. Il reste desactive par defaut
+tant que son activation et sa recuperation n'ont pas ete validees dans le jeu.
 
 Compilation sans installation automatique :
 
@@ -107,10 +140,12 @@ amortissement, contraintes et collisions par partie du corps, profondeur de
 penetration, nettoyage des prises. Traduction choisie ici : conserver le moteur
 et les ragdolls de Bannerlord et ajouter des interactions limitees autour du joueur.
 Une analyse statique ne prouve ni un comportement jouable ni son cout en bataille.
+L'analyse native supplementaire, ses identites de fichiers et ses preuves sont
+detaillees dans [native-ragdoll-findings.md](native-ragdoll-findings.md).
 
 ## A terminer pour l'objectif complet
 
-- [ ] Backend de ragdoll actif des vivants, avec limites articulaires et collisions.
+- [ ] Validation en mission du backend natif vivant code, de ses limites articulaires et collisions.
 - [ ] Maintien et desequilibre du corps, recuperation et reprise fiable de l'IA.
 - [ ] Contacts exacts arme/bouclier/corps, resistance de la lame et parade.
 - [ ] Saignement, geste d'egorgement, lesions et effet de la profondeur des coups.
@@ -126,6 +161,8 @@ appels natifs de physique executes dans Bannerlord.
 
 Validation effectuee le 19 octobre 2026 : compilation Release C# sans avertissement,
 compilation native OpenXR reussie (avertissements deja presents dans les sources
-amont), 4 020 verifications physiques reussies, suite mathematique amont reussie,
+amont), 4 053 verifications physiques et de transitions reussies, suite mathematique amont reussie,
 chargement reel de la DLL native et verification des refus d'entree/haptique hors
 session. Le test de chargement n'initialise ni OpenXR ni les hooks de rendu.
+Les tests du controleur vivant utilisent un hote simule : ils prouvent l'ordre des
+appels et le nettoyage de son automate, pas le resultat du solveur natif en jeu.

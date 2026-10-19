@@ -15,7 +15,7 @@ foreach ($relative in $artifacts) {
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 foreach ($relative in $artifacts) { Copy-Item -LiteralPath (Join-Path $repo $relative) -Destination $bin }
 Copy-Item -LiteralPath (Join-Path $repo 'module/SubModule.xml') -Destination (Join-Path $stage 'Modules/BannerlordVR')
-foreach ($relative in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'docs/physical-enemies.md', 'config/EnemyPhysics.preview.cfg')) {
+foreach ($relative in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'docs/physical-enemies.md', 'docs/native-ragdoll-findings.md', 'config/EnemyPhysics.preview.cfg')) {
     Copy-Item -LiteralPath (Join-Path $repo $relative) -Destination $stage
 }
 Add-Type -AssemblyName System.IO.Compression.FileSystem

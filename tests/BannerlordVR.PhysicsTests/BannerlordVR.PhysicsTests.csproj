@@ -13,5 +13,7 @@
     <Reference Include="TaleWorlds.Library"><HintPath>$(BannerlordDir)/bin/Win64_Shipping_Client/TaleWorlds.Library.dll</HintPath></Reference>
     <Reference Include="TaleWorlds.DotNet"><HintPath>$(BannerlordDir)/bin/Win64_Shipping_Client/TaleWorlds.DotNet.dll</HintPath></Reference>
     <Compile Include="../../managed/BannerlordVR/VR/Physics/InteractionMath.cs" Link="InteractionMath.cs" />
+    <Compile Include="../../managed/BannerlordVR/VR/Physics/AdaptivePhysicsBudget.cs" Link="AdaptivePhysicsBudget.cs" />
+    <Compile Include="../../managed/BannerlordVR/VR/Physics/LivingRagdollLease.cs" Link="LivingRagdollLease.cs" />
   </ItemGroup>
 </Project>

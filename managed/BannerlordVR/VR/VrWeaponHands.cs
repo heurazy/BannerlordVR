@@ -562,7 +562,9 @@ namespace BannerlordVR.VR
             // does, reached through a solved shoulder and elbow instead of leaving
             // them wherever the animation had them. If it declines, nothing has
             // been written and the original one-bone path runs unchanged.
-            bool solved = Physics.CompliantPose.Arm(skeleton, slot.Bone, inAgent);
+            sbyte upperArm = slot.Role == HandRole.Main
+                ? agent.Monster.RightUpperArmBoneIndex : agent.Monster.LeftUpperArmBoneIndex;
+            bool solved = Physics.CompliantPose.Arm(skeleton, slot.Bone, inAgent, upperArm);
 
             if (!solved)
             {

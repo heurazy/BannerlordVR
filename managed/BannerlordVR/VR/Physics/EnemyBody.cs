@@ -30,7 +30,17 @@ namespace BannerlordVR.VR.Physics
             Agent = null; Skeleton = null; Count = 0; _sampled = false;
         }
         public bool IsCorpse => Agent.State == AgentState.Killed || Agent.State == AgentState.Unconscious;
-        public bool HasNativePhysics => IsCorpse && Skeleton.GetCurrentRagdollState() == RagdollState.Active;
+        public bool HasNativePhysics => (IsCorpse || EnemyPhysicsRuntime.OwnsLivingPhysics(Agent)) &&
+            Skeleton.GetCurrentRagdollState() == RagdollState.Active;
+        public BodyPoint ReadContact(sbyte bone)
+        {
+            if (bone < 0 || bone >= Skeleton.GetBoneCount()) return default;
+            BoneBodyPartType part = Agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
+            Vec3 world = Frame.TransformToParent(Skeleton.GetBoneEntitialFrameWithIndex(bone)).origin;
+            Vec3 velocity = Agent.Velocity;
+            for (int i = 0; i < Count; i++) if (Points[i].Bone == bone) { velocity = Points[i].Velocity; break; }
+            return new BodyPoint { Bone = bone, Part = part, World = world, Velocity = velocity };
+        }
 
         public bool Bind(Agent agent)
         {
@@ -49,9 +59,10 @@ namespace BannerlordVR.VR.Physics
                 else if (name == "neck") { part = BoneBodyPartType.Neck; radius = .09f; }
                 else if (name == "spine2" || name == "spine_2") { part = BoneBodyPartType.Chest; radius = .23f; }
                 else if (name == "pelvis") { part = BoneBodyPartType.Abdomen; radius = .22f; }
-                else if (name == "l_hand" || name == "r_hand" || name == "l_forearm" || name == "r_forearm")
+                else if (name == "l_hand" || name == "r_hand" || name == "l_forearm" || name == "r_forearm" ||
+                    name == "l_foretwist" || name == "r_foretwist" || name == "l_upperarm_twist" || name == "r_upperarm_twist")
                 { part = name[0] == 'l' ? BoneBodyPartType.ArmLeft : BoneBodyPartType.ArmRight; radius = .09f; }
-                else if (name == "l_calf" || name == "r_calf" || name == "l_foot" || name == "r_foot")
+                else if (name == "l_calf" || name == "r_calf" || name == "l_foot" || name == "r_foot" || name == "l_thigh" || name == "r_thigh")
                 { part = BoneBodyPartType.Legs; radius = .12f; }
                 else continue;
                 Points[Count++] = new BodyPoint { Bone = i, Part = part, Radius = radius };
@@ -81,7 +92,7 @@ namespace BannerlordVR.VR.Physics
             return true;
         }
 
-        public static bool Eligible(Agent agent, Agent player)
+        public static bool Eligible(Agent agent, Agent player, bool ownedPhysicalFall = false)
         {
             if (agent == null || agent == player || !agent.IsHuman || agent.MountAgent != null || agent.RiderAgent != null) return false;
             if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return false;
@@ -93,7 +104,7 @@ namespace BannerlordVR.VR.Physics
             {
                 var action = agent.GetCurrentActionType(channel);
                 if (action == Agent.ActionCodeType.Mount || action == Agent.ActionCodeType.Dismount ||
-                    action == Agent.ActionCodeType.Fall || (action >= Agent.ActionCodeType.JumpStart && action <= Agent.ActionCodeType.JumpEndHard) ||
+                    (action == Agent.ActionCodeType.Fall && !ownedPhysicalFall) || (action >= Agent.ActionCodeType.JumpStart && action <= Agent.ActionCodeType.JumpEndHard) ||
                     (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear)) return false;
             }
             return true;

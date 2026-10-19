@@ -22,6 +22,13 @@ namespace BannerlordVR
 
         private Harmony _harmony;
 
+        public override void OnMissionBehaviorInitialize(Mission mission)
+        {
+            base.OnMissionBehaviorInitialize(mission);
+            if (mission.GetMissionBehavior<VR.Physics.LivingRagdollMissionLogic>() == null)
+                mission.AddMissionBehavior(new VR.Physics.LivingRagdollMissionLogic());
+        }
+
         protected override void OnSubModuleLoad()
         {
             base.OnSubModuleLoad();

@@ -8,22 +8,42 @@ namespace BannerlordVR.VR.Physics
     {
         // CCD arm solve. Rotate joints, preserve bone lengths and the engine's root placement.
         // No root translation: the navigation capsule stays under engine ownership.
-        public static bool Arm(Skeleton skeleton, sbyte hand, MatrixFrame target)
+        public static bool Arm(Skeleton skeleton, sbyte hand, MatrixFrame target, sbyte upperArm = -1)
         {
             if (hand < 0 || hand >= skeleton.GetBoneCount() || !InteractionMath.IsFinite(target.origin)) return false;
-            sbyte elbow = skeleton.GetParentBoneIndex(hand);
-            if (elbow < 0) return false;
-            // Twist bones can intervene; stop rather than rotating a clavicle or spine.
-            for (int n = 0; n < 3 && (skeleton.GetBoneName(elbow) ?? "").IndexOf("twist", StringComparison.OrdinalIgnoreCase) >= 0; n++)
-                elbow = skeleton.GetParentBoneIndex(elbow);
-            if (elbow < 0) return false;
-            sbyte shoulder = skeleton.GetParentBoneIndex(elbow);
-            if (shoulder < 0) return false;
-            string upperName = (skeleton.GetBoneName(shoulder) ?? "").ToLowerInvariant();
-            if (!upperName.Contains("upperarm") && !upperName.Contains("upper_arm")) return false;
+            sbyte shoulder = upperArm;
+            sbyte ancestor = skeleton.GetParentBoneIndex(hand);
+            bool found = false;
+            for (int n = 0; n < 16 && ancestor >= 0; n++)
+            {
+                string name = (skeleton.GetBoneName(ancestor) ?? "").ToLowerInvariant();
+                if (ancestor == shoulder || (shoulder < 0 && (name.Contains("upperarm") || name.Contains("upper_arm"))))
+                { shoulder = ancestor; found = true; break; }
+                ancestor = skeleton.GetParentBoneIndex(ancestor);
+            }
+            if (!found || shoulder < 0) return false;
             Vec3 shoulderPos = skeleton.GetBoneEntitialFrameWithIndex(shoulder).origin;
-            Vec3 elbowPos = skeleton.GetBoneEntitialFrameWithIndex(elbow).origin;
             Vec3 handPos = skeleton.GetBoneEntitialFrameWithIndex(hand).origin;
+            // Native humans contain foretwist and upperarm_twist nodes. Select
+            // the actual bend from the chain's geometry rather than skipping
+            // every node named twist (which skipped the native elbow entirely).
+            sbyte elbow = -1;
+            float bestScore = float.NegativeInfinity;
+            Vec3 arm = handPos - shoulderPos;
+            float armLength2 = Math.Max(1e-6f, arm.LengthSquared);
+            ancestor = skeleton.GetParentBoneIndex(hand);
+            for (int n = 0; n < 16 && ancestor >= 0 && ancestor != shoulder; n++)
+            {
+                Vec3 position = skeleton.GetBoneEntitialFrameWithIndex(ancestor).origin;
+                float projection = InteractionMath.Dot(position - shoulderPos, arm) / armLength2;
+                float bend = (position - (shoulderPos + arm * projection)).LengthSquared;
+                float score = bend - Math.Abs(projection - .5f) * .0001f;
+                if ((position - shoulderPos).Length > .05f && (position - handPos).Length > .05f && score > bestScore)
+                { bestScore = score; elbow = ancestor; }
+                ancestor = skeleton.GetParentBoneIndex(ancestor);
+            }
+            if (elbow < 0) return false;
+            Vec3 elbowPos = skeleton.GetBoneEntitialFrameWithIndex(elbow).origin;
             float reach = (shoulderPos - elbowPos).Length + (elbowPos - handPos).Length;
             target.origin = shoulderPos + InteractionMath.ClampMagnitude(target.origin - shoulderPos, reach * .98f);
             for (int pass = 0; pass < 4; pass++)

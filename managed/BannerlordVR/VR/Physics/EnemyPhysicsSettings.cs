@@ -14,6 +14,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly float MaxForce = Read("enemy_physics_max_force", 350, 20, 800);
         public static readonly float BreakDistance = Read("enemy_physics_break_distance", 0.65f, 0.2f, 1.2f);
         public static readonly bool WeaponDamage = VrConfig.Bool("enemy_physics_weapon_damage", false);
+        public static readonly bool LivingRagdolls = VrConfig.Bool("enemy_physics_living_ragdoll", false);
+        public static readonly float BudgetMilliseconds = Read("enemy_physics_budget_ms", 1.5f, .1f, 5);
         private static float Read(string key, float fallback, float min, float max)
         {
             float v = VrConfig.Float(key, fallback);

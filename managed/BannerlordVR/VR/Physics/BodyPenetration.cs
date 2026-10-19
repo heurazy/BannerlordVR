@@ -2,34 +2,36 @@ using TaleWorlds.Library;
 
 namespace BannerlordVR.VR.Physics
 {
-    // Keeps a pierced corpse's contact attached laterally to the blade while
+    // Keeps a pierced body's contact attached laterally to the blade while
     // permitting axial withdrawal. The real engine still solves the ragdoll.
-    public sealed class CorpsePenetration
+    public sealed class BodyPenetration
     {
         public EnemyBody Body { get; private set; }
-        private int _point;
+        private sbyte _bone;
         private Vec3 _localContact, _lastBladePoint;
         private bool _sampled;
         private float _age;
-        public void Begin(EnemyBody body, int point, Vec3 contact)
+        public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            Body = body; _point = point; _sampled = false; _age = 0;
-            MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(body.Points[point].Bone));
+            Body = body; _bone = point.Bone; _sampled = false; _age = 0;
+            MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
+            if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
         public void Release() { Body = null; _sampled = false; }
         public bool Tick(Vec3 bladeBase, Vec3 bladeTip, float dt)
         {
             if (Body == null) return false;
+            EnemyPhysicsRuntime.MaintainLivingGrab(Body);
             _age += dt;
-            if (!Body.IsCorpse || _age > 8) { Release(); return false; }
+            if ((!Body.IsCorpse && !Body.Agent.IsActive()) || _age > 8) { Release(); return false; }
             // Let a newly killed target enter the engine's corpse state itself.
             if (!Body.HasNativePhysics)
             {
-                if (_age > .25f) Release();
+                if (_age > .4f) Release();
                 return Body != null;
             }
-            BodyPoint p = Body.Points[_point];
+            BodyPoint p = Body.ReadContact(_bone);
             MatrixFrame bone = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = bone.TransformToParent(_localContact);
             Vec3 bladePoint = InteractionMath.ClosestPointOnSegment(bladeBase, bladeTip, anchor);

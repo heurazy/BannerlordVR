@@ -18,12 +18,22 @@ namespace BannerlordVR.VR.Physics
             MatrixFrame world = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(body.Points[point].Bone));
             _localOffset = world.TransformToLocalNonOrthogonal(hand);
             _lastTarget = hand;
+            bool native = EnemyPhysicsRuntime.BeginLivingGrab(body);
+            if (!body.IsCorpse && !native)
+            {
+                BodyPoint p = body.Points[point];
+                string name = body.Skeleton.GetBoneName(p.Bone) ?? "";
+                if ((p.Part != TaleWorlds.MountAndBlade.BoneBodyPartType.Head &&
+                     p.Part != TaleWorlds.MountAndBlade.BoneBodyPartType.Neck && !name.EndsWith("hand")) ||
+                    body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled) Release();
+            }
         }
         public void Release() { Body = null; _localOffset = Vec3.Zero; _lastTarget = Vec3.Zero; }
 
         public void Tick(MatrixFrame hand, float dt)
         {
             if (!Held) return;
+            EnemyPhysicsRuntime.MaintainLivingGrab(Body);
             BodyPoint p = Body.Points[Point];
             MatrixFrame boneWorld = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = boneWorld.TransformToParent(_localOffset);
@@ -39,18 +49,27 @@ namespace BannerlordVR.VR.Physics
             }
             else if (!Body.IsCorpse)
             {
+                // Never pose over native physics while activation/recovery is pending.
+                if (Body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled)
+                {
+                    if (!EnemyPhysicsRuntime.HasLivingLease(Body.Agent)) Release();
+                    return;
+                }
                 MatrixFrame target = Body.Frame.TransformToLocalNonOrthogonal(hand);
                 target.rotation.Orthonormalize();
                 target.origin = Body.Frame.TransformToLocalNonOrthogonal(boneWorld.origin + error);
                 string name = Body.Skeleton.GetBoneName(p.Bone) ?? "";
                 if (name.EndsWith("hand"))
-                    CompliantPose.Arm(Body.Skeleton, p.Bone, target);
+                    CompliantPose.Arm(Body.Skeleton, p.Bone, target, name.StartsWith("l_")
+                        ? Body.Agent.Monster.LeftUpperArmBoneIndex : Body.Agent.Monster.RightUpperArmBoneIndex);
                 else if (p.Part == TaleWorlds.MountAndBlade.BoneBodyPartType.Head || p.Part == TaleWorlds.MountAndBlade.BoneBodyPartType.Neck)
                 {
                     sbyte parent = Body.Skeleton.GetParentBoneIndex(p.Bone);
                     if (parent >= 0) CompliantPose.Aim(Body.Skeleton, parent, p.Bone, target.origin, .35f);
                 }
+                else if (!EnemyPhysicsRuntime.HasLivingLease(Body.Agent)) Release();
             }
+            else Release(); // The engine retired this corpse's native ragdoll.
         }
     }
 }
