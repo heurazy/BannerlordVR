@@ -38,6 +38,8 @@ namespace BannerlordVR.VR.Physics
         private readonly Vec3[] _hand = new Vec3[RagdollPinDrive.MaxHandles];
         public GrabOutcome LastGrabOutcome { get; private set; }
         public bool Configured => _configured;
+        // True on the tick that bound the bodies (native mass read, tree build).
+        public bool ConfiguredThisTick { get; private set; }
         public ActiveRagdollPhase Phase => _cycle.Phase;
         public FallState Fall => _cycle.Fall;
         public int AppliedSteps { get; private set; }
@@ -161,6 +163,8 @@ namespace BannerlordVR.VR.Physics
             _drive.ClearHandle(hand);
         }
         public bool Grabbed => _grabs[0].Active || _grabs[1].Active;
+        public float PartMass(sbyte bone) =>
+            _configured && bone >= 0 && bone < _bodyOfBone.Length ? _drive.Mass(_bodyOfBone[bone]) : 5;
 
         // A one-step push on a body, e.g. the hit that destabilized it. It is
         // queued so that it shares the PhysX step gate with the drive.
@@ -174,7 +178,12 @@ namespace BannerlordVR.VR.Physics
         public void Tick(Agent agent, Skeleton skeleton, Mission mission, PhysicsStepCounter clock)
         {
             if (!_captureValid) return;
-            if (!_configured && !Configure(agent, mission, skeleton)) { _captureValid = false; return; }
+            ConfiguredThisTick = false;
+            if (!_configured)
+            {
+                if (!Configure(agent, mission, skeleton)) { _captureValid = false; return; }
+                ConfiguredThisTick = true;
+            }
             float now = mission.CurrentTime;
             MatrixFrame frame = agent.AgentVisuals.GetEntity().GetGlobalFrame();
             for (int i = 0; i < _drive.Count; i++)

@@ -46,6 +46,9 @@ namespace BannerlordVR.VR.Physics
         public static bool HasLivingLease(Agent agent) => _living?.HasLease(agent) == true;
         public static bool BeginLivingGrab(EnemyBody body) => !body.IsCorpse && _living?.KeepHeld(body, true) == true;
         public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
+        // PhysX steps counted by the scene clock, or -1 when no clock runs.
+        public static long PhysicsSteps => _living?.PhysicsSteps ?? -1;
+        public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
@@ -262,6 +265,8 @@ namespace BannerlordVR.VR.Physics
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
+                if (embedded && hand.Penetration.LastResistance > 40)
+                    NativeMethods.bvr_trigger_haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
                 bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
                     usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
                 if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
@@ -386,7 +391,10 @@ namespace BannerlordVR.VR.Physics
                 if (!Visible(previous, c, body)) continue;
                 if (EquipmentBlocks(body, previous, current, fraction, blade ? .025f : .065f))
                 {
-                    NativeMethods.bvr_trigger_haptic(index, .15f, .02f);
+                    // B&S BrainModuleMelee: a weapon striking an attacking
+                    // enemy's weapon or shield parries the attack.
+                    bool parried = _living != null && _living.Parry(body, length / dt);
+                    NativeMethods.bvr_trigger_haptic(index, parried ? .6f : .15f, parried ? .05f : .02f);
                     continue;
                 }
                 BodyPoint point = body.ReadContact(bone);
@@ -404,7 +412,9 @@ namespace BannerlordVR.VR.Physics
             PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
-            if (thrust && (hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls)) hand.Penetration.Begin(hit, hitPoint, contact);
+            if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
+                BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
+                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length);
             NativeMethods.bvr_trigger_haptic(index, .45f, .035f);
         }
 

@@ -74,6 +74,7 @@ namespace BannerlordVR.VR.Physics
             return true;
         }
 
+        public float Mass(int body) => body >= 0 && body < Count ? _mass[body] : 0;
         public void ResetVelocity() { _sampled = false; for (int h = 0; h < MaxHandles; h++) _handleSampled[h] = false; }
 
         // Handle h (one per player hand) pulls body towards a world point.
