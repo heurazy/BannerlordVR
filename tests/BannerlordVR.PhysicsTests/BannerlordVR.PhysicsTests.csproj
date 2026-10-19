@@ -15,5 +15,6 @@
     <Compile Include="../../managed/BannerlordVR/VR/Physics/InteractionMath.cs" Link="InteractionMath.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/AdaptivePhysicsBudget.cs" Link="AdaptivePhysicsBudget.cs" />
     <Compile Include="../../managed/BannerlordVR/VR/Physics/LivingRagdollLease.cs" Link="LivingRagdollLease.cs" />
+    <Compile Include="../../managed/BannerlordVR/VR/Physics/CutStroke.cs" Link="CutStroke.cs" />
   </ItemGroup>
 </Project>

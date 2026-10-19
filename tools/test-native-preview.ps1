@@ -11,6 +11,12 @@ public static class BvrNativePreviewSmoke {
     public static extern int bvr_get_input_state(byte[] output);
     [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
     public static extern int bvr_trigger_haptic(int hand, float amplitude, float duration);
+    [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
+    public static extern int bvr_ragdoll_prepare();
+    [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
+    public static extern int bvr_ragdoll_release(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
+    [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
+    public static extern int bvr_ragdoll_validate(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
 }
 "@
 Add-Type -TypeDefinition $source
@@ -21,4 +27,8 @@ if (-not $version.Contains('openxr')) { throw "Expected real OpenXR build, got $
 $inputBuffer = New-Object byte[] 184
 if ([BvrNativePreviewSmoke]::bvr_get_input_state($inputBuffer) -ne -5) { throw 'Inactive input must report session not ready' }
 if ([BvrNativePreviewSmoke]::bvr_trigger_haptic(0, 0.5, 0.035) -ne -1) { throw 'Haptics must reject an uninitialized session' }
+if ([BvrNativePreviewSmoke]::bvr_ragdoll_prepare() -ne -1) { throw 'Ragdoll bridge must reject a missing engine module' }
+if ([BvrNativePreviewSmoke]::bvr_ragdoll_release([UIntPtr]::Zero, [UIntPtr]::Zero, [UIntPtr]::Zero) -ne -1) { throw 'Ragdoll bridge must reject calls before preparation' }
+if ([BvrNativePreviewSmoke]::bvr_ragdoll_validate([UIntPtr]::Zero, [UIntPtr]::Zero, [UIntPtr]::Zero) -ne -1) { throw 'Ragdoll preflight must reject calls before preparation' }
 Write-Output "PASS: native DLL loads, OpenXR build identified, inactive input and haptic guards verified ($version)."
+Write-Output 'PASS: native ragdoll bridge rejects a missing engine and unprepared pointers. No engine recovery was exercised.'

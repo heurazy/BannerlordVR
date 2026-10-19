@@ -50,7 +50,10 @@ namespace BannerlordVR
             }
 
             VrHandCalibration.Load();
-            VrSystem.Initialize();
+            if (VR.Physics.EnemyPhysicsSettings.LivingRagdolls || VR.Physics.EnemyPhysicsSettings.RuntimeProbe)
+                VR.Physics.NativeRagdollBridge.Initialize();
+            if (!VR.Physics.EnemyPhysicsSettings.RuntimeProbe) VrSystem.Initialize();
+            else VrLog.Info("PHYSICS_PROBE mode: flat rendering; OpenXR initialization skipped for the isolated engine test.");
         }
 
         protected override void OnBeforeInitialModuleScreenSetAsRoot()

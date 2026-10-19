@@ -44,6 +44,12 @@ typedef enum BvrStatus {
     BVR_XR_ERROR           = -6
 } BvrStatus;
 
+/* Experimental version-bound living ragdoll release, independent of OpenXR.
+   Prepare requires a managed full-module identity check first. Main thread only. */
+BVR_API int32_t BVR_CALL bvr_ragdoll_prepare(void);
+BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
+BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
+
 typedef enum BvrEye {
     BVR_EYE_LEFT  = 0,
     BVR_EYE_RIGHT = 1

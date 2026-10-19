@@ -10,11 +10,11 @@ profilage de bataille en jeu n'a encore ete realise.
 | Interaction | Implementation actuelle | Limite |
 | --- | --- | --- |
 | Poings | Gachette pour fermer le poing vide, raycast natif des membres entre deux poses, os retourne par le moteur, vitesse minimale, delai de 350 ms par cible et par main | Equilibrage et mouvement des cibles pendant le tick a verifier en jeu |
-| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Backend vivant compile et teste par automate, pas encore observe dans une mission ; pas encore d'equilibre debout pilote par ressorts |
+| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation observee en mission, premiere recuperation en echec ; correction native a valider ; pas encore d'equilibre debout pilote par ressorts |
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
 | Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
 | Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
-| Cou | Volume distinct et degats de coupe/perforation comme les autres parties | Pas encore de geste d'egorgement specifique, saignement ou lesion anatomique |
+| Cou | Contact natif distinct ; option de coupe longitudinale avec tete tenue par l'autre main, seuil de 12 cm et rejet des tremblements | Detection du geste testee mathematiquement, pas encore en VR ; saignement et lesion anatomique a faire |
 | Retour haptique | Action OpenXR de vibration, requetes consommees sur le thread de rendu | Compile ; sensation et profils materiels non verifies avec casque |
 
 L'option de ragdoll vivant reagit egalement aux coups : une reaction de 600 ms est
@@ -92,8 +92,11 @@ Le fichier d'exemple n'ecrase aucune calibration existante. `motion_hands=1` et
 `enemy_physics=1` sont necessaires. `enemy_physics_weapon_damage=1` active separement
 les essais de lame et de penetration ; ils sont desactives par defaut.
 `enemy_physics_living_ragdoll=1` active separement le backend natif des vivants,
-sur saisie d'un point du corps ou penetration. Il reste desactive par defaut
-tant que son activation et sa recuperation n'ont pas ete validees dans le jeu.
+sur saisie d'un point du corps ou penetration. Il reste desactive par defaut.
+Le premier essai en jeu active le ragdoll mais echoue a observer sa desactivation
+dans le delai de recuperation. Son utilisation jouable n'est donc pas validee.
+La correction native est limitee au moteur dont l'empreinte est documentee dans
+`native-ragdoll-findings.md` ; toute autre version est refusee. Elle reste a tester.
 
 Compilation sans installation automatique :
 
@@ -112,6 +115,42 @@ Le paquet contient uniquement les DLL du mod, son manifeste, les notices et
 l'exemple de configuration. Le chargeur OpenXR de cette compilation est lie
 statiquement ; Harmony reste fourni par le module `Bannerlord.Harmony` du jeu.
 Ne pas melanger une DLL native d'une autre version avec la DLL C# de ce paquet.
+
+## Coupe au cou experimentale
+
+`enemy_physics_neck_cut=1` ajoute un geste distinct des coups rapides. Il exige
+egalement `enemy_physics_weapon_damage=1`, une epee ou dague infligeant des degats
+tranchants, la gachette pressee et une prise sur la tete ou le cou avec l'autre
+main. Le rayon natif de la lame doit toucher le cou du meme ennemi et franchir
+les controles d'obstacle et d'equipement. La coupe reserve ce contact afin de
+ne pas infliger simultanement un coup rapide.
+
+Le detecteur exige au moins 12 cm de deplacement longitudinal relatif, continu,
+en 0,08 a 1,5 s, borne par le mouvement reel du controleur. Il annule les
+allers-retours, refuse la locomotion seule et recommence apres perte de contact,
+changement d'ennemi, rupture de suivi ou changement important d'axe. Une coupe
+ne se repete pas tant que le contact reste continu. Les degats passent par
+`RegisterBlow`, avec une approximation d'armure ; aucun changement direct des
+points de vie. Le saignement differe et l'anatomie des lesions restent a faire.
+Seules les mathematiques du geste sont testees automatiquement : la detection
+native du cou et le resultat en VR ne sont pas encore valides.
+
+## Test isole du backend vivant
+
+Le commutateur de developpement `enemy_physics_runtime_probe=1` saute
+l'initialisation OpenXR. Il execute une seule activation puis liberation du
+ragdoll d'un ennemi IA a pied, situe a plus de 20 metres du joueur, sans appliquer
+de coup ni de force supplementaire. Utiliser uniquement une bataille personnalisee,
+avec `enemy_physics=0`, `enemy_physics_living_ragdoll=0` et `motion_hands=0`.
+Sauvegarder le fichier de configuration avant cet essai et le restaurer apres.
+
+Le journal `BannerlordVR.log` produit des lignes `PHYSICS_PROBE`. Un resultat
+`PASS` exige d'avoir observe l'etat physique actif, un deplacement du bassin
+superieur a 2 cm, puis la physique desactivee, l'agent vivant avec sa sante
+initiale et l'IA depausee. Un ennemi absent, une interruption ou un contexte
+incompatible ne constitue pas une validation. Ce test ne prouve pas la qualite
+du relevement, des interactions VR ou les performances d'une grande bataille.
+Desactiver ce commutateur et redemarrer pour retrouver le fonctionnement VR.
 
 ## Preuves et limites de l'analyse
 
@@ -161,7 +200,7 @@ appels natifs de physique executes dans Bannerlord.
 
 Validation effectuee le 19 octobre 2026 : compilation Release C# sans avertissement,
 compilation native OpenXR reussie (avertissements deja presents dans les sources
-amont), 4 053 verifications physiques et de transitions reussies, suite mathematique amont reussie,
+amont), 4 098 verifications physiques, de gestes et de transitions reussies, suite mathematique amont reussie,
 chargement reel de la DLL native et verification des refus d'entree/haptique hors
 session. Le test de chargement n'initialise ni OpenXR ni les hooks de rendu.
 Les tests du controleur vivant utilisent un hote simule : ils prouvent l'ordre des

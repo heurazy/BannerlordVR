@@ -29,6 +29,26 @@ namespace BannerlordVR.VR.Physics
             DamageTypes damageType = usage == null ? DamageTypes.Blunt : thrust ? usage.ThrustDamageType : usage.SwingDamageType;
             float raw = usage == null ? Math.Min(30, speed * speed * 1.5f) :
                 (thrust ? usage.ThrustDamage : usage.SwingDamage) * Math.Min(1.5f, speed / (thrust ? 2.5f : 5));
+            Register(player, body, point, contact, direction, weapon, slot, usage, damageType, raw, thrust);
+        }
+
+        public static void ApplyDrawCut(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
+            Vec3 velocity, MissionWeapon weapon, EquipmentIndex slot)
+        {
+            if (body.IsCorpse || !body.Agent.IsActive() || point.Part != BoneBodyPartType.Neck || weapon.IsEmpty) return;
+            WeaponComponentData usage = weapon.CurrentUsageItem;
+            if (usage == null || usage.SwingDamageType != DamageTypes.Cut) return;
+            // A held-neck draw has a length threshold instead of kinetic scaling.
+            // Armor and RegisterBlow mortality still apply; this is not an instant-kill override.
+            Vec3 direction = velocity.Length > .001f ? velocity.NormalizedCopy() : player.LookDirection;
+            Register(player, body, point, contact, direction, weapon, slot, usage, DamageTypes.Cut,
+                Math.Min(100, Math.Max(35, usage.SwingDamage * 1.25f)), false);
+        }
+
+        private static void Register(Agent player, EnemyBody body, BodyPoint point, Vec3 contact,
+            Vec3 direction, MissionWeapon weapon, EquipmentIndex slot, WeaponComponentData usage,
+            DamageTypes damageType, float raw, bool thrust)
+        {
             float armor = body.Agent.GetBaseArmorEffectivenessForBodyPart(point.Part);
             float damage = raw * (point.Part == BoneBodyPartType.Head ? 1.5f : 1) / (1 + Math.Max(0, armor) * .045f);
             var blow = new Blow(player.Index)

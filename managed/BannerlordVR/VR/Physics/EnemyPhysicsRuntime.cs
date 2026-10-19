@@ -14,11 +14,12 @@ namespace BannerlordVR.VR.Physics
         {
             public readonly EnemyGrab Grab = new EnemyGrab();
             public readonly BodyPenetration Penetration = new BodyPenetration();
+            public readonly CutStroke Cut = new CutStroke();
             public bool Sampled, GripDown, SuppressTrigger;
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
-            public void Reset() { Grab.Release(); Penetration.Release(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; }
+            public void Reset() { Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; }
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
         private static readonly EnemyBody[] Records = CreateRecords();
@@ -110,8 +111,8 @@ namespace BannerlordVR.VR.Physics
                 if (player.WieldedWeapon.CurrentUsageItem?.IsRangedWeapon == true ||
                     player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true)
                 { ClearHands(); return; }
-                UpdateHand(0, input.Left, main.Controller == VrHand.Left ? main : off, player, dt, now);
-                UpdateHand(1, input.Right, main.Controller == VrHand.Right ? main : off, player, dt, now);
+                UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
+                UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
                 if (now - _lastLog > 10)
                 {
                     _lastLog = now;
@@ -210,7 +211,7 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < Bodies.Length; i++) if (Bodies[i] != null) ActiveBodies++;
         }
 
-        private static void UpdateHand(int index, BvrHandState input, VrHandSlot slot, Agent player, float dt, float now)
+        private static void UpdateHand(int index, BvrHandState input, BvrHandState otherInput, VrHandSlot slot, Agent player, float dt, float now)
         {
             Hand hand = Hands[index];
             if (input.IsActive == 0 || !slot.Valid) { hand.Reset(); return; }
@@ -231,7 +232,7 @@ namespace BannerlordVR.VR.Physics
                 tip = basePoint + weaponFrame.rotation.u.NormalizedCopy() * Math.Min(2.5f, usage.WeaponLength * .01f);
             }
             bool changed = !hand.Sampled || hand.Item != weapon.Item || hand.Slot != slot.Equipment;
-            if (changed || !blade) hand.Penetration.Release();
+            if (changed || !blade) { hand.Penetration.Release(); hand.Cut.Reset(); }
             if (!InteractionMath.IsFinite(basePoint) || !InteractionMath.IsFinite(tip) ||
                 !InteractionMath.IsFinite(pose.rotation.s) || !InteractionMath.IsFinite(pose.rotation.f) || !InteractionMath.IsFinite(pose.rotation.u) ||
                 (!changed && ((pose.origin - hand.Previous).Length > .5f || (tip - hand.PreviousTip).Length > 1.5f)))
@@ -246,7 +247,9 @@ namespace BannerlordVR.VR.Physics
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
-                if (!embedded && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
+                bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
+                    usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
+                if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
                     (blade || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
                 if (hand.Grab.Held) hand.Grab.Tick(pose, dt);
@@ -257,6 +260,55 @@ namespace BannerlordVR.VR.Physics
             hand.Stage = stage;
             hand.Axis = stageAxis;
             hand.Sampled = true; hand.GripDown = grip; hand.Item = weapon.Item; hand.Slot = slot.Equipment;
+        }
+
+        // This path intentionally has no minimum strike speed or strike cooldown:
+        // a cut is a continuous draw, while TryHit handles ballistic impacts.
+        private static bool TryNeckCut(int index, Hand hand, BvrHandState otherInput, float trigger,
+            Vec3 start, Vec3 tip, WeaponComponentData usage, MissionWeapon weapon, EquipmentIndex slot,
+            Agent player, float trackedTravel, float dt, float now)
+        {
+            EnemyGrab hold = Hands[1 - index].Grab;
+            EnemyBody body = hold.Body;
+            bool sword = usage != null && (usage.WeaponClass == WeaponClass.Dagger ||
+                usage.WeaponClass == WeaponClass.OneHandedSword || usage.WeaponClass == WeaponClass.TwoHandedSword);
+            if (!EnemyPhysicsSettings.NeckCuts || !EnemyPhysicsSettings.WeaponDamage || !sword ||
+                usage.SwingDamageType != DamageTypes.Cut || usage.SwingDamage <= 0 ||
+                !InteractionMath.IsFinite(trigger) || trigger < .55f ||
+                otherInput.IsActive == 0 || !InteractionMath.IsFinite(otherInput.Grip) || otherInput.Grip < .45f || body == null || body.IsCorpse ||
+                !body.Agent.IsActive() || hold.Point < 0 || hold.Point >= body.Count)
+            { hand.Cut.Reset(); return false; }
+            MatrixFrame otherPose = VrCameraDriver.StageToHand(otherInput.GripOrientation, otherInput.GripPosition);
+            if (!InteractionMath.IsFinite(otherPose.origin) || !InteractionMath.IsFinite(otherPose.rotation.s) ||
+                !InteractionMath.IsFinite(otherPose.rotation.f) || !InteractionMath.IsFinite(otherPose.rotation.u) ||
+                (otherPose.origin - body.Points[hold.Point].World).Length > EnemyPhysicsSettings.BreakDistance)
+            { hand.Cut.Reset(); return false; }
+            BoneBodyPartType heldPart = body.Points[hold.Point].Part;
+            EquipmentIndex otherSlot = Hands[1 - index].Slot;
+            if ((heldPart != BoneBodyPartType.Head && heldPart != BoneBodyPartType.Neck) ||
+                (otherSlot != EquipmentIndex.None && player.Equipment[otherSlot].CurrentUsageItem != null))
+            { hand.Cut.Reset(); return false; }
+            Vec3 axis = (tip - start).NormalizedCopy();
+            Vec3 edgeStart = start + axis * .08f;
+            Agent agent = _mission.RayCastForClosestAgentsLimbs(edgeStart, tip, player.Index,
+                .015f, out float distance, out sbyte bone);
+            float length = (tip - edgeStart).Length;
+            if (agent != body.Agent || bone < 0 || bone >= body.Skeleton.GetBoneCount() ||
+                !InteractionMath.IsFinite(distance) || distance < 0 || distance > length)
+            { hand.Cut.Reset(); return false; }
+            BodyPoint point = body.ReadContact(bone);
+            Vec3 contact = edgeStart + axis * distance;
+            if (point.Part != BoneBodyPartType.Neck || !Visible(edgeStart, contact, body) ||
+                EquipmentBlocks(body, edgeStart, tip, distance / Math.Max(.001f, length), .015f))
+            { hand.Cut.Reset(); return false; }
+            if (hand.Cut.Sample(agent.Index, start - point.World, axis, trackedTravel, now))
+            {
+                Vec3 velocity = (start - hand.PreviousBase) * (1 / dt) - point.Velocity;
+                PhysicalHit.ApplyDrawCut(player, body, point, contact, velocity, weapon, slot);
+                if (index == 0) body.LastHitLeft = now; else body.LastHitRight = now;
+                NativeMethods.bvr_trigger_haptic(index, .35f, .045f);
+            }
+            return true; // Reserve this continuous contact instead of also applying impact damage.
         }
 
         private static bool Visible(Vec3 start, Vec3 end, EnemyBody body)

@@ -2,8 +2,11 @@
 
 Cette analyse REA/Ghidra explique le choix du backend experimental. Elle ne
 constitue pas une execution du jeu et ne prouve pas la stabilite d'un ennemi vivant.
-Le code du mod utilise exclusivement les methodes publiques ; aucune adresse native
-fixe ni modification de la memoire du jeu n'est embarquee.
+L'activation utilise la methode publique du jeu. Apres l'echec du premier essai,
+la recuperation experimentale appelle une routine native interne propre a cette
+version. Elle est refusee si le SHA-256 complet du module charge, son entree
+native ou les identites mission/agent/squelette ne correspondent pas. Ce pont
+ne valide pas a lui seul le relevement ou la locomotion.
 
 ## Identites
 
@@ -55,9 +58,57 @@ et `OnEndMissionInternal` precede le retrait des agents et la liberation de scen
 Le controleur utilise ces callbacks pour le transfert a un cadavre et le nettoyage.
 La suppression finale abandonne la reference sans toucher un agent natif detruit.
 
+## Premier essai en jeu, 19 octobre 2026
+
+Le probe isole a ete execute dans une bataille personnalisee terrestre, avec
+le moteur v1.4.8.119303, sans OpenXR, sans degats ni effort ajoute. L'ennemi IA
+selectionne avait 100 points de vie et n'etait pas pause.
+
+Le journal observe `NeedsActivation`, puis `ActiveFirstTick`, puis `Active`.
+Le deplacement maximal mesure du bassin est de 1,377 m. L'agent reste vivant
+avec 100 points de vie. Apres la demande de fin, le squelette n'est toujours
+pas `Disabled` au terme du delai de recuperation de 1,5 s. Le controleur depause
+l'IA et se desactive pour la mission : resultat `FAIL`. Cela prouve l'activation
+physique, mais contredit la recuperation attendue dans ce delai. L'evolution
+ulterieure du squelette n'a pas ete enregistree par cette version du probe.
+
+Le journal integral est conserve localement dans
+`.analysis/runtime-probe-20261019-first.log`. Les DLL et la configuration
+installees avant le test ont ete restaurees, avec verification SHA-256.
+
+## Correction de recuperation a valider
+
+La routine native `0x18060dee0` commence par refuser les etats autres que 3 et 4
+(`Unconscious` et `Killed` dans l'enumeration reconstruite). Son traitement du
+drapeau ecrit par `EndRagdollAsCorpse` appartient donc a la mise a jour des morts.
+Preuve REA : `ev_77431a7f69abc707ab4d0f60406df795235bce81a19dbeb24d232739beca57e1`.
+Cela explique l'echec attendu du chemin precedent sur un agent vivant ; ce n'est
+pas une mesure de tous les chemins natifs possibles.
+
+La routine `0x1805d33f0` demande `NeedsDeactivation` pour un ragdoll actif et retire
+l'agent du tableau de ragdolls de sa mission, sans changement d'etat de vie.
+Preuve : `ev_3b98fa85f27e09eb42ec1d0dd102495d109b38dcf1b65a738a053e7c7bd4fa5b`.
+L'entree de 48 octets est verifiee en memoire avant usage, d'apres
+`ev_d14e9b0b7aa5b396f2143b432ae4c42b3a58600ade90f658fd8319ad589aaee6`.
+Le pont utilise une adresse relative au module pour cette seule empreinte du
+moteur, refuse un autre thread, valide les regions memoire et les liens natifs,
+puis appelle cette routine. Il ne reproduit pas ses ecritures internes.
+Le controleur attend toujours `Disabled` avant de rendre normalement l'IA.
+Une liberation demandee pendant `NeedsActivation` est differee jusqu'a l'etat actif.
+
+La correction compile, et ses refus hors moteur sont verifies par le test de
+chargement natif. Sa recuperation dans une mission reste a observer. Les nouvelles
+preuves completes sont dans `.analysis/native-recovery-evidence.json`.
+
+Un essai intermediaire a confirme l'empreinte et l'entree native, mais a refuse
+l'activation car le thread de mission differe du thread de demarrage. Ce resultat
+`INCONCLUSIVE` n'a modifie aucun agent. Le pont etablit desormais son thread
+depuis le callback de la mission courante et conserve le refus des appels issus
+d'un autre thread ; le temps d'attente du probe commence apres le deploiement.
+
 ## Ce qui reste a prouver
 
-- Activation effective sur un humain vivant et preservation de son etat de vie.
+- Reproductibilite de l'activation et preservation de vie sur d'autres agents.
 - Desactivation effective apres la demande de fin, puis retour de locomotion,
   capsule et animation coherents, y compris apres chute et a proximite d'un cheval.
 - Efforts stables sur les articulations natives, deux mains et armes plantees.
@@ -65,8 +116,8 @@ La suppression finale abandonne la reference sans toucher un agent natif detruit
 - Cout de la simulation du moteur pendant une bataille, distinct du CPU du mod.
 
 Les tests automatises utilisent un hote simule pour verifier le protocole et ses
-erreurs : ils ne remplacent aucune des observations de mission ci-dessus. Le jeu
-etait arrete lors de cette passe. Le backend reste desactive par defaut.
+erreurs : ils ne remplacent aucune des observations de mission ci-dessus.
+Le backend reste desactive par defaut ; le premier essai ne valide pas son usage.
 
 Le bundle complet est dans `.analysis/native-ragdoll-evidence.json` et le snapshot
 dans `.analysis/native-ragdoll-snapshot.json`, localement seulement. La session

@@ -56,7 +56,7 @@ endif()
 
 # The OpenXR/D3D sources only compile when the submodules are present, so a
 # fresh clone without them still produces a loadable stub DLL.
-set(BVR_SOURCES src/bvr_api.cpp)
+set(BVR_SOURCES src/bvr_api.cpp src/living_ragdoll.cpp)
 if(BVR_ENABLE_OPENXR)
     list(APPEND BVR_SOURCES
         src/bvr_config.cpp

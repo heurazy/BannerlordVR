@@ -1,0 +1,118 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Threading;
+using TaleWorlds.Engine;
+using TaleWorlds.MountAndBlade;
+
+namespace BannerlordVR.VR.Physics
+{
+    internal static class NativeRagdollBridge
+    {
+        private const string EngineHash = "2a5e0e0b15513ebb7052d747a621b82c50ee834553eba283b33bbbc33766e12a";
+        private static readonly FieldInfo AgentPointer = typeof(Agent).GetField("_pointer", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly PropertyInfo MissionPointer = typeof(Mission).GetProperty("Pointer", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static bool _ready;
+        private static bool _supported;
+        private static int _thread;
+        private static int _bindings;
+        public static bool Ready => _ready && Thread.CurrentThread.ManagedThreadId == _thread;
+
+        // Match the complete actual loaded module, not a guessed Steam path.
+        public static void Initialize()
+        {
+            _ready = false;
+            _supported = false;
+            try
+            {
+                if (AgentPointer == null || MissionPointer == null) return;
+                using (Process process = Process.GetCurrentProcess())
+                foreach (ProcessModule module in process.Modules)
+                {
+                    if (!string.Equals(module.ModuleName, "TaleWorlds.Native.dll", StringComparison.OrdinalIgnoreCase)) continue;
+                    string digest;
+                    using (var hash = SHA256.Create())
+                    using (var stream = File.OpenRead(module.FileName))
+                        digest = BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+                    if (digest != EngineHash)
+                    {
+                        VrLog.Info("Living ragdoll native bridge refused: unsupported engine SHA-256.");
+                        return;
+                    }
+                    _ready = bvr_ragdoll_prepare() == 0;
+                    _supported = _ready;
+                    _thread = Thread.CurrentThread.ManagedThreadId;
+                    VrLog.Info("Living ragdoll native bridge identity matched; ready=" + _ready + "; recovery still requires in-game validation.");
+                    return;
+                }
+            }
+            catch (Exception ex) { VrLog.Error("Living ragdoll native bridge unavailable.", ex); }
+        }
+
+        // Bannerlord can move from its startup thread to a different mission
+        // thread. Establish ownership at the actual serialized mission callback,
+        // never from a render hook or a caller of Release itself.
+        public static void BindMissionTick(Mission mission)
+        {
+            if (!_supported || mission != Mission.Current || mission.MissionEnded || GameNetwork.IsMultiplayer) return;
+            int current = Thread.CurrentThread.ManagedThreadId;
+            if (current == _thread) return;
+            _ready = false;
+            _ready = bvr_ragdoll_prepare() == 0;
+            if (_bindings++ < 4)
+                VrLog.Info("Living ragdoll bridge mission-thread binding: startup/previous=" + _thread +
+                    "; mission=" + current + "; ready=" + _ready);
+            _thread = current;
+            if (!_ready) _supported = false;
+        }
+
+        public static void Release(Agent agent, Mission mission, Skeleton skeleton)
+        {
+            if (!Ready || agent == null || !agent.IsActive() || skeleton == null ||
+                agent.AgentVisuals?.GetSkeleton()?.Pointer != skeleton.Pointer)
+                throw new InvalidOperationException("Living ragdoll release refused: ownership or thread changed.");
+            UIntPtr agentPtr = (UIntPtr)AgentPointer.GetValue(agent);
+            UIntPtr missionPtr = (UIntPtr)MissionPointer.GetValue(mission);
+            int status = bvr_ragdoll_release(missionPtr, agentPtr, skeleton.Pointer);
+            if (status != 0)
+                throw new InvalidOperationException("Living ragdoll engine release refused: " + Failure(status));
+        }
+
+        public static bool Preflight(Agent agent, Mission mission, Skeleton skeleton)
+        {
+            if (!Ready || agent == null || !agent.IsActive() || skeleton == null ||
+                agent.AgentVisuals?.GetSkeleton()?.Pointer != skeleton.Pointer) return false;
+            int status = bvr_ragdoll_validate((UIntPtr)MissionPointer.GetValue(mission),
+                (UIntPtr)AgentPointer.GetValue(agent), skeleton.Pointer);
+            if (status != 0) VrLog.Info("Living ragdoll preflight refused before activation: " + Failure(status));
+            return status == 0;
+        }
+
+        private static string Failure(int status)
+        {
+            switch (status)
+            {
+                case -1: return "bridge_thread_or_initialization";
+                case -20: return "agent_memory";
+                case -21: return "skeleton_memory";
+                case -22: return "mission_fields_memory";
+                case -23: return "native_agent_state";
+                case -24: return "native_mission_identity";
+                case -25: return "native_skeleton_body_identity";
+                case -27: return "mission_ragdoll_list_bounds";
+                case -28: return "ragdoll_not_active";
+                default: return "native_status_" + status;
+            }
+        }
+
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_prepare();
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_release(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_validate(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
+    }
+}
