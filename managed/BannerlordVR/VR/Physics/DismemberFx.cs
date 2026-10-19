@@ -71,10 +71,37 @@ namespace BannerlordVR.VR.Physics
             return false;
         }
 
-        public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed)
+        public enum Method { SkeletonScale, LocalFrame, Both }
+        private struct Held { public Agent Agent; public Skeleton Skeleton; public sbyte Bone, Parent; }
+        private static readonly List<Held> Maintained = new List<Held>();
+        public static float LastPersistedScale { get; private set; } = float.NaN;
+
+        // Re-applied every mission tick: the engine rewrites bone frames from
+        // animation or ragdoll bodies, so a one-off local frame would not hold.
+        public static void Maintain()
+        {
+            for (int i = Maintained.Count - 1; i >= 0; i--)
+            {
+                Held h = Maintained[i];
+                if (h.Agent == null || h.Agent.AgentVisuals?.GetSkeleton()?.Pointer != h.Skeleton.Pointer)
+                { Maintained.RemoveAt(i); continue; }
+                LastPersistedScale = BoneScale(h.Skeleton, h.Bone);
+                MatrixFrame parent = h.Skeleton.GetBoneEntitialFrameWithIndex(h.Parent);
+                MatrixFrame local = parent.TransformToLocalNonOrthogonal(h.Skeleton.GetBoneEntitialFrameWithIndex(h.Bone));
+                local.rotation.Orthonormalize();
+                local.rotation.ApplyScaleLocal(Vanished);
+                h.Skeleton.SetBoneLocalFrame(h.Bone, local);
+            }
+        }
+        public static void Clear() => Maintained.Clear();
+
+        public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed,
+            Method method = Method.Both)
         {
             MBAgentVisuals visuals = victim.AgentVisuals;
-            visuals.ApplySkeletonScale(Vec3.One, 0, new[] { bone }, new[] { Vanished });
+            if (method != Method.LocalFrame) visuals.ApplySkeletonScale(Vec3.One, 0, new[] { bone }, new[] { Vanished });
+            if (method != Method.SkeletonScale)
+                Maintained.Add(new Held { Agent = victim, Skeleton = visuals.GetSkeleton(), Bone = bone, Parent = parent });
             try
             {
                 MatrixFrame local = MatrixFrame.Identity;
