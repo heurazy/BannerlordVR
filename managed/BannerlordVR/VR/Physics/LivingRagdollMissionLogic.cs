@@ -57,6 +57,7 @@ namespace BannerlordVR.VR.Physics
             public void Clear() { Balance.Clear(); Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private readonly Entry[] _entries = CreateEntries();
+        private readonly PhysicsStepCounter _clock = new PhysicsStepCounter();
         private bool _failed;
         private Entry _probeEntry;
         private bool _probeStarted, _probeFinished, _probeSawActive;
@@ -68,9 +69,10 @@ namespace BannerlordVR.VR.Physics
         private Skeleton _probeSkeleton;
         private float _probeFollowUntil;
         private float _probeBattleBegan = -1;
-        private float _probeBegan, _probeMaxDrop, _probePeakSupport;
+        private float _probeBegan, _probeMaxDrop, _probeMaxRise, _probePeakSupport;
         private bool _probeBalanceCaptured, _probeBalanceFell;
-        private int _probeBalanceTicks;
+        private int _probeBalanceTicks, _probeBalanceSkipped;
+        private long _probeBalanceStepsAt = -1, _probeBalanceStepsEnd = -1;
         private Vec3 _probeRecoveryOrigin;
         private float _probeNextFollow, _probeLocomotionDistance;
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
@@ -162,9 +164,12 @@ namespace BannerlordVR.VR.Physics
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
-            if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe) || EnemyPhysicsSettings.LivingRagdolls)
+            if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
+                (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
-            if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe)
+            if (EnemyPhysicsSettings.ActiveBalance && Mission.Mode == MissionMode.Battle) _clock.Ensure(Mission);
+            if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
+                (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll))
             {
                 try { StartProbe(); FollowProbe(); }
                 catch (Exception ex)
@@ -184,10 +189,14 @@ namespace BannerlordVR.VR.Physics
                     entry.Lease.Tick(Mission.CurrentTime);
                     if (entry.Lease.OwnsPhysics && entry.NativeActive)
                     {
-                        entry.Balance.Tick(entry.Agent, entry.Skeleton, Mission, dt);
+                        entry.Balance.Tick(entry.Agent, entry.Skeleton, Mission, dt, _clock);
                         if (entry == _probeEntry && !_probeFinished && EnemyPhysicsSettings.ActiveBalance)
                         {
                             _probeBalanceTicks = entry.Balance.AppliedTicks;
+                            _probeBalanceSkipped = entry.Balance.SkippedTicks;
+                            if (_probeBalanceStepsAt < 0 && entry.Balance.AppliedTicks > 0) _probeBalanceStepsAt = _clock.Steps;
+                            if (entry.Balance.Phase == BodyBalancePhase.Supporting || entry.Balance.Phase == BodyBalancePhase.Falling)
+                                _probeBalanceStepsEnd = _clock.Steps;
                             _probePeakSupport = Math.Max(_probePeakSupport, entry.Balance.PeakForce);
                             _probeBalanceFell |= _probeBalanceCaptured && entry.Balance.Phase != BodyBalancePhase.Supporting;
                         }
@@ -316,6 +325,7 @@ namespace BannerlordVR.VR.Physics
                 }
                 _probeMaxDisplacement = Math.Max(_probeMaxDisplacement, (ProbePelvis(entry) - _probeOrigin).Length);
                 _probeMaxDrop = Math.Max(_probeMaxDrop, _probeOrigin.z - ProbePelvis(entry).z);
+                _probeMaxRise = Math.Max(_probeMaxRise, ProbePelvis(entry).z - _probeOrigin.z);
             }
         }
         private void FinishProbe(Entry entry)
@@ -332,9 +342,10 @@ namespace BannerlordVR.VR.Physics
                 passed ? "PASS" : "FAIL", _probeSawActive, disabled, alive, paused, sameHealth, _probeMaxDisplacement));
             if (EnemyPhysicsSettings.ActiveBalance)
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                    "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1}",
-                    passed && _probeBalanceCaptured && _probeBalanceTicks >= 10 && !_probeBalanceFell && _probeMaxDrop < .25f ? "PASS" : "FAIL",
-                    _probeBalanceCaptured, _probeBalanceTicks, _probeBalanceFell, _probeMaxDrop, _probePeakSupport));
+                    "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1} skipped_ticks={6} physx_steps_while_supported={7} max_rise_m={8:F3}",
+                    passed && _probeBalanceCaptured && _probeBalanceTicks >= 10 && !_probeBalanceFell && _probeMaxDrop < .25f && _probeMaxRise < .1f ? "PASS" : "FAIL",
+                    _probeBalanceCaptured, _probeBalanceTicks, _probeBalanceFell, _probeMaxDrop, _probePeakSupport,
+                    _probeBalanceSkipped, _probeBalanceStepsAt < 0 ? 0 : _probeBalanceStepsEnd - _probeBalanceStepsAt, _probeMaxRise));
             if (alive)
             {
                 _probeAgent = entry.Agent; _probeSkeleton = entry.Skeleton;
@@ -405,6 +416,8 @@ namespace BannerlordVR.VR.Physics
                 catch (Exception ex) { VrLog.Error("Living ragdoll shutdown failed.", ex); }
                 finally { entry.Clear(); }
             }
+            try { _clock.Shutdown(Mission); }
+            catch (Exception ex) { VrLog.Error("PhysX step clock shutdown failed.", ex); }
         }
     }
 }

@@ -12,16 +12,22 @@ namespace BannerlordVR.VR.Physics
     internal sealed class LivingBodyBalance
     {
         private readonly ActiveBodyBalance _motor = new ActiveBodyBalance();
+        private readonly PhysicsStepGate _gate = new PhysicsStepGate();
         private sbyte _pelvis, _chest, _left, _right;
         private float _nextGround, _initialGroundHeight, _groundHeight;
         private bool _leftGrounded, _rightGrounded;
         private bool _measured;
         public bool Captured { get; private set; }
         public int AppliedTicks { get; private set; }
+        public int SkippedTicks { get; private set; }
         public float PeakForce { get; private set; }
         public BodyBalancePhase Phase => _motor.Phase;
         public void Clear()
-        { _motor.Clear(); _leftGrounded = _rightGrounded = Captured = _measured = false; _nextGround = 0; AppliedTicks = 0; PeakForce = 0; }
+        {
+            _motor.Clear(); _gate.Reset();
+            _leftGrounded = _rightGrounded = Captured = _measured = false; _nextGround = 0;
+            AppliedTicks = SkippedTicks = 0; PeakForce = 0;
+        }
         public bool Capture(Agent agent, Skeleton skeleton, Mission mission)
         {
             Clear();
@@ -54,9 +60,11 @@ namespace BannerlordVR.VR.Physics
                 leftGround, rightGround, leftGap, rightGap, anatomy));
             return Captured;
         }
-        public void Tick(Agent agent, Skeleton skeleton, Mission mission, float dt)
+        public void Tick(Agent agent, Skeleton skeleton, Mission mission, float dt, PhysicsStepCounter clock)
         {
             if (_motor.Phase == BodyBalancePhase.Inactive) return;
+            if (clock == null || clock.Stalled(mission.CurrentTime))
+            { _motor.Clear(); VrLog.Info("BALANCE stopped: PhysX step clock unavailable."); return; }
             if (!_measured)
             {
                 _measured = true;
@@ -84,13 +92,14 @@ namespace BannerlordVR.VR.Physics
                 VrLog.Info("BALANCE transition phase=" + _motor.Phase + "; reason=" + _motor.Failure +
                     "; left_ground=" + _leftGrounded + "; right_ground=" + _rightGrounded);
             Vec3 pelvisForce = _motor.PelvisForce, chestForce = _motor.ChestForce;
+            if (pelvisForce.LengthSquared == 0 && chestForce.LengthSquared == 0) return;
+            // The previous force is still pending until PhysX steps again.
+            if (!clock.Running || !_gate.CanApply(clock.Steps)) { SkippedTicks++; return; }
             if (pelvisForce.LengthSquared > 0) agent.ApplyForceOnRagdoll(_pelvis, in pelvisForce);
             if (chestForce.LengthSquared > 0) agent.ApplyForceOnRagdoll(_chest, in chestForce);
-            if (pelvisForce.LengthSquared > 0 || chestForce.LengthSquared > 0)
-            {
-                AppliedTicks++;
-                PeakForce = Math.Max(PeakForce, pelvisForce.Length + chestForce.Length);
-            }
+            _gate.Applied(clock.Steps);
+            AppliedTicks++;
+            PeakForce = Math.Max(PeakForce, pelvisForce.Length + chestForce.Length);
         }
         private static bool Valid(sbyte bone, int count) => bone >= 0 && bone < count;
         private static float FloorHeight(Vec3 left, Vec3 right, float leftGap, float rightGap, bool leftGround, bool rightGround)

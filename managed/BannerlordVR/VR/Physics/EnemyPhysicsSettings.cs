@@ -17,6 +17,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool LivingRagdolls = VrConfig.Bool("enemy_physics_living_ragdoll", false);
         public static readonly bool ActiveBalance = VrConfig.Bool("enemy_physics_active_balance", false);
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
+        public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
+        public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);
         public static readonly bool NeckCuts = VrConfig.Bool("enemy_physics_neck_cut", false);
         public static readonly bool Bleeding = VrConfig.Bool("enemy_physics_bleeding", false);
         public static readonly bool WoundProbe = VrConfig.Bool("enemy_physics_wound_probe", false);

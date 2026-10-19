@@ -174,11 +174,31 @@ de transition animee de relevage. Les tests mathematiques incluent un modele
 independant de deux masses a 30/60/90/144 Hz ; ils ne reproduisent pas les
 collisions et articulations de PhysX.
 
-Les essais natifs ont valide la lecture de masse, l'application des forces et
-leur arret, mais **pas le maintien debout**. Le dernier essai applique des efforts
-sur 101 ticks, puis perd les appuis et cede ; le bassin chute ensuite jusqu'a
-0,566 m sous sa position initiale. La cadence du solveur et la repartition des
-efforts restent a verifier avant de proposer cette option comme jouable.
+La compensation du poids ne porte que sur le haut du corps (67,8 % de la masse
+physique, d'apres les tables anthropometriques de Winter) : les pieds poses
+portent les jambes. Compenser la masse entiere faisait flotter le ragdoll.
+
+Les ticks de mission (~200 Hz) sont plus frequents que les pas PhysX (90 Hz,
+11,11 ms) et tournent sur un autre thread. Bannerlord transmet
+`ApplyForceOnRagdoll` comme une acceleration cumulee jusqu'au pas suivant ;
+appliquer la force a chaque tick l'empilait environ deux fois. Une entite
+invisible sans corps physique compte les pas via le tick fixe de scene, et le
+soutien n'applique sa force qu'une fois par pas observe. Le compteur est relu
+apres l'appel, si bien qu'une course entre threads saute un pas au lieu de
+doubler la force. Sans pas observe sous 500 ms, le soutien s'arrete.
+
+Le 19 octobre 2026, deux essais sans casque ont ete realises sur un ennemi immobile :
+- avec le seul limiteur de cadence : 103 forces pour 104 pas PhysX, soutien
+  tenu 1,3 s au lieu de 0,4 s, mais le bassin monte de 13,7 cm et le torse
+  finit par trop pencher ;
+- avec la compensation du haut du corps : `BALANCE_PROBE result=PASS`,
+  117 forces pour 117 pas, pieds poses durant toute la fenetre de 1,3 s, aucune
+  montee, une descente maximale de 8,7 cm, puis desactivation du ragdoll et reprise de la
+  marche a 100 points de vie. Journal : `.analysis/balance-upperbody-20261019-1943-pass.log`.
+
+Cela valide un maintien debout court d'un ennemi immobile, pas un maintien
+prolonge, une saisie VR, une poussee, un ennemi en marche ni plusieurs corps
+simultanes. L'option reste desactivee par defaut.
 
 ## Saignement experimental
 

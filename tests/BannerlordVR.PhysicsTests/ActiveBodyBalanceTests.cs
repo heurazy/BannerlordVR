@@ -4,6 +4,7 @@ using TaleWorlds.Library;
 
 internal static class ActiveBodyBalanceTests
 {
+    private const float Upper = ActiveBodyBalance.SupportedMassFraction;
     public static void Run(Action<bool, string> check)
     {
         Vec3 left = new Vec3(-.15f, 0, .1f), right = new Vec3(.15f, 0, .1f);
@@ -12,19 +13,19 @@ internal static class ActiveBodyBalanceTests
         check(motor.Begin(pelvis, chest, left, right, 80), "Standing anatomy can capture a balance reference");
         for (int i = 0; i < 20; i++) motor.Tick(pelvis, chest, left, right, true, .01f);
         check(motor.Phase == BodyBalancePhase.Supporting &&
-            Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 80 * 9.81f) < .01f,
+            Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 80 * Upper * 9.81f) < .01f,
             "A stationary supported pose receives total weight compensation");
         check(motor.PelvisForce.x == 0 && motor.PelvisForce.y == 0,
             "A balanced pose has no horizontal drift force");
         check(motor.SetPhysicalMass(60) && !motor.SetPhysicalMass(float.NaN) && !motor.SetPhysicalMass(1000),
             "Measured physical mass may replace equipment mass but invalid readings cannot enter the motor");
         motor.Tick(pelvis, chest, left, right, true, .01f);
-        check(Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 60 * 9.81f) < .01f,
+        check(Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 60 * Upper * 9.81f) < .01f,
             "Gravity assistance uses the actual physical mass after calibration");
         motor.SetPhysicalMass(80);
         motor.Tick(pelvis + Vec3.Up * .1f, chest + Vec3.Up * .1f,
             left + Vec3.Up * .1f, right + Vec3.Up * .1f, true, .05f);
-        check(motor.PelvisForce.z + motor.ChestForce.z < 80 * 9.81f,
+        check(motor.PelvisForce.z + motor.ChestForce.z < 80 * Upper * 9.81f,
             "Lifting both feet cannot raise the vertical support target and create an elevator feedback loop");
         motor.Begin(pelvis, chest, left, right, 80);
         for (int i = 0; i < 20; i++) motor.Tick(pelvis, chest, left, right, true, .01f);
@@ -33,7 +34,7 @@ internal static class ActiveBodyBalanceTests
         // One further stationary sample removes the initial upward velocity term.
         motor.Tick(pelvis + Vec3.Up * .1f, chest + Vec3.Up * .1f,
             left + Vec3.Up * .1f, right + Vec3.Up * .1f, true, true, .05f, .1f);
-        check(Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 80 * 9.81f) < .01f,
+        check(Math.Abs(motor.PelvisForce.z + motor.ChestForce.z - 80 * Upper * 9.81f) < .01f,
             "An actual rise in measured terrain may shift the support reference");
         motor.Begin(pelvis, chest, left, right, 80);
         for (int i = 0; i < 20; i++) motor.Tick(pelvis, chest, left, right, true, .01f);
@@ -95,12 +96,29 @@ internal static class ActiveBodyBalanceTests
                 Vec3 pf = motor.PelvisForce, cf = motor.ChestForce;
                 finite &= InteractionMath.IsFinite(pf) && InteractionMath.IsFinite(cf) &&
                     pf.Length <= 1080.01f && cf.Length <= 720.01f && pf.z >= 0 && cf.z >= 0;
-                pv += (pf * (1f / 48) - Vec3.Up * 9.81f) * dt;
-                cv += (cf * (1f / 32) - Vec3.Up * 9.81f) * dt;
+                // Upper-body masses only: the ground carries the legs.
+                pv += (pf * (1f / (48 * Upper)) - Vec3.Up * 9.81f) * dt;
+                cv += (cf * (1f / (32 * Upper)) - Vec3.Up * 9.81f) * dt;
                 p += pv * dt; c += cv * dt;
             }
             check(finite && motor.Phase == BodyBalancePhase.Supporting && Math.Abs(p.z - pelvis.z) < .03f &&
                 Math.Abs(c.z - chest.z) < .03f, "Bounded weight support settles in the independent two-mass integration at " + rate + " Hz");
+        }
+        // Regression for the in-game float: with the ground carrying the legs,
+        // the support settles near the captured height instead of 13.7 cm up.
+        motor.Begin(pelvis, chest, left, right, 89.7f);
+        {
+            Vec3 p = pelvis, c = chest, pv = Vec3.Zero, cv = Vec3.Zero;
+            float rise = 0;
+            for (int i = 0; i < 90 * 3; i++)
+            {
+                motor.Tick(p, c, left, right, true, 1f / 90);
+                pv += (motor.PelvisForce * (1f / (89.7f * Upper * .6f)) - Vec3.Up * 9.81f) * (1f / 90);
+                cv += (motor.ChestForce * (1f / (89.7f * Upper * .4f)) - Vec3.Up * 9.81f) * (1f / 90);
+                p += pv * (1f / 90); c += cv * (1f / 90);
+                rise = Math.Max(rise, p.z - pelvis.z);
+            }
+            check(rise < .03f, "Upper-body compensation does not float a ragdoll whose legs rest on the ground");
         }
     }
 }

@@ -11,6 +11,12 @@ namespace BannerlordVR.VR.Physics
     // them to PhysX in acceleration mode. The solver integrates time itself.
     public sealed class ActiveBodyBalance
     {
+        // Feet resting on the ground carry the legs (two thigh+shank+foot
+        // segments, 16.1% each in Winter's anthropometric tables). Forces on
+        // pelvis and chest compensate only the upper body; compensating the
+        // whole ragdoll floated it: the in-game probe settled 13.7 cm high,
+        // the equilibrium predicted for about 69% of the weight.
+        public const float SupportedMassFraction = .678f;
         private Vec3 _pelvisOffset, _chestOffset, _lastPelvis, _lastChest;
         private float _mass, _age, _unsupported, _fade, _referenceFeetZ;
         private bool _sampled;
@@ -100,7 +106,7 @@ namespace BannerlordVR.VR.Physics
         }
         private Vec3 Motor(Vec3 error, Vec3 velocity, float share, bool grounded)
         {
-            float mass = _mass * share;
+            float mass = _mass * SupportedMassFraction * share;
             Vec3 acceleration = error * 22 - velocity * 5;
             Vec3 horizontal = new Vec3(acceleration.x, acceleration.y, 0);
             horizontal = grounded ? InteractionMath.ClampMagnitude(horizontal, 3) : Vec3.Zero;
