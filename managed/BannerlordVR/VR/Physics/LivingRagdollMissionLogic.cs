@@ -52,14 +52,28 @@ namespace BannerlordVR.VR.Physics
                 NativeRagdollBridge.Release(Agent, Mission, Skeleton);
                 ReleasePending = false;
             }
+            // Agent.IsPaused only stops AI decisions: the engine kept walking a
+            // paused agent towards its last target, 15-28 m away from its body
+            // in a battle test. Hold the agent where its body went physical.
+            private bool _held;
+            private Vec2 _holdPosition;
             public void SuppressMovement()
             {
+                if (!_held) { _held = true; _holdPosition = Agent.Position.AsVec2; }
                 Agent.MovementFlags = 0;
                 Agent.MovementInputVector = Vec2.Zero;
                 Agent.EventControlFlags = 0;
+                Agent.SetMaximumSpeedLimit(0, false);
+                Agent.SetTargetPosition(_holdPosition);
             }
-            public void ResumeDecisions() => Agent.ForceAiBehaviorSelection();
-            public void Clear() { Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
+            public void ResumeDecisions()
+            {
+                _held = false;
+                // Same reset Bannerlord applies when control changes hands.
+                Agent.SetMaximumSpeedLimit(-1, false);
+                Agent.ForceAiBehaviorSelection();
+            }
+            public void Clear() { _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private readonly Entry[] _entries = CreateEntries();
         private readonly PhysicsStepCounter _clock = new PhysicsStepCounter();
@@ -80,6 +94,17 @@ namespace BannerlordVR.VR.Physics
         private long _probeBalanceStepsAt = -1, _probeBalanceStepsEnd = -1;
         private Vec3 _probeRecoveryOrigin;
         private float _probeNextFollow, _probeLocomotionDistance;
+        public override void OnBehaviorInitialize()
+        {
+            base.OnBehaviorInitialize();
+            // The first push, fall and stand-up each cost several ms of JIT on
+            // the mission thread (1.6, 7.3 and 16 ms ticks); compile during load.
+            if (EnemyPhysicsSettings.ActiveRagdoll)
+                JitWarmup.Prepare(typeof(ActiveRagdollBody), typeof(RagdollPinDrive), typeof(ActiveRagdollCycle),
+                    typeof(PushReaction), typeof(RagdollGrabRules), typeof(PenetrationJoint), typeof(BodyPenetration),
+                    typeof(PhysicsStepCounter), typeof(PhysicsStepGate), typeof(NativeRagdollBridge), typeof(LivingRagdollLease),
+                    typeof(LivingRagdollMissionLogic), typeof(InteractionMath));
+        }
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
         public double LastTickCpuMilliseconds { get; private set; }
         private static Entry[] CreateEntries()
@@ -406,7 +431,7 @@ namespace BannerlordVR.VR.Physics
             // Only onto a walkable navmesh face, so a body that slid down a
             // slope is never placed inside geometry.
             if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
-                distance < 8 && navmesh)
+                distance < 30 && navmesh)
             { entry.Agent.TeleportToPosition(position); teleported = true; }
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5}",
