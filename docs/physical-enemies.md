@@ -10,7 +10,8 @@ profilage de bataille en jeu n'a encore ete realise.
 | Interaction | Implementation actuelle | Limite |
 | --- | --- | --- |
 | Poings | Gachette pour fermer le poing vide, raycast natif des membres entre deux poses, os retourne par le moteur, vitesse minimale, delai de 350 ms par cible et par main | Equilibrage et mouvement des cibles pendant le tick a verifier en jeu |
-| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation et desactivation observees sur un ennemi sans casque ; saisies/efforts VR non valides ; pas encore d'equilibre debout pilote par ressorts |
+| Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation et desactivation observees sur un ennemi sans casque ; saisies/efforts VR non valides |
+| Equilibre | Soutien optionnel du bassin et du torse, compensation de poids et amortissement, references capturees avant activation, appui au sol controle | Essais natifs en echec : montee du corps puis perte d'appui ; sans pas correctifs ni relevage anime |
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
 | Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
 | Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
@@ -20,8 +21,8 @@ profilage de bataille en jeu n'a encore ete realise.
 
 L'option de ragdoll vivant reagit egalement aux coups : une reaction de 600 ms est
 demandee, et l'effort du coup est mis en attente jusqu'a confirmation de l'activation.
-Le moteur ne recoit aucune force sur un ragdoll absent. Cela ne constitue pas encore
-un controleur d'equilibre debout : l'ennemi peut s'effondrer pendant cette reaction.
+Le moteur ne recoit aucune force sur un ragdoll absent. Sans l'option de soutien
+decrite ci-dessous, l'ennemi peut s'effondrer pendant cette reaction.
 
 Les degats passent par `Agent.RegisterBlow` : attribution au joueur, evenements de
 coup et regles de mortalite du jeu. La valeur du dommage utilise une formule
@@ -73,8 +74,9 @@ Le mod n'ecrit pas directement le root ni la navigation d'un ennemi et n'appelle
 pas `AddAsCorpse` ou une methode de mort pour activer le backend vivant. Le ragdoll
 est gere par le moteur. Avec cette option experimentale, l'IA est mise en pause
 temporairement et ses entrees de mouvement sont neutralisees. Une pause deja
-presente n'est pas retiree par le mod. Le retour a la locomotion et a l'equilibre
-debout, le suivi de la capsule et la stabilite aux transitions restent a observer.
+presente n'est pas retiree par le mod. Un suivi apres liberation a observe le
+retour du deplacement de l'agent sur dix secondes. L'aspect du relevage, le suivi
+visuel de la capsule et la stabilite aux transitions restent a observer.
 
 Le controleur distingue activation, simulation et recuperation : 350 ms maximum
 pour constater l'activation, 6 s maximum de prise en charge, puis demande de fin
@@ -139,6 +141,44 @@ points de vie. Le saignement differe dispose d'une option distincte ; l'anatomie
 des lesions reste a faire.
 Seules les mathematiques du geste sont testees automatiquement : la detection
 native du cou et le resultat en VR ne sont pas encore valides.
+
+## Soutien actif experimental
+
+`enemy_physics_active_balance=1` ajoute un soutien uniquement aux corps vivants
+dont le ragdoll est possede par ce mod. La capture initiale exige deux os de pied
+distincts, au moins un pied sur le monde fixe, des hauteurs de bassin/torse plausibles et une
+masse totale comprise entre 30 et 200. Elle utilise les os declares par le
+monstre, sans supposer que tous les humanoides ont les memes indices. Les deux
+rayons de sol sont ensuite renouveles au plus toutes les 100 ms par corps.
+
+Le moteur ajoute des forces continues au bassin et au torse, avec compensation
+du poids, un amortissement et une montee sur 150 ms. A la premiere activation,
+le pont versionne lit la masse des corps physiques uniques du ragdoll, via le
+getter moteur identifie et son verrou de scene. Cette masse remplace la masse
+globale de l'agent ; un refus de lecture ou une valeur hors plage annule le soutien.
+La reference verticale suit le sol mesure, pas un pied qui monte ; le deplacement
+des pieds ne peut donc relever lui-meme la cible du moteur.
+L'effort cumule est borne a 1 800 unites de force par corps ; la correction
+horizontale est bornee a trois unites d'acceleration et ne s'applique pas sans
+appui confirme. Aucune pose, capsule ou position racine n'est teleportee.
+
+Le soutien cede si le centre estime du corps sort de la zone des pieds de plus
+de 28 cm, si le bassin s'effondre, si le
+torse penche trop ou si l'appui disparait plus de 120 ms. Un pied leve n'elargit
+pas la zone de soutien. Les forces s'effacent
+sur 120 ms ; le corps peut ensuite tomber librement. Une discontinuite de pose
+ou un tick superieur a 100 ms annule immediatement le soutien. La liberation,
+la mort, un montage ou une action incompatible arretent egalement ce travail.
+Il n'y a pas encore de pas correctifs, de musculature articulaire complete ni
+de transition animee de relevage. Les tests mathematiques incluent un modele
+independant de deux masses a 30/60/90/144 Hz ; ils ne reproduisent pas les
+collisions et articulations de PhysX.
+
+Les essais natifs ont valide la lecture de masse, l'application des forces et
+leur arret, mais **pas le maintien debout**. Le dernier essai applique des efforts
+sur 101 ticks, puis perd les appuis et cede ; le bassin chute ensuite jusqu'a
+0,566 m sous sa position initiale. La cadence du solveur et la repartition des
+efforts restent a verifier avant de proposer cette option comme jouable.
 
 ## Saignement experimental
 
@@ -234,7 +274,7 @@ appels natifs de physique executes dans Bannerlord.
 
 Validation effectuee le 19 octobre 2026 : compilation Release C# sans avertissement,
 compilation native OpenXR reussie (avertissements deja presents dans les sources
-amont), 4 112 verifications physiques, de gestes, de blessures et de transitions reussies, suite mathematique amont reussie,
+amont), 4 133 verifications physiques, de gestes, de blessures, de soutien et de transitions reussies, suite mathematique amont reussie,
 chargement reel de la DLL native et verification des refus d'entree/haptique hors
 session. Le test de chargement n'initialise ni OpenXR ni les hooks de rendu.
 Les tests du controleur vivant utilisent un hote simule : ils prouvent l'ordre des

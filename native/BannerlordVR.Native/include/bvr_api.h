@@ -53,6 +53,8 @@ BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent
    ApplyForceOnRagdoll's two virtual calls. Does not call either method. */
 BVR_API int32_t BVR_CALL bvr_ragdoll_force_api(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
     int32_t bone, uintptr_t* vectorMethodRva, uintptr_t* scalarMethodRva);
+BVR_API int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone_count, float* total_mass, int32_t* body_count);
 
 typedef enum BvrEye {
     BVR_EYE_LEFT  = 0,

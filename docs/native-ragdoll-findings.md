@@ -183,12 +183,60 @@ des prises restent a mesurer. Le bundle local est `.analysis/native-force-eviden
 - Desactivation effective apres la demande de fin, puis retour de locomotion,
   capsule et animation coherents, y compris apres chute et a proximite d'un cheval.
 - Efforts stables sur les articulations natives, deux mains et armes plantees.
-- Equilibre debout et reprise douce, qui ne sont pas encore implementes.
+- Equilibre debout : le soutien code reste en echec ; pas correctifs et reprise douce restent a implementer.
 - Cout de la simulation du moteur pendant une bataille, distinct du CPU du mod.
 
 Les tests automatises utilisent un hote simule pour verifier le protocole et ses
 erreurs : ils ne remplacent aucune des observations de mission ci-dessus.
 Le backend reste desactive par defaut ; le premier essai ne valide pas son usage.
+
+## Suivi du deplacement apres liberation
+
+Un essai du soutien actif le 19 octobre 2026 a refuse la capture initiale avant
+toute force (`captured=False`, `force_ticks=0`). Le cycle de ragdoll a neanmoins
+reussi, avec conservation des 100 points de vie, retour a `Disabled` et depause
+de l'IA. Le nouveau suivi de dix secondes a mesure un deplacement racine maximal
+de 32,524 m et des vitesses de 1,762 a 3,909 m/s dans ses echantillons, sans nouvelle
+perte de vie. Cela etablit une reprise du deplacement de cet agent apres ce cycle,
+pas la qualite visuelle de son relevage ni la reussite du controleur de soutien.
+Journal local : `.analysis/balance-probe-20261019-capture-refused.log`.
+
+## Masse physique et premiers essais de soutien
+
+Le diagnostic initial a mesure une masse d'agent de 125,16 et un pied a 0,238 m
+au-dessus du sol pendant la marche. Le controleur accepte desormais un seul
+pied d'appui ; un pied hors appui ne contribue pas a sa zone de soutien. Un
+premier essai a alors applique des efforts sur 23 ticks avant de ceder, avec
+une chute maximale du bassin de 0,531 m : resultat du soutien `FAIL`, meme si
+la liberation et le retour de deplacement reussissent. Journal local :
+`.analysis/balance-probe-20261019-walking-yield.log`.
+
+Un essai a faible vitesse a observe une perte des deux appuis apres environ
+0,4 s. Pour distinguer masse globale et masse simulee, le nouveau pont additionne
+les corps physiques uniques retournes par le mapping d'os. Il verifie l'etat
+actif, les memoires lues, les methodes concretes precedemment identifiees et
+les 24 premiers octets du getter `0x18011ade0`, puis appelle ce getter sous le
+verrou de scene du moteur. Aucun corps n'est compte deux fois. La lecture est
+limitee a 127 os et 64 corps, et refuse une masse non finie, nulle ou excessive.
+
+Dans le jeu, la lecture a reussi : 16 corps, masse physique totale 89,695,
+contre une masse globale d'agent de 126,80. Le controleur a utilise cette
+masse physique et applique des efforts sur 122 ticks, puis cede par perte
+d'appui ; le maintien debout reste donc non valide. Les capteurs ont mesure
+la montee des pieds puis l'absence de contact a portee du rayon. Journal local :
+`.analysis/balance-probe-20261019-mass-read.log`. La reference verticale a ensuite
+ete corrigee pour suivre la hauteur du sol au lieu des pieds souleves. La cadence
+mission/solveur et les proportions d'effort demandent encore des mesures ;
+aucun de ces echecs n'est presente comme une validation d'equilibre debout.
+
+L'essai avec reference verticale liee au sol a applique des efforts sur 101 ticks,
+avec un effort maximal cumule de 616,3. Le corps monte moins, mais les appuis sont
+perdus et le controleur cede encore ; chute maximale du bassin de 0,566 m, resultat
+`BALANCE_PROBE FAIL`. La liberation native et la reprise de deplacement ont reussi
+avec conservation des points de vie. Journal local :
+`.analysis/balance-probe-20261019-ground-reference.log`. Les DLL et la configuration
+d'origine ont ete restaurees et verifiees par SHA-256 apres ces essais. Le soutien
+reste desactive par defaut et ne constitue pas une fonctionnalite validee.
 
 Le bundle complet est dans `.analysis/native-ragdoll-evidence.json` et le snapshot
 dans `.analysis/native-ragdoll-snapshot.json`, localement seulement. La session

@@ -16,6 +16,7 @@ namespace BannerlordVR.VR.Physics
             public Skeleton Skeleton;
             public Mission Mission;
             public readonly LivingRagdollLease Lease = new LivingRagdollLease();
+            public readonly LivingBodyBalance Balance = new LivingBodyBalance();
             public bool ImpactPending;
             public sbyte ImpactBone;
             public Vec3 ImpactForce;
@@ -34,6 +35,8 @@ namespace BannerlordVR.VR.Physics
             {
                 if (!NativeRagdollBridge.Preflight(Agent, Mission, Skeleton))
                     throw new InvalidOperationException("Living ragdoll activation refused by recovery preflight.");
+                if (EnemyPhysicsSettings.ActiveBalance)
+                    VrLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
             }
             public void EndNative()
@@ -51,7 +54,7 @@ namespace BannerlordVR.VR.Physics
                 Agent.EventControlFlags = 0;
             }
             public void ResumeDecisions() => Agent.ForceAiBehaviorSelection();
-            public void Clear() { Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
+            public void Clear() { Balance.Clear(); Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private readonly Entry[] _entries = CreateEntries();
         private bool _failed;
@@ -65,6 +68,11 @@ namespace BannerlordVR.VR.Physics
         private Skeleton _probeSkeleton;
         private float _probeFollowUntil;
         private float _probeBattleBegan = -1;
+        private float _probeBegan, _probeMaxDrop, _probePeakSupport;
+        private bool _probeBalanceCaptured, _probeBalanceFell;
+        private int _probeBalanceTicks;
+        private Vec3 _probeRecoveryOrigin;
+        private float _probeNextFollow, _probeLocomotionDistance;
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
         public double LastTickCpuMilliseconds { get; private set; }
         private static Entry[] CreateEntries()
@@ -174,6 +182,17 @@ namespace BannerlordVR.VR.Physics
                     if (entry == _probeEntry && !_probeFinished) ObserveProbe(entry);
                     if (entry.ReleasePending && entry.Alive && entry.NativeActive) entry.EndNative();
                     entry.Lease.Tick(Mission.CurrentTime);
+                    if (entry.Lease.OwnsPhysics && entry.NativeActive)
+                    {
+                        entry.Balance.Tick(entry.Agent, entry.Skeleton, Mission, dt);
+                        if (entry == _probeEntry && !_probeFinished && EnemyPhysicsSettings.ActiveBalance)
+                        {
+                            _probeBalanceTicks = entry.Balance.AppliedTicks;
+                            _probePeakSupport = Math.Max(_probePeakSupport, entry.Balance.PeakForce);
+                            _probeBalanceFell |= _probeBalanceCaptured && entry.Balance.Phase != BodyBalancePhase.Supporting;
+                        }
+                    }
+                    else if (entry.Lease.Phase != LivingRagdollPhase.Activating) entry.Balance.Clear();
                     if (entry.ImpactPending)
                     {
                         if (Mission.CurrentTime > entry.ImpactDeadline || !entry.Lease.Occupied) entry.ImpactPending = false;
@@ -217,7 +236,7 @@ namespace BannerlordVR.VR.Physics
             if (_probeStarted || Mission.Mode != MissionMode.Battle || Mission.MainAgent == null) return;
             if (_probeBattleBegan < 0) _probeBattleBegan = Mission.CurrentTime;
             float elapsed = Mission.CurrentTime - _probeBattleBegan;
-            if (elapsed < 3) return;
+            if (elapsed < (EnemyPhysicsSettings.ActiveBalance ? .05f : 3)) return;
             if (GameNetwork.IsMultiplayer || Game.Current?.GameType?.GetType().FullName != "TaleWorlds.MountAndBlade.CustomBattle.CustomGame")
             {
                 _probeStarted = _probeFinished = true;
@@ -240,6 +259,7 @@ namespace BannerlordVR.VR.Physics
             {
                 if (!EnemyBody.Eligible(agent, Mission.MainAgent) || !agent.IsActive() || agent.IsPaused ||
                     !agent.IsAIControlled || (agent.Position - Mission.MainAgent.Position).Length < 20) continue;
+                if (EnemyPhysicsSettings.ActiveBalance && agent.Velocity.Length > .3f) continue;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled ||
                     agent.Monster.PelvisBoneIndex < 0 || agent.Monster.PelvisBoneIndex >= skeleton.GetBoneCount()) continue;
@@ -254,6 +274,7 @@ namespace BannerlordVR.VR.Physics
                         return;
                     }
                     _probeStarted = true; _probeEntry = entry; _probeHealth = agent.Health;
+                    _probeBegan = Mission.CurrentTime;
                     _probeOrigin = ProbePelvis(entry); _probeLastState = RagdollState.Disabled;
                     VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "PHYSICS_PROBE begin agent={0} time={1:F3} health={2:F1} state={3} paused={4}",
@@ -263,7 +284,11 @@ namespace BannerlordVR.VR.Physics
                         _probeFinished = true; entry.Clear();
                         VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=activation_rejected");
                     }
-                    else entry.Lease.KeepHeld(Mission.CurrentTime, .6f);
+                    else
+                    {
+                        entry.Lease.KeepHeld(Mission.CurrentTime, .6f);
+                        _probeBalanceCaptured = entry.Balance.Captured;
+                    }
                     return;
                 }
             }
@@ -281,6 +306,8 @@ namespace BannerlordVR.VR.Physics
             }
             if (state == RagdollState.Active)
             {
+                if (EnemyPhysicsSettings.ActiveBalance && Mission.CurrentTime - _probeBegan < 1.2f)
+                    entry.Lease.KeepHeld(Mission.CurrentTime);
                 _probeSawActive = true;
                 if (!_probeInspectedForceApi)
                 {
@@ -288,6 +315,7 @@ namespace BannerlordVR.VR.Physics
                     NativeRagdollBridge.LogForceApi(entry.Agent, Mission, entry.Skeleton, entry.Agent.Monster.PelvisBoneIndex);
                 }
                 _probeMaxDisplacement = Math.Max(_probeMaxDisplacement, (ProbePelvis(entry) - _probeOrigin).Length);
+                _probeMaxDrop = Math.Max(_probeMaxDrop, _probeOrigin.z - ProbePelvis(entry).z);
             }
         }
         private void FinishProbe(Entry entry)
@@ -297,14 +325,22 @@ namespace BannerlordVR.VR.Physics
             bool disabled = alive && entry.NativeDisabled;
             bool paused = alive && entry.Agent.IsPaused;
             bool sameHealth = alive && Math.Abs(entry.Agent.Health - _probeHealth) < .01f;
-            bool passed = _probeSawActive && disabled && !paused && sameHealth && !entry.Lease.Faulted && _probeMaxDisplacement > .02f;
+            bool passed = _probeSawActive && disabled && !paused && sameHealth && !entry.Lease.Faulted &&
+                (_probeMaxDisplacement > .02f || (EnemyPhysicsSettings.ActiveBalance && _probeBalanceTicks >= 10));
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "PHYSICS_PROBE result={0} active_seen={1} native_disabled={2} alive={3} paused={4} same_health={5} max_pelvis_displacement_m={6:F3}",
                 passed ? "PASS" : "FAIL", _probeSawActive, disabled, alive, paused, sameHealth, _probeMaxDisplacement));
-            if (alive && !disabled)
+            if (EnemyPhysicsSettings.ActiveBalance)
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1}",
+                    passed && _probeBalanceCaptured && _probeBalanceTicks >= 10 && !_probeBalanceFell && _probeMaxDrop < .25f ? "PASS" : "FAIL",
+                    _probeBalanceCaptured, _probeBalanceTicks, _probeBalanceFell, _probeMaxDrop, _probePeakSupport));
+            if (alive)
             {
                 _probeAgent = entry.Agent; _probeSkeleton = entry.Skeleton;
                 _probeFollowUntil = Mission.CurrentTime + 10;
+                _probeNextFollow = Mission.CurrentTime;
+                _probeRecoveryOrigin = entry.Agent.Position;
             }
         }
         private void FollowProbe()
@@ -319,14 +355,17 @@ namespace BannerlordVR.VR.Physics
                 return;
             }
             RagdollState state = _probeSkeleton.GetCurrentRagdollState();
-            bool done = state == RagdollState.Disabled || Mission.CurrentTime >= _probeFollowUntil;
-            if (state != _probeLastState || done)
+            bool done = Mission.CurrentTime >= _probeFollowUntil;
+            _probeLocomotionDistance = Math.Max(_probeLocomotionDistance, (_probeAgent.Position - _probeRecoveryOrigin).Length);
+            if (state != _probeLastState || done || Mission.CurrentTime >= _probeNextFollow)
             {
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                    "PHYSICS_PROBE followup time={0:F3} native={1} alive={2} paused={3} same_health={4} observation_done={5}",
+                    "PHYSICS_PROBE followup time={0:F3} native={1} alive={2} paused={3} same_health={4} observation_done={5} root_distance_m={6:F3} speed={7:F3} action={8}",
                     Mission.CurrentTime, state, alive, _probeAgent.IsPaused,
-                    Math.Abs(_probeAgent.Health - _probeHealth) < .01f, done));
+                    Math.Abs(_probeAgent.Health - _probeHealth) < .01f, done, _probeLocomotionDistance,
+                    _probeAgent.Velocity.Length, _probeAgent.GetCurrentActionType(0)));
                 _probeLastState = state;
+                _probeNextFollow = Mission.CurrentTime + .5f;
             }
             if (done) { _probeAgent = null; _probeSkeleton = null; }
         }

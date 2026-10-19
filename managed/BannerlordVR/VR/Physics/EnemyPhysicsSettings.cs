@@ -15,6 +15,7 @@ namespace BannerlordVR.VR.Physics
         public static readonly float BreakDistance = Read("enemy_physics_break_distance", 0.65f, 0.2f, 1.2f);
         public static readonly bool WeaponDamage = VrConfig.Bool("enemy_physics_weapon_damage", false);
         public static readonly bool LivingRagdolls = VrConfig.Bool("enemy_physics_living_ragdoll", false);
+        public static readonly bool ActiveBalance = VrConfig.Bool("enemy_physics_active_balance", false);
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
         public static readonly bool NeckCuts = VrConfig.Bool("enemy_physics_neck_cut", false);
         public static readonly bool Bleeding = VrConfig.Bool("enemy_physics_bleeding", false);

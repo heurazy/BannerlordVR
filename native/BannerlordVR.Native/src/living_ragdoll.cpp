@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 
 namespace {
 using Release = void(__fastcall*)(void*, void*);
@@ -86,6 +87,56 @@ int32_t BVR_CALL bvr_ragdoll_force_api(uintptr_t mission, uintptr_t agent, uintp
         scalar_method < module_base || scalar_method - module_base >= module_bytes) return -33;
     *vector_rva = vector_method - module_base;
     *scalar_rva = scalar_method - module_base;
+    return BVR_OK;
+}
+
+int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
+    int32_t bone_count, float* total_mass, int32_t* body_count)
+{
+    if (!total_mass || !body_count) return BVR_SESSION_NOT_READY;
+    *total_mass = 0; *body_count = 0;
+    const int32_t validation = bvr_ragdoll_validate(mission, agent, skeleton_value);
+    if (validation != BVR_OK) return validation;
+    const auto skeleton = reinterpret_cast<void*>(skeleton_value);
+    if (bone_count < 1 || bone_count > 127 || read<uint16_t>(skeleton, 0x40) != 3) return -28;
+    // Exact getter identified through the live vtable and REA: reads PhysX
+    // getMass under the engine scene lock, without applying any force.
+    const uintptr_t mass_entry = module_base + 0x11ade0;
+    const uint8_t prefix[] = {0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,
+        0x44,0x24,0x20,0xfe,0xff,0xff,0xff,0x48,0x89,0x5c,0x24,0x60};
+    if (!readable(reinterpret_cast<void*>(mass_entry), sizeof(prefix)) ||
+        std::memcmp(reinterpret_cast<void*>(mass_entry), prefix, sizeof(prefix))) return BVR_GRAPHICS_MISMATCH;
+    void* data = read<void*>(skeleton, 0xd0);
+    if (!data || !readable(static_cast<uint8_t*>(data) + 0x1000, 8)) return -30;
+    void* bones = read<void*>(data, 0x1000);
+    if (!bones || !readable(bones, 0x209 + bone_count)) return -30;
+    void* seen[64]{};
+    int count = 0;
+    float total = 0;
+    using GetMass = float(__fastcall*)(void*);
+    const auto get_mass = reinterpret_cast<GetMass>(mass_entry);
+    for (int bone = 0; bone < bone_count; ++bone) {
+        const int index = read<int8_t>(bones, 0x209 + bone);
+        if (index < 0) continue;
+        if (index >= 64) return -31;
+        void* holder = read<void*>(bones, 8 + index * 8);
+        if (!holder) continue;
+        if (!readable(holder, 8)) return -32;
+        void* body = read<void*>(holder, 0);
+        if (!readable(body, 0x98)) return -32;
+        bool duplicate = false;
+        for (int i = 0; i < count; ++i) if (seen[i] == body) { duplicate = true; break; }
+        if (duplicate) continue;
+        if (count >= 64) return -31;
+        void* table = read<void*>(body, 0);
+        if (!readable(table, 0x1a0) || read<uintptr_t>(table, 0x198) != mass_entry ||
+            read<uintptr_t>(table, 0x190) != module_base + 0x11acc0) return -33;
+        const float mass = get_mass(body);
+        if (!std::isfinite(mass) || mass <= 0 || mass > 500) return -34;
+        total += mass; seen[count++] = body;
+    }
+    if (count == 0 || !std::isfinite(total) || total > 500) return -34;
+    *total_mass = total; *body_count = count;
     return BVR_OK;
 }
 

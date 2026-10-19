@@ -19,6 +19,8 @@ public static class BvrNativePreviewSmoke {
     public static extern int bvr_ragdoll_validate(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
     [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
     public static extern int bvr_ragdoll_force_api(UIntPtr mission, UIntPtr agent, UIntPtr skeleton, int bone, out UIntPtr vector, out UIntPtr scalar);
+    [DllImport("$native", CallingConvention=CallingConvention.Cdecl)]
+    public static extern int bvr_ragdoll_mass(UIntPtr mission, UIntPtr agent, UIntPtr skeleton, int boneCount, out float mass, out int bodyCount);
 }
 "@
 Add-Type -TypeDefinition $source
@@ -35,5 +37,8 @@ if ([BvrNativePreviewSmoke]::bvr_ragdoll_validate([UIntPtr]::Zero, [UIntPtr]::Ze
 $forceVector = [UIntPtr]::Zero
 $forceScalar = [UIntPtr]::Zero
 if ([BvrNativePreviewSmoke]::bvr_ragdoll_force_api([UIntPtr]::Zero, [UIntPtr]::Zero, [UIntPtr]::Zero, 0, [ref]$forceVector, [ref]$forceScalar) -ne -1) { throw 'Force method inspection must reject calls before preparation' }
+$mass = [single]0
+$bodyCount = 0
+if ([BvrNativePreviewSmoke]::bvr_ragdoll_mass([UIntPtr]::Zero, [UIntPtr]::Zero, [UIntPtr]::Zero, 60, [ref]$mass, [ref]$bodyCount) -ne -1 -or $mass -ne 0 -or $bodyCount -ne 0) { throw 'Mass inspection must reject calls before preparation with cleared outputs' }
 Write-Output "PASS: native DLL loads, OpenXR build identified, inactive input and haptic guards verified ($version)."
 Write-Output 'PASS: native ragdoll bridge rejects a missing engine and unprepared pointers. No engine recovery was exercised.'

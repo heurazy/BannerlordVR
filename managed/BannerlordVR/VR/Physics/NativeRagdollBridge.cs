@@ -104,6 +104,18 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex) { VrLog.Error("Read-only ragdoll force-method inspection unavailable.", ex); }
         }
 
+        public static bool ReadMass(Agent agent, Mission mission, Skeleton skeleton, out float mass)
+        {
+            mass = 0;
+            if (!Ready || agent == null || !agent.IsActive() || skeleton == null ||
+                agent.AgentVisuals?.GetSkeleton()?.Pointer != skeleton.Pointer) return false;
+            int status = bvr_ragdoll_mass((UIntPtr)MissionPointer.GetValue(mission),
+                (UIntPtr)AgentPointer.GetValue(agent), skeleton.Pointer, skeleton.GetBoneCount(), out mass, out int count);
+            VrLog.Info("BALANCE physical_mass status=" + status + "; bodies=" + count + "; total=" +
+                mass.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+            return status == 0 && InteractionMath.IsFinite(mass);
+        }
+
         private static string Failure(int status)
         {
             switch (status)
@@ -130,5 +142,8 @@ namespace BannerlordVR.VR.Physics
         [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_ragdoll_force_api(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
             int bone, out UIntPtr vectorMethodRva, out UIntPtr scalarMethodRva);
+        [DllImport("BannerlordVR.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_mass(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
+            int boneCount, out float totalMass, out int bodyCount);
     }
 }
