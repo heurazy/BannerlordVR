@@ -279,9 +279,11 @@ namespace BannerlordVR.VR.Physics
                 VrLog.Error("Living ragdoll release failed; backend stopped for this mission.", ex);
             }
         }
+        private int _releasesThisTick;
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
+            _releasesThisTick = 0;
             if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
@@ -372,6 +374,19 @@ namespace BannerlordVR.VR.Physics
                 else
                 {
                     _probeCpuTotal += LastTickCpuMilliseconds; _probeCpuTicks++;
+                    if (LastTickCpuMilliseconds > _probeCpuMax && LastTickCpuMilliseconds > 1)
+                    {
+                        int occupied = 0, phases = 0;
+                        foreach (Entry entry in _entries)
+                        {
+                            if (!entry.Lease.Occupied) continue;
+                            occupied++;
+                            phases |= 1 << (int)entry.Active.Phase;
+                        }
+                        VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                            "ACTIVE_PROBE spike ms={0:F3} time={1:F3} leases={2} phases_mask={3} releases_this_tick={4}",
+                            LastTickCpuMilliseconds, Mission.CurrentTime, occupied, phases, _releasesThisTick));
+                    }
                     _probeCpuMax = Math.Max(_probeCpuMax, LastTickCpuMilliseconds);
                 }
             }
@@ -384,16 +399,27 @@ namespace BannerlordVR.VR.Physics
             bool moved = entry.Active.Moved;
             Vec3 position = entry.Active.RecoveryPosition;
             bool teleported = false;
+            float distance = (position - entry.Agent.Position).Length;
+            bool navmesh = InteractionMath.IsFinite(position) && OnNavmesh(position);
             // Agent.CanTeleport only reflects the deployment-phase order gate;
             // SetPosition itself is valid for a dismounted agent in battle.
+            // Only onto a walkable navmesh face, so a body that slid down a
+            // slope is never placed inside geometry.
             if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
-                (position - entry.Agent.Position).Length < 3)
+                distance < 8 && navmesh)
             { entry.Agent.TeleportToPosition(position); teleported = true; }
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3}",
-                Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported));
+                "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5}",
+                Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported, distance, navmesh));
             if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
+            _releasesThisTick++;
             SafeRelease(entry);
+        }
+        private bool OnNavmesh(Vec3 position)
+        {
+            var face = new PathFaceRecord(-1, -1, -1);
+            Mission.Scene.GetNavMeshFaceIndex(ref face, position, true);
+            return face.IsValid();
         }
         private bool _probePushed, _probeActiveReleased, _probeTeleported, _probeSawDestabilized, _probeSawStandUp, _probeSawRecovered;
         private float _probeReleaseError, _probeStandingError, _probeMinPelvis = float.MaxValue;

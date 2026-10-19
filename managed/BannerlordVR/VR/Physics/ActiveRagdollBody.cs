@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using TaleWorlds.Core;
 using TaleWorlds.Engine;
 using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
@@ -15,6 +16,11 @@ namespace BannerlordVR.VR.Physics
         private const int MaxBodies = 32;
         private readonly RagdollPinDrive _drive = new RagdollPinDrive();
         private readonly ActiveRagdollCycle _cycle = new ActiveRagdollCycle();
+        // Bone hierarchies per skeleton layout. Walking parents through the
+        // engine cost one native call per step, thousands per activation.
+        private static readonly System.Collections.Generic.Dictionary<Monster, sbyte[]> Parents =
+            new System.Collections.Generic.Dictionary<Monster, sbyte[]>();
+        private sbyte[] _parentOf = new sbyte[0];
         private readonly PhysicsStepGate _gate = new PhysicsStepGate();
         private readonly MatrixFrame[] _captured = new MatrixFrame[128];
         private readonly sbyte[] _bone = new sbyte[MaxBodies];
@@ -40,6 +46,7 @@ namespace BannerlordVR.VR.Physics
         public bool Configured => _configured;
         // True on the tick that bound the bodies (native mass read, tree build).
         public bool ConfiguredThisTick { get; private set; }
+        public double NativeMassMilliseconds { get; private set; }
         public ActiveRagdollPhase Phase => _cycle.Phase;
         public FallState Fall => _cycle.Fall;
         public int AppliedSteps { get; private set; }
@@ -84,7 +91,10 @@ namespace BannerlordVR.VR.Physics
         private bool Configure(Agent agent, Mission mission, Skeleton skeleton)
         {
             var boneMass = new float[_boneCount];
-            if (!NativeRagdollBridge.ReadBoneMasses(agent, mission, skeleton, boneMass)) return false;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool read = NativeRagdollBridge.ReadBoneMasses(agent, mission, skeleton, boneMass);
+            NativeMassMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (!read) return false;
             var bodyOfBone = new int[_boneCount];
             int count = 0;
             for (int b = 0; b < _boneCount; b++)
@@ -95,6 +105,7 @@ namespace BannerlordVR.VR.Physics
                 bodyOfBone[b] = count; _bone[count] = (sbyte)b; count++;
             }
             if (count < 2) return false;
+            _parentOf = ParentsOf(agent.Monster, skeleton);
             var mass = new float[count];
             var parent = new int[count];
             int pelvis = agent.Monster.PelvisBoneIndex;
@@ -103,7 +114,7 @@ namespace BannerlordVR.VR.Physics
             {
                 mass[i] = boneMass[_bone[i]];
                 parent[i] = -1;
-                for (sbyte p = skeleton.GetParentBoneIndex(_bone[i]); p >= 0; p = skeleton.GetParentBoneIndex(p))
+                for (sbyte p = _parentOf[_bone[i]]; p >= 0; p = _parentOf[p])
                     if (bodyOfBone[p] >= 0) { parent[i] = bodyOfBone[p]; break; }
                 if (_bone[i] == pelvis) _pelvisBody = i;
             }
@@ -111,7 +122,7 @@ namespace BannerlordVR.VR.Physics
             for (int b = 0; b < _boneCount; b++)
             {
                 _bodyOfBone[b] = bodyOfBone[b];
-                for (sbyte p = skeleton.GetParentBoneIndex((sbyte)b); _bodyOfBone[b] < 0 && p >= 0; p = skeleton.GetParentBoneIndex(p))
+                for (sbyte p = _parentOf[b]; _bodyOfBone[b] < 0 && p >= 0; p = _parentOf[p])
                     _bodyOfBone[b] = bodyOfBone[p];
                 if (_bodyOfBone[b] < 0) _bodyOfBone[b] = 0;
             }
@@ -133,9 +144,23 @@ namespace BannerlordVR.VR.Physics
             // part velocity caps: a solver spike cannot launch a soldier.
             agent.SetVelocityLimitsOnRagdoll(20, 40);
             VrLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3}",
-                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase));
+                "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3}",
+                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds));
             return true;
+        }
+
+        private sbyte[] ParentsOf(Monster monster, Skeleton skeleton)
+        {
+            if (monster != null && Parents.TryGetValue(monster, out sbyte[] cached) && cached.Length == _boneCount) return cached;
+            var parents = new sbyte[_boneCount];
+            for (sbyte b = 0; b < _boneCount; b++)
+            {
+                sbyte p = skeleton.GetParentBoneIndex(b);
+                // A malformed hierarchy must not loop: parents precede children.
+                parents[b] = p < b ? p : (sbyte)-1;
+            }
+            if (monster != null) Parents[monster] = parents;
+            return parents;
         }
 
         public void Destabilize()
@@ -175,12 +200,16 @@ namespace BannerlordVR.VR.Physics
             _lastInteraction = Math.Max(_lastInteraction, _lastRootSample);
         }
 
+        // At most one activation per mission tick (native mass read included).
+        private static float _configureTick = -1;
         public void Tick(Agent agent, Skeleton skeleton, Mission mission, PhysicsStepCounter clock)
         {
             if (!_captureValid) return;
             ConfiguredThisTick = false;
+            if (!_configured && _configureTick == mission.CurrentTime) return;
             if (!_configured)
             {
+                _configureTick = mission.CurrentTime;
                 if (!Configure(agent, mission, skeleton)) { _captureValid = false; return; }
                 ConfiguredThisTick = true;
             }
