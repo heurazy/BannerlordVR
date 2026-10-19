@@ -78,6 +78,7 @@ namespace BannerlordVR.VR.Physics
             // rebuilding the visuals without the head crashed the game when
             // the corpse went ragdoll. The cut keeps what B&S does besides the
             // separation: the stump bleeds and sliceForceKill kills.
+            if (kind == SliceJoint.Neck) HideHead(victim);
             MBAgentVisuals visuals = victim.AgentVisuals;
             try
             {
@@ -91,6 +92,22 @@ namespace BannerlordVR.VR.Physics
                 VrLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
+        }
+
+        // Official equipment refresh with a meshless head item that covers the
+        // head (ModuleData/bvr_items.xml). Untested in game; skipped when the
+        // item is not registered.
+        private static void HideHead(Agent agent)
+        {
+            try
+            {
+                ItemObject severed = TaleWorlds.ObjectSystem.MBObjectManager.Instance?.GetObject<ItemObject>("bvr_severed_head");
+                if (severed == null) return;
+                var equipment = new Equipment(agent.SpawnEquipment);
+                equipment[EquipmentIndex.Head] = new EquipmentElement(severed);
+                agent.UpdateSpawnEquipmentAndRefreshVisuals(equipment);
+            }
+            catch (Exception ex) { VrLog.Error("Head removal by equipment refresh failed.", ex); }
         }
 
         // Scale read back from the skinned skeleton, for the in-game probe.

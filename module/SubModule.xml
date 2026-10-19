@@ -36,4 +36,15 @@
       </Tags>
     </SubModule>
   </SubModules>
+
+  <Xmls>
+    <XmlNode>
+      <XmlName id="Items" path="bvr_items" />
+      <IncludedGameTypes>
+        <GameType value="Campaign" />
+        <GameType value="CampaignStoryMode" />
+        <GameType value="CustomGame" />
+      </IncludedGameTypes>
+    </XmlNode>
+  </Xmls>
 </Module>
