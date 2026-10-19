@@ -434,6 +434,17 @@ namespace BannerlordVR.VR.Physics
             if (hit == null) return;
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
+            // B&S dismemberment: a fast cut across a joint slices and kills.
+            if (blade && !thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll)
+            {
+                BodyPenetration.ProfileFor(usage, false, out PenetrationProfile sliceProfile);
+                bool twoHanded = usage.WeaponFlags.HasAnyFlag(WeaponFlags.NotUsableWithOneHand);
+                if (DismemberFx.TrySlice(player, hit, contact, start, tip, velocity, sliceProfile, twoHanded, false))
+                {
+                    NativeMethods.bvr_trigger_haptic(index, .8f, .06f);
+                    return;
+                }
+            }
             // Blade & Sorcery push: level from impact speed and material, effect
             // from the human hit reaction table and the enemy's current action.
             PushEffect push = hit.IsCorpse || _living == null ? PushEffect.None :

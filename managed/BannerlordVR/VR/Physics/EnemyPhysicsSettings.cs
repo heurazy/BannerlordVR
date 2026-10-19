@@ -23,6 +23,8 @@ namespace BannerlordVR.VR.Physics
         // Runtime probe variant: a virtual hand grabs the neck and lifts it.
         public static readonly bool ActiveProbeGrab = VrConfig.Bool("enemy_physics_active_probe_grab", false);
         // Probe load: total number of enemies running the cycle at once.
+        // Probe variant: slice the head of a distant enemy and watch the scale.
+        public static readonly bool ActiveProbeDismember = VrConfig.Bool("enemy_physics_active_probe_dismember", false);
         public static readonly int ActiveProbeBodies = Math.Max(1, Math.Min(12, VrConfig.Int("enemy_physics_active_probe_bodies", 1)));
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
         // Logs pushes, ragdoll impacts and parries during normal VR play.

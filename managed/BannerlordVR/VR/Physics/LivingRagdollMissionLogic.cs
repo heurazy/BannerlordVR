@@ -108,7 +108,7 @@ namespace BannerlordVR.VR.Physics
                     typeof(PushReaction), typeof(RagdollGrabRules), typeof(PenetrationJoint), typeof(BodyPenetration),
                     typeof(PhysicsStepCounter), typeof(PhysicsStepGate), typeof(NativeRagdollBridge), typeof(LivingRagdollLease),
                     typeof(LivingRagdollMissionLogic), typeof(InteractionMath), typeof(PenetrationDamage), typeof(RagdollImpact),
-                    typeof(BloodFx), typeof(PhysicalHit), typeof(EnemyGrab));
+                    typeof(BloodFx), typeof(PhysicalHit), typeof(EnemyGrab), typeof(Dismemberment), typeof(DismemberFx));
         }
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
         public double LastTickCpuMilliseconds { get; private set; }
@@ -284,6 +284,11 @@ namespace BannerlordVR.VR.Physics
                 point.Part == BoneBodyPartType.Legs ? PushBodyZone.HeadOrLeg : PushBodyZone.Torso;
             int level = PushReaction.Level(material, velocity.Length);
             PushEffect effect = PushReaction.HitEffect(level, zone, context);
+            // DamageModifier knockout: a hard blunt blow to the head floors the
+            // creature whatever its stance (knockoutDuration 0 in the brains).
+            if (Dismemberment.KnocksOut(material, BodyPenetration.MaterialFor(agent, point.Part),
+                    BodyPenetration.ZoneFor(body, point), velocity.Length))
+                effect = PushEffect.Destabilize;
             if (effect == PushEffect.Destabilize && (!Available || !EnemyPhysicsSettings.ActiveRagdoll))
                 effect = PushEffect.StaggerFull;
             if (effect != PushEffect.None && effect != PushEffect.Destabilize)
@@ -324,7 +329,11 @@ namespace BannerlordVR.VR.Physics
             if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll))
             {
-                try { StartProbe(); FollowProbe(); }
+                try
+                {
+                    if (EnemyPhysicsSettings.ActiveProbeDismember) DismemberProbeTick();
+                    StartProbe(); FollowProbe();
+                }
                 catch (Exception ex)
                 {
                     _probeStarted = _probeFinished = _failed = true;
@@ -519,6 +528,7 @@ namespace BannerlordVR.VR.Physics
             _probeSawStandUp |= body.Phase == ActiveRagdollPhase.StandingUp;
             _probeSawRecovered |= body.Phase == ActiveRagdollPhase.Recovered;
             if (body.Configured) _probeMinPelvis = Math.Min(_probeMinPelvis, ProbePelvis(entry).z - _probeOrigin.z);
+            SampleAnimationChannel(entry);
             if (EnemyPhysicsSettings.ActiveProbeGrab) { ProbeGrab(entry); return; }
             if (!_probePushed && body.Configured && body.Phase == ActiveRagdollPhase.Standing &&
                 Mission.CurrentTime - _probeBegan > 1.5f)
@@ -575,6 +585,82 @@ namespace BannerlordVR.VR.Physics
             }
             body.Handle(0, neck, GrabHandle.Neck, hand, boneWorld, boneWorld.origin);
         }
+        // Does the animation keep running under an active ragdoll? Compare the
+        // channel 0 animated frame with the captured pose and with itself.
+        private float _nextChannelSample;
+        private Vec3 _lastChannel;
+        private int _channelSamples;
+        private float _channelMaxStep, _channelMaxFromCapture;
+        private void SampleAnimationChannel(Entry entry)
+        {
+            if (!entry.Active.Configured || Mission.CurrentTime < _nextChannelSample) return;
+            _nextChannelSample = Mission.CurrentTime + .25f;
+            sbyte hand = entry.Agent.Monster.MainHandItemBoneIndex;
+            if (hand < 0 || hand >= entry.Skeleton.GetBoneCount()) return;
+            Vec3 channel = entry.Skeleton.GetBoneEntitialFrameAtChannel(0, hand).origin;
+            Vec3 physical = entry.Skeleton.GetBoneEntitialFrameWithIndex(hand).origin;
+            float step = _channelSamples > 0 ? (channel - _lastChannel).Length : 0;
+            _channelMaxStep = Math.Max(_channelMaxStep, step);
+            _channelMaxFromCapture = Math.Max(_channelMaxFromCapture, (channel - physical).Length);
+            _lastChannel = channel; _channelSamples++;
+            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ANIM_CHANNEL time={0:F3} phase={1} channel=({2:F3},{3:F3},{4:F3}) physical=({5:F3},{6:F3},{7:F3}) step_m={8:F3} anim={9}",
+                Mission.CurrentTime, entry.Active.Phase, channel.x, channel.y, channel.z, physical.x, physical.y, physical.z,
+                step, entry.Skeleton.GetAnimationAtChannel(0)));
+        }
+
+        // Dismember probe: slice the head of a distant enemy, then verify the
+        // engine keeps the bone scale on the dying body and on the corpse.
+        private Agent _sliceAgent;
+        private Skeleton _sliceSkeleton;
+        private sbyte _sliceBone = -1;
+        private float _sliceUntil, _sliceNext, _sliceMaxScale;
+        private int _sliceSamples;
+        private void DismemberProbeTick()
+        {
+            if (Mission.Mode != MissionMode.Battle || Mission.MainAgent == null) return;
+            if (_probeBattleBegan < 0) _probeBattleBegan = Mission.CurrentTime;
+            if (!_sliceStarted && Mission.CurrentTime - _probeBattleBegan > 2) StartDismemberProbe();
+            FollowDismemberProbe();
+        }
+        private bool _sliceStarted;
+        private void StartDismemberProbe()
+        {
+            _sliceStarted = true;
+            foreach (Agent agent in Mission.Agents)
+            {
+                if (!EnemyBody.Eligible(agent, Mission.MainAgent) || !agent.IsActive() || !agent.IsAIControlled ||
+                    (agent.Position - Mission.MainAgent.Position).Length < 20) continue;
+                Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
+                if (skeleton == null || !DismemberFx.FindHead(agent, skeleton, out sbyte head, out sbyte parent)) continue;
+                MatrixFrame frame = agent.AgentVisuals.GetEntity().GetGlobalFrame();
+                Vec3 at = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(head)).origin;
+                VrLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER_PROBE begin agent={0} head_bone={1} scale_before={2:F3}",
+                    agent.Index, head, DismemberFx.BoneScale(skeleton, head)));
+                DismemberFx.Slice(null, agent, head, parent, at, SliceJoint.Neck, 15);
+                _sliceAgent = agent; _sliceSkeleton = skeleton; _sliceBone = head;
+                _sliceUntil = Mission.CurrentTime + 4; _sliceNext = Mission.CurrentTime;
+                return;
+            }
+            VrLog.Info("DISMEMBER_PROBE result=INCONCLUSIVE reason=no_distant_enemy");
+        }
+        private void FollowDismemberProbe()
+        {
+            if (_sliceAgent == null || Mission.CurrentTime < _sliceNext) return;
+            _sliceNext = Mission.CurrentTime + .5f;
+            bool same = _sliceAgent.AgentVisuals?.GetSkeleton()?.Pointer == _sliceSkeleton.Pointer;
+            float scale = same ? DismemberFx.BoneScale(_sliceSkeleton, _sliceBone) : float.NaN;
+            if (same) { _sliceMaxScale = Math.Max(_sliceMaxScale, scale); _sliceSamples++; }
+            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "DISMEMBER_PROBE sample time={0:F3} state={1} ragdoll={2} head_scale={3:F4} same_skeleton={4}",
+                Mission.CurrentTime, _sliceAgent.State, same ? _sliceSkeleton.GetCurrentRagdollState().ToString() : "-", scale, same));
+            if (Mission.CurrentTime < _sliceUntil) return;
+            bool dead = _sliceAgent.State != AgentState.Active;
+            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "DISMEMBER_PROBE result={0} dead={1} samples={2} max_head_scale={3:F4}",
+                dead && _sliceSamples >= 6 && _sliceMaxScale < .05f ? "PASS" : "FAIL", dead, _sliceSamples, _sliceMaxScale));
+            _sliceAgent = null;
+        }
         private Vec3 ProbePelvis(Entry entry) => entry.Agent.AgentVisuals.GetEntity().GetGlobalFrame()
             .TransformToParent(entry.Skeleton.GetBoneEntitialFrameWithIndex(entry.Agent.Monster.PelvisBoneIndex)).origin;
         private void StartProbe()
@@ -606,6 +692,7 @@ namespace BannerlordVR.VR.Physics
                 if (!EnemyBody.Eligible(agent, Mission.MainAgent) || !agent.IsActive() || agent.IsPaused ||
                     !agent.IsAIControlled || (agent.Position - Mission.MainAgent.Position).Length < 20) continue;
                 if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && agent.Velocity.Length > .3f) continue;
+                if (agent == _sliceAgent) continue;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled ||
                     agent.Monster.PelvisBoneIndex < 0 || agent.Monster.PelvisBoneIndex >= skeleton.GetBoneCount()) continue;
