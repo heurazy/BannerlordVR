@@ -11,7 +11,7 @@ profilage de bataille en jeu n'a encore ete realise.
 | --- | --- | --- |
 | Poings | Gachette pour fermer le poing vide, raycast natif des membres entre deux poses, os retourne par le moteur, vitesse minimale, delai de 350 ms par cible et par main | Equilibrage et mouvement des cibles pendant le tick a verifier en jeu |
 | Saisie vivante | Par defaut, pose de la tete et des mains ; option supplementaire de ragdoll natif du corps entier, forces sur les os et suspension temporaire de l'IA | Activation et desactivation observees sur un ennemi sans casque ; saisies/efforts VR non valides |
-| Equilibre | Soutien optionnel du bassin et du torse, compensation de poids et amortissement, references capturees avant activation, appui au sol controle | Essais natifs en echec : montee du corps puis perte d'appui ; sans pas correctifs ni relevage anime |
+| Equilibre | Soutien optionnel du bassin et du torse (ancien) ; remplace par le corps actif B&S ci-dessous | Maintien debout court valide ; le corps actif couvre chute et relevage |
 | Saisie de corps | Ressort amorti sur l'os du ragdoll natif deja actif | Pas d'activation forcee des corps endormis ou retires par le moteur |
 | Coup de lame/estoc | Second reglage experimental, balayages natifs le long de l'arme, distinction coupe/perforation d'apres les donnees de l'arme | Longueur bornee a 2,5 m, axe local Z presume ; volumes orientes des parades, pas de contact exact avec les maillages |
 | Arme plantee dans un corps | Contrainte laterale amortie sur le ragdoll, retrait axial libre, liberation sur ecart excessif ou apres 8 s ; peut activer le backend vivant si l'option est active | Pas de resistance mecanique de l'arme tenue ni de lesion volumetrique ; la prise en charge native d'un vivant dure au plus 6 s |
@@ -199,6 +199,88 @@ Le 19 octobre 2026, deux essais sans casque ont ete realises sur un ennemi immob
 Cela valide un maintien debout court d'un ennemi immobile, pas un maintien
 prolonge, une saisie VR, une poussee, un ennemi en marche ni plusieurs corps
 simultanes. L'option reste desactivee par defaut.
+
+## Corps actif de Blade & Sorcery (`enemy_physics_active_ragdoll`)
+
+Source : `ThunderRoad.dll` de Blade & Sorcery (Mono, PDB et documentation XML
+fournis), inventaire REA 6.7.0 (`rea inspect-managed-artifact`) puis lecture du
+C# décompilé, et catalogue `bas.jsondb` pour les valeurs. Le code du jeu n'est
+pas copié : seuls les mécanismes et les constantes publiées sont repris.
+
+Dans B&S, chaque partie du ragdoll est reliée à une ancre qui suit l'os animé,
+par un ressort de position (1 000 / 50 / 1 000) et un ressort de rotation
+(800 / 50 / 100). Le port reproduit les états de `Ragdoll.State` :
+
+- **Standing** : chaque corps physique est tiré vers la pose animée capturée
+  avant l'activation, et la gravité est annulée sur les parties, comme le
+  `SetPhysicModifier(gravité 0)` de B&S ;
+- **Destabilized** : plus de ressort de position, gravité rétablie, ressorts
+  de rotation à 0,5 en raideur et 0,1 en amortissement (0,2 au sol), aucun sur
+  le bassin ;
+- **Inert** : aucun ressort.
+
+Bannerlord n'offre ni ressort d'articulation ni couple sur les corps du
+ragdoll, seulement une force continue par corps. Le ressort de rotation devient
+donc une paire de forces opposées entre un corps et son parent, qui rétablit
+leur écart animé (couple k·θ converti en force k/L² sur le bras de levier). Le
+pont natif lit la masse PhysX de chaque corps. Les gains sont plafonnés
+(fréquence propre 18 rad/s, amortissement 30 s⁻¹ par kg) parce que les forces
+sont explicites et arrivent avec un pas de retard, alors que PhysX intègre les
+ressorts de Unity de façon implicite. Une seule application par pas PhysX.
+
+**Poussée et réaction** : niveaux de poussée selon la vitesse d'impact et la
+matière (`DamageModifier_*.json` : poing 2/4/6/12/24 m/s, tranchant 3/8,
+estoc 6/15, contondant 4/7,5/9/12/24…), puis table de réaction des humains
+(`Brain_Human*.json`) selon le contexte : au repos, en garde, en attaque, en
+attaque sautée, déjà chancelant. Un chancellement devient un recul de
+Bannerlord, avec une durée d'étourdissement de 0,2, 0,6 ou 1 s ; une
+déstabilisation confie l'ennemi au corps physique.
+
+**Chute et relevage** : le corps est stabilisé au sol après 3 s à moins de
+1 m/s. Les ressorts remontent alors de zéro sur 3 s, gravité active, et le
+relevage est engagé à 70 %. La pose est replacée sous les hanches, puis l'agent
+y est déplacé, sur une face de navmesh valide, avant la reprise par
+l'animation. Un coup pendant le relevage l'annule. Un corps debout que
+personne ne touche revient à l'animation après 2 s (`physicEnabledDuration`).
+
+**Saisies** : l'articulation de la main du joueur reprend les réglages du bras
+joueur de B&S (5 000 / 40 / 3 000). Règles de levée des poignées humaines :
+soulever par le cou de plus de 5 cm au-dessus de la hauteur des hanches, ou
+par les jambes de plus de 10 cm, fait tomber l'ennemi ; la tête, le torse,
+l'épaule et le poignet glissent hors de la prise ; une tête tirée sous la
+hauteur d'origine des hanches déstabilise.
+
+**Pénétration** : articulation verrouillée latéralement ; le long de la lame,
+un amortisseur différent à l'entrée et à la sortie (épée 1 000/500, dague
+500/250, hache 0/10 000…), multiplié selon l'armure réelle de la zone touchée
+(estoc : cuir ×1,5, mailles ×4, plates ×8). Vitesse minimale de pénétration
+par matière. Vibration de la manette proportionnelle à la force de freinage.
+
+**Parade** : frapper l'arme ou le bouclier d'un ennemi qui attaque, à plus de
+1 m/s, interrompt son attaque et le met en recul (`BrainModuleMelee`), au plus
+une fois toutes les 1,5 s.
+
+**Non repris** : le KO (présent dans les données mais jamais déclenché par le
+code de cette version de B&S) et le démembrement, impossible sans découpe des
+maillages dans Bannerlord. Pendant le ragdoll, l'animation de Bannerlord ne
+tourne pas : la cible est la pose figée au moment de l'activation, alors que
+B&S continue d'animer la créature.
+
+### Essais en jeu (19 octobre 2026, sans casque)
+
+| Essai | Résultat |
+| --- | --- |
+| Poussée, chute, stabilisation, relevage (1 ennemi) | PASS, erreur debout 6,1 cm, relâche à 16 cm de la pose, 100 PV |
+| Saisie du cou et levée (1 ennemi) | PASS, hanches +5,1 cm → chute, relevage, déplacement sous les hanches |
+| Cycle complet sur 3 ennemis, bataille de 241 agents | PASS, 0,088 ms par tick |
+| Cycle complet sur 6 ennemis, bataille de 241 agents | PASS, 0,13 ms par tick en moyenne, pointe 3,4 ms |
+
+Problèmes trouvés et corrigés par ces essais : journal écrit ligne par ligne
+sur le thread de mission (pointe de 18,5 ms), hiérarchie des os parcourue par
+milliers d'appels natifs, agents en pause qui continuaient de marcher loin de
+leur corps (jusqu'à 28 m), compilation JIT au premier usage. Journaux :
+`.analysis/active-ragdoll-*.log`. La parade et la pénétration n'ont pas encore
+été essayées au casque.
 
 ## Saignement experimental
 

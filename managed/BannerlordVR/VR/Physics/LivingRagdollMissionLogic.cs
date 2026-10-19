@@ -94,11 +94,15 @@ namespace BannerlordVR.VR.Physics
         private long _probeBalanceStepsAt = -1, _probeBalanceStepsEnd = -1;
         private Vec3 _probeRecoveryOrigin;
         private float _probeNextFollow, _probeLocomotionDistance;
-        public override void OnBehaviorInitialize()
+        private static bool _warmed;
+        // The first push, fall and stand-up each cost several ms of JIT on
+        // the mission thread (1.6, 7.3 and 16 ms ticks); compile while the
+        // mission loads. Mission behaviours added from OnMissionBehaviorInitialize
+        // never receive OnBehaviorInitialize, so this runs at construction.
+        public LivingRagdollMissionLogic()
         {
-            base.OnBehaviorInitialize();
-            // The first push, fall and stand-up each cost several ms of JIT on
-            // the mission thread (1.6, 7.3 and 16 ms ticks); compile during load.
+            if (_warmed) return;
+            _warmed = true;
             if (EnemyPhysicsSettings.ActiveRagdoll)
                 JitWarmup.Prepare(typeof(ActiveRagdollBody), typeof(RagdollPinDrive), typeof(ActiveRagdollCycle),
                     typeof(PushReaction), typeof(RagdollGrabRules), typeof(PenetrationJoint), typeof(BodyPenetration),
