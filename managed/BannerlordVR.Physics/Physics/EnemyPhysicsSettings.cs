@@ -30,6 +30,8 @@ namespace BannerlordVR.VR.Physics
         // Logs pushes, ragdoll impacts and parries during normal VR play.
         public static readonly bool Trace = RuntimeProbe || VrConfig.Bool("enemy_physics_trace", false);
         // bodyTurnDirection of the grab handles; off by default (see ActiveRagdollBody).
+        // B&S rotation pins through the native torque bridge (enemy_physics_rotation_pins=0 turns them off).
+        public static readonly bool RotationPins = VrConfig.Bool("enemy_physics_rotation_pins", true);
         public static readonly bool GrabBodyTurn = VrConfig.Bool("enemy_physics_grab_turn", false);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

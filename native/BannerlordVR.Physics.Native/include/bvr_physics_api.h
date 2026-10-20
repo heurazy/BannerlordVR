@@ -41,6 +41,13 @@ BVR_API int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, ui
     int32_t bone_count, float* total_mass, int32_t* body_count);
 BVR_API int32_t BVR_CALL bvr_ragdoll_bone_masses(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
     int32_t bone_count, float* bone_mass, float* total_mass, int32_t* body_count);
+/* Adds one torque per physical body: torques holds 3 floats per bone and is
+   read on the first bone mapped to each body (the bones bvr_ragdoll_bone_masses
+   reports a mass on). mode is PhysX PxForceMode (0 force, 3 acceleration).
+   Goes through the engine's own body method (TaleWorlds.Native+0x11aa90),
+   which takes the scene write lock and calls PxRigidBody::addTorque. */
+BVR_API int32_t BVR_CALL bvr_ragdoll_add_torques(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone_count, const float* torques, int32_t mode, int32_t* applied);
 
 #ifdef __cplusplus
 }

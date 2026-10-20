@@ -7,6 +7,7 @@ internal static class ActiveRagdollTests
     public static void Run(Action<bool, string> check)
     {
         PinDrive(check);
+        RotationPins(check);
         Push(check);
         Cycle(check);
         Grab(check);
@@ -57,6 +58,29 @@ internal static class ActiveRagdollTests
             finite &= InteractionMath.IsFinite(p[1]);
         }
         check(finite && (p[1] - hand).Length < .25f && v[1].Length < .5f, "A held part settles under the grip without oscillating");
+    }
+
+    private static void RotationPins(Action<bool, string> check)
+    {
+        Vec3 x = new Vec3(1, 0, 0), y = new Vec3(0, 1, 0), z = new Vec3(0, 0, 1);
+        check(RotationPin.Error(x, y, z, x, y, z).Length < 1e-6f, "No rotation error on the posed orientation");
+        // Target turned 0.5 rad about z.
+        float c = (float)Math.Cos(.5), s = (float)Math.Sin(.5);
+        Vec3 e = RotationPin.Error(x, y, z, new Vec3(c, s, 0), new Vec3(-s, c, 0), z);
+        check(Math.Abs(e.z - .5f) < 1e-4f && Math.Abs(e.x) < 1e-5f && Math.Abs(e.y) < 1e-5f, "Error is the axis-angle from current to target");
+        Vec3 a = RotationPin.Acceleration(e, Vec3.Zero, 5, 1, 1, 1);
+        check(a.z > 0 && a.z <= RagdollPinDrive.MaxNaturalFrequency * RagdollPinDrive.MaxNaturalFrequency * .5f + 1e-3f,
+            "The drive turns the part towards its pose within the natural-frequency cap");
+        check(RotationPin.Acceleration(Vec3.Zero, new Vec3(0, 0, 3), 5, 1, 1, 1).z < 0, "Spin is damped");
+        // A 5 kg part, 90 Hz explicit drive with one step of latency, settles.
+        float angle = 1, w = 0, pending = 0; bool finite = true;
+        for (int i = 0; i < 270; i++)
+        {
+            float applied = pending;
+            pending = RotationPin.Acceleration(new Vec3(0, 0, -angle), new Vec3(0, 0, w), 5, 1, 1, 1).z;
+            w += applied / 90; angle += w / 90; finite &= !float.IsNaN(angle);
+        }
+        check(finite && Math.Abs(angle) < .05f && Math.Abs(w) < .2f, "A twisted part settles on its pose without oscillating");
     }
 
     private static void PinDrive(Action<bool, string> check)

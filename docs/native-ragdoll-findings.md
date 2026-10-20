@@ -242,3 +242,15 @@ Le bundle complet est dans `.analysis/native-ragdoll-evidence.json` et le snapsh
 dans `.analysis/native-ragdoll-snapshot.json`, localement seulement. La session
 Ghidra a ete fermee proprement apres leur sauvegarde. Les reconstructions et DLL
 du jeu sont exclues de Git et du paquet distribue.
+
+## Couple par corps (20 octobre 2026)
+
+Desassemblage (Capstone) de la table virtuelle du corps moteur (`TaleWorlds.Native+0xb04638`) :
+l'entree 47 (`+0x178`, `0x11aa90`) prend le verrou d'ecriture de la scene puis appelle
+`PxRigidBody::addTorque` (slot PhysX `+0x178`) avec le vecteur et le mode passes, reveil 1 ;
+l'entree 30 (`0x11a230`) lit `getAngularVelocity` (`+0x140`) sous verrou de lecture et
+l'entree 31 (`0x11a350`) ecrit `setAngularVelocity` (`+0x148`). Ces positions concordent avec
+les declarations PhysX 4.1.2 a partir de `getMass` (29) et `addForce` (46). Le pont exporte
+`bvr_ragdoll_add_torques`, qui verifie le prologue de `0x11aa90`, les trois methodes connues de
+la table du corps et le type concret 5 (corps dynamique) de l'acteur PhysX avant chaque appel.
+Les broches de rotation B&S passent par lui en mode acceleration (3).

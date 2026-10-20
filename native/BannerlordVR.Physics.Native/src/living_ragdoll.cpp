@@ -145,6 +145,64 @@ static int32_t ragdoll_bodies(uintptr_t mission, uintptr_t agent, uintptr_t skel
     return BVR_OK;
 }
 
+// Torque per physical body through the engine body method that wraps
+// PxRigidBody::addTorque (vtable slot 47, +0x178) under the scene lock. The
+// body's vtable must also carry the known force and mass methods.
+int32_t BVR_CALL bvr_ragdoll_add_torques(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
+    int32_t bone_count, const float* torques, int32_t mode, int32_t* applied)
+{
+    if (!torques || !applied) return BVR_SESSION_NOT_READY;
+    *applied = 0;
+    if (mode != 0 && mode != 3) return -35;
+    const int32_t validation = bvr_ragdoll_validate(mission, agent, skeleton_value);
+    if (validation != BVR_OK) return validation;
+    const auto skeleton = reinterpret_cast<void*>(skeleton_value);
+    if (bone_count < 1 || bone_count > 127 || read<uint16_t>(skeleton, 0x40) != 3) return -28;
+    const uintptr_t torque_entry = module_base + 0x11aa90;
+    const uint8_t prefix[] = {0x57,0x48,0x83,0xec,0x50,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff};
+    // push rdi is 0x40 0x57 (REX) at the entry.
+    if (!readable(reinterpret_cast<void*>(torque_entry), sizeof(prefix) + 1) ||
+        std::memcmp(reinterpret_cast<uint8_t*>(torque_entry) + 1, prefix, sizeof(prefix))) return BVR_GRAPHICS_MISMATCH;
+    void* data = read<void*>(skeleton, 0xd0);
+    if (!data || !readable(static_cast<uint8_t*>(data) + 0x1000, 8)) return -30;
+    void* bones = read<void*>(data, 0x1000);
+    if (!bones || !readable(bones, 0x209 + bone_count)) return -30;
+    using AddTorque = void(__fastcall*)(void*, const float*, int8_t);
+    const auto add_torque = reinterpret_cast<AddTorque>(torque_entry);
+    void* seen[64]{};
+    int count = 0, done = 0;
+    for (int bone = 0; bone < bone_count; ++bone) {
+        const int index = read<int8_t>(bones, 0x209 + bone);
+        if (index < 0) continue;
+        if (index >= 64) return -31;
+        void* holder = read<void*>(bones, 8 + index * 8);
+        if (!holder) continue;
+        if (!readable(holder, 8)) return -32;
+        void* body = read<void*>(holder, 0);
+        if (!readable(body, 0x98)) return -32;
+        bool duplicate = false;
+        for (int i = 0; i < count; ++i) if (seen[i] == body) { duplicate = true; break; }
+        if (duplicate) continue;
+        if (count >= 64) return -31;
+        seen[count++] = body;
+        void* table = read<void*>(body, 0);
+        if (!readable(table, 0x1a0) || read<uintptr_t>(table, 0x178) != torque_entry ||
+            read<uintptr_t>(table, 0x190) != module_base + 0x11acc0 ||
+            read<uintptr_t>(table, 0x198) != module_base + 0x11ade0) return -33;
+        // The engine method dereferences the PhysX actor at +0x40 and only
+        // accepts a rigid dynamic (concrete type 5); check before calling.
+        void* actor = read<void*>(body, 0x40);
+        if (!readable(actor, 0x10) || read<uint16_t>(actor, 8) != 5) continue;
+        const float* t = torques + bone * 3;
+        if (!std::isfinite(t[0]) || !std::isfinite(t[1]) || !std::isfinite(t[2])) continue;
+        if (t[0] == 0 && t[1] == 0 && t[2] == 0) continue;
+        add_torque(body, t, static_cast<int8_t>(mode));
+        ++done;
+    }
+    *applied = done;
+    return BVR_OK;
+}
+
 int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton_value,
     int32_t bone_count, float* total_mass, int32_t* body_count)
 {

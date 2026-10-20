@@ -131,6 +131,28 @@ namespace BannerlordVR.VR.Physics
             return status == 0 && InteractionMath.IsFinite(total);
         }
 
+        // One angular acceleration per physical body (3 floats per bone, read
+        // on each body's first bone). Stops for the mission on the first error.
+        private static bool _torqueFailed;
+        public static bool TorquesAvailable => Ready && !_torqueFailed;
+        public static bool AddTorques(Agent agent, Mission mission, Skeleton skeleton, float[] torques)
+        {
+            if (!TorquesAvailable || agent == null || !agent.IsActive() || skeleton == null || torques == null ||
+                torques.Length < skeleton.GetBoneCount() * 3 ||
+                agent.AgentVisuals?.GetSkeleton()?.Pointer != skeleton.Pointer) return false;
+            int status = bvr_ragdoll_add_torques((UIntPtr)MissionPointer.GetValue(mission),
+                (UIntPtr)AgentPointer.GetValue(agent), skeleton.Pointer, skeleton.GetBoneCount(), torques, 3, out int applied);
+            if (status != 0)
+            {
+                _torqueFailed = true;
+                PhysicsLog.Info("ACTIVE_RAGDOLL rotation pins off: native torque status=" + status + " (" + Failure(status) + ").");
+                return false;
+            }
+            if (!_torqueLogged) { _torqueLogged = true; PhysicsLog.Info("ACTIVE_RAGDOLL rotation pins on: torques applied to " + applied + " bodies."); }
+            return true;
+        }
+        private static bool _torqueLogged;
+
         private static string Failure(int status)
         {
             switch (status)
@@ -150,6 +172,9 @@ namespace BannerlordVR.VR.Physics
 
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_ragdoll_prepare();
+        [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_ragdoll_add_torques(UIntPtr mission, UIntPtr agent, UIntPtr skeleton,
+            int boneCount, [In] float[] torques, int mode, out int applied);
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_ragdoll_release(UIntPtr mission, UIntPtr agent, UIntPtr skeleton);
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

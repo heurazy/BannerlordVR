@@ -26,6 +26,11 @@ namespace BannerlordVR.VR.Physics
         private readonly MatrixFrame[] _captured = new MatrixFrame[128];
         private readonly sbyte[] _bone = new sbyte[MaxBodies];
         private readonly Vec3[] _position = new Vec3[MaxBodies], _target = new Vec3[MaxBodies], _force = new Vec3[MaxBodies];
+        // Rotation pins: each body's world axes now and at the last applied step.
+        private readonly Vec3[] _rs = new Vec3[MaxBodies], _rf = new Vec3[MaxBodies], _ru = new Vec3[MaxBodies];
+        private readonly Vec3[] _ps = new Vec3[MaxBodies], _pf = new Vec3[MaxBodies], _pu = new Vec3[MaxBodies];
+        private bool _rotationSampled;
+        private float[] _torques = new float[0];
         private MatrixFrame _root, _capturedRoot;
         private int _boneCount, _pelvisBody;
         private bool _captureValid, _configured, _destabilizeOnStart;
@@ -102,7 +107,7 @@ namespace BannerlordVR.VR.Physics
             _captureValid = _configured = _destabilizeOnStart = false;
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
             AppliedSteps = SkippedTicks = 0; MaxStandingError = LastPoseError = RootSpeed = 0;
-            _pendingBone = -1; _pendingImpulse = Vec3.Zero;
+            _pendingBone = -1; _pendingImpulse = Vec3.Zero; _rotationSampled = false;
             _lastInteraction = 0; _headBody = -1; LastGrabOutcome = GrabOutcome.Hold; _lastTurn = -1; _turned = 0;
             _velocitySampled = false; LastPusher = null; ImpactBone = -1; ImpactSpeed = 0; Impacts = 0;
             for (int i = 0; i < MaxBodies; i++) _impactUntil[i] = 0;
@@ -301,7 +306,12 @@ namespace BannerlordVR.VR.Physics
             float now = mission.CurrentTime;
             MatrixFrame frame = agent.AgentVisuals.GetEntity().GetGlobalFrame();
             for (int i = 0; i < _drive.Count; i++)
-                _position[i] = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(_bone[i])).origin;
+            {
+                MatrixFrame bw = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(_bone[i]));
+                _position[i] = bw.origin;
+                bw.rotation.Orthonormalize();
+                _rs[i] = bw.rotation.s; _rf[i] = bw.rotation.f; _ru[i] = bw.rotation.u;
+            }
             Vec3 pelvis = _position[_pelvisBody];
             DetectImpacts(now);
             float sampleDt = _lastRootSample < 0 ? 0 : now - _lastRootSample;
@@ -341,6 +351,7 @@ namespace BannerlordVR.VR.Physics
             _drive.CancelGravity = _cycle.CancelGravity;
             _drive.Grounded = _nearGround;
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
+            ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (_pendingBone == _bone[i]) { _force[i] += _pendingImpulse; _pendingBone = -1; }
@@ -354,6 +365,36 @@ namespace BannerlordVR.VR.Physics
             _gate.Applied(clock.Steps);
             _lastApplied = now;
             AppliedSteps++;
+        }
+
+        // B&S slerp drive per part towards its posed orientation, with the
+        // state's scales (no drive on the root once destabilized, as for the
+        // position pins).
+        private void ApplyRotationPins(Agent agent, Skeleton skeleton, Mission mission, float dt)
+        {
+            if (!EnemyPhysicsSettings.RotationPins || !NativeRagdollBridge.TorquesAvailable || _drive.State == PinState.Inert) { _rotationSampled = false; return; }
+            int needed = _boneCount * 3;
+            if (_torques.Length < needed) _torques = new float[needed];
+            Array.Clear(_torques, 0, needed);
+            bool standing = _drive.State == PinState.Standing;
+            float spring = standing ? 1 : _nearGround ? RagdollPinDrive.DestabilizedGroundSpringRotation : RagdollPinDrive.DestabilizedSpringRotation;
+            float damper = standing ? 1 : RagdollPinDrive.DestabilizedDamperRotation;
+            float multiplier = Math.Max(0, Math.Min(1, _cycle.PinMultiplier));
+            for (int i = 0; i < _drive.Count; i++)
+            {
+                if (!standing && i == _pelvisBody) continue;
+                MatrixFrame posed = _root.TransformToParent(_captured[_bone[i]]);
+                posed.rotation.Orthonormalize();
+                Vec3 error = RotationPin.Error(_rs[i], _rf[i], _ru[i], posed.rotation.s, posed.rotation.f, posed.rotation.u);
+                Vec3 omega = _rotationSampled && dt > 0
+                    ? RotationPin.Error(_ps[i], _pf[i], _pu[i], _rs[i], _rf[i], _ru[i]) * (1 / dt) : Vec3.Zero;
+                Vec3 a = RotationPin.Acceleration(error, omega, _drive.Mass(i), spring, damper, multiplier);
+                int b = _bone[i] * 3;
+                _torques[b] = a.x; _torques[b + 1] = a.y; _torques[b + 2] = a.z;
+            }
+            for (int i = 0; i < _drive.Count; i++) { _ps[i] = _rs[i]; _pf[i] = _rf[i]; _pu[i] = _ru[i]; }
+            _rotationSampled = true;
+            NativeRagdollBridge.AddTorques(agent, mission, skeleton, _torques);
         }
 
         // Only a falling (destabilized) body collides with enough speed; the
