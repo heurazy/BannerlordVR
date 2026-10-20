@@ -34,6 +34,7 @@ namespace BannerlordVR.VR.Physics
         private static Agent _player;
         private static int _cursor;
         private static float _time = -1, _lastLog;
+        private static string _blocked = "start";
         private static bool _failed;
         public static bool HandlingCombat { get; private set; }
         public static bool OwnsTrigger(bool left)
@@ -78,19 +79,28 @@ namespace BannerlordVR.VR.Physics
             HandlingCombat = false; ActiveBodies = 0;
         }
 
+        private static bool _loggedInput, _loggedSlots;
+        private static void Once(ref bool done, string message) { if (!done) { done = true; PhysicsLog.Info(message); } }
         public static void Tick(Mission mission, float dt)
         {
             bool measured = false;
             try
             {
                 Agent player = mission?.MainAgent;
-                if (_failed || !EnemyPhysicsSettings.Enabled || !VrMotionHands.Enabled || !VrSystem.IsActive ||
-                    mission == null || mission.MissionEnded || mission.Mode != MissionMode.Battle ||
-                    player == null || !player.IsActive() || player.HasMount ||
-                    GameNetwork.IsMultiplayer || !VrCameraDriver.HasPose ||
-                    VrMissionPhase.UiWantsScreen || VrMissionPhase.UiWantsOverlay || VrHandCalibration.Capturing ||
-                    PhysicsInterop.OverlayVisible())
-                { Reset(); return; }
+                string blocked = _failed ? "failed_earlier" : !EnemyPhysicsSettings.Enabled ? "enemy_physics_off" :
+                    !VrMotionHands.Enabled ? "motion_hands_off" : !VrSystem.IsActive ? "vr_inactive" :
+                    mission == null || mission.MissionEnded ? "no_mission" : mission.Mode != MissionMode.Battle ? "mode_" + mission.Mode :
+                    player == null || !player.IsActive() ? "no_player" : player.HasMount ? "player_mounted" :
+                    GameNetwork.IsMultiplayer ? "multiplayer" : !VrCameraDriver.HasPose ? "no_head_pose" :
+                    VrMissionPhase.UiWantsScreen ? "ui_screen" : VrMissionPhase.UiWantsOverlay ? "ui_overlay" :
+                    VrHandCalibration.Capturing ? "hand_calibration" : PhysicsInterop.OverlayVisible() ? "vr_overlay" : null;
+                if (blocked != _blocked)
+                {
+                    PhysicsLog.Info("Enemy physics " + (blocked == null ? "ACTIVE" : "paused: " + blocked) +
+                        (player != null ? "; player mounted=" + player.HasMount : ""));
+                    _blocked = blocked;
+                }
+                if (blocked != null) { Reset(); return; }
                 if (_mission != mission || _player != player)
                 {
                     Reset(); _mission = mission; _player = player;
@@ -122,10 +132,10 @@ namespace BannerlordVR.VR.Physics
                 ShedUnheldBodies(player);
                 Scan(mission, player, dt);
                 if (PhysicsInterop.GetInputState(out BvrInputState input) != (int)BvrStatus.Ok)
-                { ClearHands(); return; }
+                { Once(ref _loggedInput, "Enemy physics: controller input unavailable this frame."); ClearHands(); return; }
                 var skeleton = player.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || !VrHandSlots.Resolve(player, skeleton, out VrHandSlot main, out VrHandSlot off))
-                { ClearHands(); return; }
+                { Once(ref _loggedSlots, "Enemy physics: hand bones not resolved for the player."); ClearHands(); return; }
                 if (player.WieldedWeapon.CurrentUsageItem?.IsRangedWeapon == true ||
                     player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true)
                 { ClearHands(); return; }

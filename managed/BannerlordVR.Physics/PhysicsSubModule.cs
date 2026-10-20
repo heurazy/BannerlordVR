@@ -60,7 +60,6 @@ namespace BannerlordVR.Physics
         {
             try
             {
-                if (!VrSystem.IsActive || __0 == null) { EnemyPhysicsRuntime.Reset(); return; }
                 EnemyPhysicsRuntime.Tick(__0, __1);
             }
             catch (Exception ex)
