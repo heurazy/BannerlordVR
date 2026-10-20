@@ -135,7 +135,7 @@ namespace BannerlordVR.VR.Physics
         // and dealt when it leaves the body: the victim dies on withdrawal.
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
-        private const float MaxShove = .1f;
+        private const float MaxShove = .1f, LateralLoss = .5f;
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
         // angular limits are relative to it.
@@ -239,7 +239,12 @@ namespace BannerlordVR.VR.Physics
             // while the arm keeps pushing).
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             Vec3 bladePoint = bladeBase + axis * along;
-            if ((bladePoint - anchor).Length > .16f)
+            // Damager.Penetrate locks x and y and never lets go sideways: only
+            // the blade leaving along its axis ends the joint. The VR blade
+            // cannot be slowed by the body, so a fast hand leaves the part
+            // behind; 16 cm released every stab within 0.2-0.36 s. Only a part
+            // half a metre off the blade (a lost body) is let go.
+            if ((bladePoint - anchor).Length > LateralLoss)
             { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
             if (!_hasLocalAxis)
             {
