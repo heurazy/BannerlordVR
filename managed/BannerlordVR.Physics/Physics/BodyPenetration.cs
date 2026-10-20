@@ -259,8 +259,10 @@ namespace BannerlordVR.VR.Physics
             Vec3 bladeTarget = bladePoint;
             if (atLimit)
             {
-                // A hand 60 cm past where the blade stopped has let go of it.
-                if (depth - limit > .6f) { End("overshoot", depth - limit); return false; }
+                // The stopped blade stays in while the hand pushes on (B&S:
+                // the weapon stays in the body, the arm keeps shoving it);
+                // only a hand far beyond any reach has let go of it.
+                if (depth - limit > 1.5f) { End("overshoot", depth - limit); return false; }
                 bladeTarget = bladePoint - axis * (depth - limit);
                 depth = limit;
             }

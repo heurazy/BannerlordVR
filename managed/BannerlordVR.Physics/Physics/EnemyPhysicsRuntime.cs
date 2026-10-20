@@ -626,7 +626,17 @@ namespace BannerlordVR.VR.Physics
                 velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
             // Inside the impact cooldown only an actual entry counts.
             if (hitCooled && !enters) return;
-            if (!enters) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+            // DamageModifier minVelocity: a slower contact (a blade resting or
+            // dragged against a body) deals no damage; it still pushes.
+            bool damages = true;
+            if (blade && !hit.IsCorpse)
+            {
+                BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile damageProfile);
+                PenetrationModifiers.Row damageRow = PenetrationModifiers.Get(damageProfile,
+                    BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
+                damages = velocity.Length >= damageRow.DamageMinVelocity;
+            }
+            if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&

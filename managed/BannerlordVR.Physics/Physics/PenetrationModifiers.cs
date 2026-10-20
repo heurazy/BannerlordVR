@@ -14,6 +14,8 @@ namespace BannerlordVR.VR.Physics
         {
             public bool Valid, Allow, Pressure;
             public float MinVelocity, DamperMultiplier, PressureForceMultiplier;
+            // Modifier.minVelocity: slower contacts deal no damage at all.
+            public float DamageMinVelocity;
             // penetrationVelocityMaxDepth: the joint limit is the curve value
             // at (impact speed - min speed); every catalog curve rises
             // linearly from 0 at 0 m/s to this depth at 1 m/s, then holds.
@@ -21,8 +23,8 @@ namespace BannerlordVR.VR.Physics
             public float DepthLimit(float speed) =>
                 VelocityDepth <= 0 ? float.PositiveInfinity : VelocityDepth * Math.Max(0, Math.Min(1, speed - MinVelocity));
         }
-        private static Row R(bool allow, float min, float damper, bool pressure, float pressureForce, float depth) =>
-            new Row { Valid = true, Allow = allow, MinVelocity = min, DamperMultiplier = damper, Pressure = pressure,
+        private static Row R(bool allow, float damageMin, float min, float damper, bool pressure, float pressureForce, float depth) =>
+            new Row { Valid = true, Allow = allow, DamageMinVelocity = damageMin, MinVelocity = min, DamperMultiplier = damper, Pressure = pressure,
                 PressureForceMultiplier = pressureForce, VelocityDepth = depth };
 
         private static readonly Row[][][] Table =
@@ -30,68 +32,68 @@ namespace BannerlordVR.VR.Physics
             // DamageModifier_Pierce
             new[] {
                 // Flesh
-                new[] { R(true, 1f, 3f, true, 2f, 0f), R(true, 0.5f, 1.5f, true, 2f, 0f), R(true, 1f, 1f, true, 2f, 0f), R(true, 1f, 0.75f, true, 2f, 0f), R(true, 1f, 0.5f, true, 2f, 0f), R(true, 1f, 0.5f, true, 2f, 0f), R(true, 1f, 0.5f, true, 2f, 0f) },
+                new[] { R(true, 1f, 1f, 3f, true, 2f, 0f), R(true, 1f, 0.5f, 1.5f, true, 2f, 0f), R(true, 1f, 1f, 1f, true, 2f, 0f), R(true, 1f, 1f, 0.75f, true, 2f, 0f), R(true, 1f, 1f, 0.5f, true, 2f, 0f), R(true, 1f, 1f, 0.5f, true, 2f, 0f), R(true, 1f, 1f, 0.5f, true, 2f, 0f) },
                 // Leather
-                new[] { R(true, 6f, 6f, false, 1f, 0.1f), R(true, 3f, 2.5f, true, 1f, 0f), R(true, 3f, 2.5f, true, 1f, 0f), R(true, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 1.25f, true, 1f, 0f) },
+                new[] { R(true, 3f, 6f, 6f, false, 1f, 0.1f), R(true, 3f, 3f, 2.5f, true, 1f, 0f), R(true, 3f, 3f, 2.5f, true, 1f, 0f), R(true, 3f, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 3f, 1.25f, true, 1f, 0f), R(true, 3f, 3f, 1.25f, true, 1f, 0f) },
                 // Chainmail
-                new[] { R(false, 9f, 3f, false, 1f, 0.5f), R(true, 3f, 6f, false, 1f, 0.2f), R(true, 3f, 6f, false, 1f, 0.2f), R(true, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 4f, false, 1f, 0.2f) },
+                new[] { R(false, 3f, 9f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, 6f, false, 1f, 0.2f), R(true, 3f, 3f, 6f, false, 1f, 0.2f), R(true, 3f, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 3f, 4f, false, 1f, 0.2f), R(true, 3f, 3f, 4f, false, 1f, 0.2f) },
                 // Plate
-                new[] { R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f), R(true, 50f, 12f, false, 1f, 0f) }
+                new[] { R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f), R(true, 12f, 50f, 12f, false, 1f, 0f) }
             },
             // DamageModifier_PierceFine
             new[] {
                 // Flesh
-                new[] { R(true, 1f, 3f, true, 1f, 0f), R(true, 1f, 2f, true, 1f, 0f), R(true, 1f, 1.5f, true, 1f, 0f), R(true, 1f, 1f, true, 1f, 0f), R(true, 1f, 0.75f, true, 1f, 0f), R(true, 1f, 0.75f, true, 1f, 0f), R(true, 1f, 0.75f, true, 1f, 0f) },
+                new[] { R(true, 1f, 1f, 3f, true, 1f, 0f), R(true, 1f, 1f, 2f, true, 1f, 0f), R(true, 1f, 1f, 1.5f, true, 1f, 0f), R(true, 1f, 1f, 1f, true, 1f, 0f), R(true, 1f, 1f, 0.75f, true, 1f, 0f), R(true, 1f, 1f, 0.75f, true, 1f, 0f), R(true, 1f, 1f, 0.75f, true, 1f, 0f) },
                 // Leather
-                new[] { R(true, 4f, 6f, false, 1f, 0.1f), R(true, 2f, 3f, true, 1f, 0f), R(true, 2f, 3f, true, 1f, 0f), R(true, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 1.25f, true, 1f, 0f) },
+                new[] { R(true, 2f, 4f, 6f, false, 1f, 0.1f), R(true, 2f, 2f, 3f, true, 1f, 0f), R(true, 2f, 2f, 3f, true, 1f, 0f), R(true, 2f, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 2f, 1.25f, true, 1f, 0f), R(true, 2f, 2f, 1.25f, true, 1f, 0f) },
                 // Chainmail
-                new[] { R(false, 9f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, false, 1f, 0.5f), R(true, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 2f, true, 1f, 0.5f) },
+                new[] { R(false, 3f, 9f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, 3f, false, 1f, 0.5f), R(true, 3f, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 3f, 2f, true, 1f, 0.5f), R(true, 3f, 3f, 2f, true, 1f, 0.5f) },
                 // Plate
-                new[] { R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f) }
+                new[] { R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f) }
             },
             // DamageModifier_PierceWarpick
             new[] {
                 // Flesh
-                new[] { R(true, 3f, 2f, false, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f) },
+                new[] { R(true, 3f, 3f, 2f, false, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f) },
                 // Leather
-                new[] { R(true, 3f, 2f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f), R(true, 3f, 1f, false, 1f, 0f) },
+                new[] { R(true, 3f, 3f, 2f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f), R(true, 3f, 3f, 1f, false, 1f, 0f) },
                 // Chainmail
-                new[] { R(true, 4f, 3f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 1.75f, false, 1f, 0f) },
+                new[] { R(true, 4f, 4f, 3f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f), R(true, 4f, 4f, 1.75f, false, 1f, 0f) },
                 // Plate
-                new[] { R(true, 4f, 2.25f, false, 1f, 0.1f), R(true, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 2.25f, false, 1f, 0f) }
+                new[] { R(true, 4f, 4f, 2.25f, false, 1f, 0.1f), R(true, 4f, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 4f, 2.25f, false, 1f, 0f), R(true, 4f, 4f, 2.25f, false, 1f, 0f) }
             },
             // DamageModifier_PierceArrow
             new[] {
                 // Flesh
-                new[] { R(true, 3f, 5f, true, 1f, 0f), R(true, 3f, 5f, true, 1f, 0.5f), R(true, 3f, 1.5f, true, 1f, 0f), R(true, 3f, 1f, true, 1f, 0f), R(true, 3f, 0.75f, true, 1f, 0f), R(true, 3f, 0.75f, true, 1f, 0f), R(true, 3f, 0.75f, true, 1f, 0f) },
+                new[] { R(true, 3f, 3f, 5f, true, 1f, 0f), R(true, 3f, 3f, 5f, true, 1f, 0.5f), R(true, 3f, 3f, 1.5f, true, 1f, 0f), R(true, 3f, 3f, 1f, true, 1f, 0f), R(true, 3f, 3f, 0.75f, true, 1f, 0f), R(true, 3f, 3f, 0.75f, true, 1f, 0f), R(true, 3f, 3f, 0.75f, true, 1f, 0f) },
                 // Leather
-                new[] { R(false, 6f, 4f, false, 1f, 0f), R(true, 3f, 3f, true, 1f, 0.5f), R(true, 3f, 3f, true, 1f, 0f), R(true, 3f, 2f, true, 1f, 0f), R(true, 3f, 2f, true, 1f, 0f), R(true, 3f, 2f, true, 1f, 0f), R(true, 3f, 2f, true, 1f, 0f) },
+                new[] { R(false, 6f, 6f, 4f, false, 1f, 0f), R(true, 3f, 3f, 3f, true, 1f, 0.5f), R(true, 3f, 3f, 3f, true, 1f, 0f), R(true, 3f, 3f, 2f, true, 1f, 0f), R(true, 3f, 3f, 2f, true, 1f, 0f), R(true, 3f, 3f, 2f, true, 1f, 0f), R(true, 3f, 3f, 2f, true, 1f, 0f) },
                 // Chainmail
-                new[] { R(false, 9f, 3f, false, 1f, 0.5f), R(false, 9f, 3f, false, 1f, 0.5f), R(true, 9f, 5f, false, 1f, 0.5f), R(true, 9f, 3f, false, 1f, 0f), R(true, 9f, 3f, false, 1f, 0f), R(true, 9f, 3f, false, 1f, 0f), R(true, 9f, 3f, false, 1f, 0f) },
+                new[] { R(false, 6f, 9f, 3f, false, 1f, 0.5f), R(false, 6f, 9f, 3f, false, 1f, 0.5f), R(true, 6f, 9f, 5f, false, 1f, 0.5f), R(true, 6f, 9f, 3f, false, 1f, 0f), R(true, 6f, 9f, 3f, false, 1f, 0f), R(true, 6f, 9f, 3f, false, 1f, 0f), R(true, 6f, 9f, 3f, false, 1f, 0f) },
                 // Plate
-                new[] { R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f) }
+                new[] { R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f), R(false, 28f, 1f, 1f, false, 1f, 0f) }
             },
             // DamageModifier_Slash
             new[] {
                 // Flesh
-                new[] { R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 1f, true, 1f, 0.003f) },
+                new[] { R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f), R(true, 3f, 3f, 1f, true, 1f, 0.003f) },
                 // Leather
-                new[] { R(false, 7.5f, 1f, false, 1f, 0f), R(true, 8f, 3f, false, 0.5f, 0.003f), R(true, 8f, 3f, false, 0.5f, 0.003f), R(true, 5f, 1f, false, 0.5f, 0.003f), R(true, 5f, 1f, false, 0.5f, 0.003f), R(true, 5f, 1f, false, 0.5f, 0.003f), R(true, 5f, 1f, false, 0.5f, 0.003f) },
+                new[] { R(false, 3f, 7.5f, 1f, false, 1f, 0f), R(true, 3f, 8f, 3f, false, 0.5f, 0.003f), R(true, 3f, 8f, 3f, false, 0.5f, 0.003f), R(true, 3f, 5f, 1f, false, 0.5f, 0.003f), R(true, 3f, 5f, 1f, false, 0.5f, 0.003f), R(true, 3f, 5f, 1f, false, 0.5f, 0.003f), R(true, 3f, 5f, 1f, false, 0.5f, 0.003f) },
                 // Chainmail
-                new[] { R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f) },
+                new[] { R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f) },
                 // Plate
-                new[] { R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f) }
+                new[] { R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f), R(false, 8f, 1f, 1f, false, 1f, 0f) }
             },
             // DamageModifier_SlashAxe
             new[] {
                 // Flesh
-                new[] { R(true, 6f, 6f, true, 1f, 0f), R(true, 6f, 1.5f, true, 1f, 0f), R(true, 6f, 1.5f, true, 1f, 0f), R(true, 6f, 1f, true, 1f, 0f), R(true, 6f, 1f, true, 1f, 0f), R(true, 6f, 1f, true, 1f, 0f), R(true, 6f, 1f, true, 1f, 0f) },
+                new[] { R(true, 3f, 6f, 6f, true, 1f, 0f), R(true, 3f, 6f, 1.5f, true, 1f, 0f), R(true, 3f, 6f, 1.5f, true, 1f, 0f), R(true, 3f, 6f, 1f, true, 1f, 0f), R(true, 3f, 6f, 1f, true, 1f, 0f), R(true, 3f, 6f, 1f, true, 1f, 0f), R(true, 3f, 6f, 1f, true, 1f, 0f) },
                 // Leather
-                new[] { R(false, 14f, 2f, false, 1f, 0f), R(true, 10f, 1.6f, true, 1f, 0f), R(true, 10f, 1.6f, true, 1f, 0f), R(true, 8f, 1.4f, true, 1f, 0f), R(true, 8f, 1.4f, true, 1f, 0f), R(true, 8f, 1.4f, true, 1f, 0f), R(true, 8f, 1.4f, true, 1f, 0f) },
+                new[] { R(false, 4f, 14f, 2f, false, 1f, 0f), R(true, 3f, 10f, 1.6f, true, 1f, 0f), R(true, 3f, 10f, 1.6f, true, 1f, 0f), R(true, 3f, 8f, 1.4f, true, 1f, 0f), R(true, 3f, 8f, 1.4f, true, 1f, 0f), R(true, 3f, 8f, 1.4f, true, 1f, 0f), R(true, 3f, 8f, 1.4f, true, 1f, 0f) },
                 // Chainmail
-                new[] { R(false, 7.5f, 1f, false, 1f, 0f), R(true, 12f, 2f, false, 1f, 0f), R(true, 12f, 2f, false, 1f, 0f), R(true, 10f, 1.8f, false, 1f, 0f), R(true, 10f, 1.8f, false, 1f, 0f), R(true, 10f, 1.8f, false, 1f, 0f), R(true, 10f, 1.8f, false, 1f, 0f) },
+                new[] { R(false, 4f, 7.5f, 1f, false, 1f, 0f), R(true, 3f, 12f, 2f, false, 1f, 0f), R(true, 3f, 12f, 2f, false, 1f, 0f), R(true, 3f, 10f, 1.8f, false, 1f, 0f), R(true, 3f, 10f, 1.8f, false, 1f, 0f), R(true, 3f, 10f, 1.8f, false, 1f, 0f), R(true, 3f, 10f, 1.8f, false, 1f, 0f) },
                 // Plate
-                new[] { R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f), R(false, 1f, 1f, false, 1f, 0f) }
+                new[] { R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f), R(false, 3f, 1f, 1f, false, 1f, 0f) }
             }
         };
 
@@ -118,7 +120,7 @@ namespace BannerlordVR.VR.Physics
             if (material == PenetrationMaterial.Plate) material = PenetrationMaterial.Chainmail;
             tier = Math.Max(0, Math.Min(6, tier));
             Row row = Table[(int)ModifierFor(profile)][(int)material][tier];
-            return row.Valid ? row : R(false, float.PositiveInfinity, 1, false, 1, 0);
+            return row.Valid ? row : R(false, float.PositiveInfinity, float.PositiveInfinity, 1, false, 1, 0);
         }
     }
 }

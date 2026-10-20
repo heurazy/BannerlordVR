@@ -62,7 +62,7 @@ namespace BannerlordVR.VR.Physics
             LivingRagdollMissionLogic living = Mission.GetMissionBehavior<LivingRagdollMissionLogic>();
             foreach (Agent agent in Mission.Agents)
             {
-                if (agent == player || !agent.IsActive() || !agent.IsAIControlled || agent.IsMount) continue;
+                if (agent == player || !agent.IsActive() || agent.IsMount || agent.IsPlayerControlled) continue;
                 if (living != null && living.HasLease(agent)) { _leased.Add(agent); continue; }
                 // Back from the physics: it stands where the body was left.
                 if (_leased.Remove(agent)) _hold[agent] = agent.Position.AsVec2;
@@ -77,12 +77,13 @@ namespace BannerlordVR.VR.Physics
         // target at all the engine walked it straight ahead at 3-4 m/s. With
         // its spot as target and no speed limit it simply arrives and idles.
         private readonly HashSet<Agent> _leased = new HashSet<Agent>();
+        // Paused AI still steered: it walked on the spot towards an
+        // unreachable target, straight ahead without one, and kept a forward
+        // input (0,1) at 0.85 m/s towards its own spot. A dummy has no
+        // controller at all, so nothing gives it a movement input.
         public static void Hold(Agent agent, Vec2 at)
         {
-            agent.SetIsAIPaused(true);
-            agent.SetMaximumSpeedLimit(-1, false);
-            Vec3 look = agent.LookDirection;
-            agent.SetTargetPositionAndDirection(in at, in look);
+            if (agent.Controller != AgentControllerType.None) agent.Controller = AgentControllerType.None;
             agent.MovementFlags = 0;
             agent.MovementInputVector = Vec2.Zero;
         }
@@ -109,7 +110,7 @@ namespace BannerlordVR.VR.Physics
             Vec3 side = new Vec3(-forward.y, forward.x, 0);
             var candidates = new List<Agent>();
             foreach (Agent agent in Mission.Agents)
-                if (agent.IsActive() && agent.IsAIControlled && agent.IsHuman && !agent.HasMount &&
+                if (agent.IsActive() && agent != player && !agent.IsPlayerControlled && agent.IsHuman && !agent.HasMount &&
                     player.Team != null && agent.Team != null && agent.Team.IsEnemyOf(player.Team))
                     candidates.Add(agent);
             candidates.Sort((x, y) => (x.Position - player.Position).LengthSquared.CompareTo((y.Position - player.Position).LengthSquared));

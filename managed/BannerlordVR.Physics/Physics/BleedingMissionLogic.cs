@@ -164,7 +164,7 @@ namespace BannerlordVR.VR.Physics
             {
                 if (_probeScanCursor >= agents) _probeScanCursor = 0;
                 Agent agent = Mission.Agents[_probeScanCursor++];
-                if (!EnemyBody.Eligible(agent, source) || !agent.IsActive() || !agent.IsAIControlled ||
+                if (!EnemyBody.Eligible(agent, source) || !agent.IsActive() || agent.IsPlayerControlled ||
                     agent.Health < 50 || (agent.Position - source.Position).Length < 40) continue;
                 EnemyBody body = _probeBody;
                 if (!body.Bind(agent) || !body.Sample(Math.Max(.001f, dt))) continue;
