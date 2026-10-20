@@ -210,6 +210,13 @@ namespace BannerlordVR.VR.Physics
             return entry.Active.Handle(hand, point.Bone, Classify(body, point), handWorld, boneWorld, contact);
         }
         public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
+        public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, MatrixFrame boneWorld, Vec3 contact)
+        {
+            Entry entry = Find(body.Agent);
+            if (entry == null || !entry.Lease.OwnsPhysics || !entry.Active.Configured) return false;
+            entry.Lease.KeepHeld(Mission.CurrentTime);
+            return entry.Active.Pierce(hand, bone, bladePoint, axis, boneWorld, contact);
+        }
         // Human handle used by B&S for the part the hand closed on.
         private static GrabHandle Classify(EnemyBody body, BodyPoint point)
         {
@@ -450,7 +457,17 @@ namespace BannerlordVR.VR.Physics
             // slope is never placed inside geometry.
             if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
                 distance < 30 && navmesh)
-            { entry.Agent.TeleportToPosition(position); teleported = true; }
+            {
+                entry.Agent.TeleportToPosition(position); teleported = true;
+                // A body turned by a grab keeps its new facing.
+                Vec3 forward = entry.Active.RecoveryForward; forward.z = 0;
+                if (entry.Active.Turned && forward.Length > .1f)
+                {
+                    forward.Normalize();
+                    entry.Agent.LookDirection = forward;
+                    entry.Agent.SetMovementDirection(forward.AsVec2);
+                }
+            }
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5}",
                 Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported, distance, navmesh));

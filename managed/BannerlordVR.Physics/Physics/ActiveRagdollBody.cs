@@ -46,6 +46,11 @@ namespace BannerlordVR.VR.Physics
             // ragdoll settles about 6 cm off it on activation, which tripped
             // the 5 cm lift rule on the very first frame of every grab.
             public float BaseReference, BaseRoot;
+            // A blade inside the part instead of a hand on it: locked across
+            // the blade, free along it, no lift rules.
+            public bool Blade; public Vec3 Axis;
+            // HandleRagdoll.isBackGrab, decided when the hand closed.
+            public bool HasFacing, BackGrab;
         }
         private readonly GrabSlot[] _grabs = new GrabSlot[RagdollPinDrive.MaxHandles];
         private readonly bool[] _ungrab = new bool[RagdollPinDrive.MaxHandles];
@@ -84,7 +89,7 @@ namespace BannerlordVR.VR.Physics
         public float RootSpeed { get; private set; }
         // Any visible drag counts: below this the animation restarted at the
         // old spot and the released enemy snapped back.
-        public bool Moved => _configured && (_root.origin - _capturedRoot.origin).AsVec2.Length > .05f;
+        public bool Moved => _configured && ((_root.origin - _capturedRoot.origin).AsVec2.Length > .05f || Turned);
         public Vec3 RecoveryPosition => _root.origin;
 
         public void Clear()
@@ -94,7 +99,7 @@ namespace BannerlordVR.VR.Physics
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
             AppliedSteps = SkippedTicks = 0; MaxStandingError = LastPoseError = RootSpeed = 0;
             _pendingBone = -1; _pendingImpulse = Vec3.Zero;
-            _lastInteraction = 0; _headBody = -1; LastGrabOutcome = GrabOutcome.Hold;
+            _lastInteraction = 0; _headBody = -1; LastGrabOutcome = GrabOutcome.Hold; _lastTurn = -1; _turned = 0;
             _velocitySampled = false; LastPusher = null; ImpactBone = -1; ImpactSpeed = 0; Impacts = 0;
             for (int i = 0; i < MaxBodies; i++) _impactUntil[i] = 0;
             for (int h = 0; h < _grabs.Length; h++) { _grabs[h] = default(GrabSlot); _ungrab[h] = false; }
@@ -212,6 +217,19 @@ namespace BannerlordVR.VR.Physics
             _hand[hand] = handWorld;
             return true;
         }
+        // Damager.Penetrate: the pierced part is jointed to the blade, held by
+        // the player's arm. bladePoint is the blade point closest to the
+        // contact, so the joint only corrects across the blade.
+        public bool Pierce(int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, MatrixFrame boneWorld, Vec3 contactWorld)
+        {
+            if (hand < 0 || hand >= _grabs.Length || !_configured || !InteractionMath.IsFinite(bladePoint) || !InteractionMath.IsFinite(axis)) return false;
+            if (!_grabs[hand].Active || !_grabs[hand].Blade || _grabs[hand].Bone != bone)
+                _grabs[hand] = new GrabSlot { Active = true, Bone = bone, Kind = GrabHandle.Torso, Blade = true,
+                    Local = boneWorld.TransformToLocalNonOrthogonal(contactWorld) };
+            GrabSlot slot = _grabs[hand]; slot.Axis = axis; _grabs[hand] = slot;
+            _hand[hand] = bladePoint;
+            return true;
+        }
         public void ReleaseHandle(int hand)
         {
             if (hand < 0 || hand >= _grabs.Length) return;
@@ -262,6 +280,7 @@ namespace BannerlordVR.VR.Physics
                 _nextGround = now + .1f;
             }
             UpdateHandles(skeleton, frame, now);
+            TurnBody(mission.MainAgent, now);
             ActiveRagdollPhase before = _cycle.Phase;
             _cycle.Tick(sampleDt, _nearGround, RootSpeed);
             if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) ReanchorUnderHips();
@@ -331,6 +350,10 @@ namespace BannerlordVR.VR.Physics
                 if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
                 Vec3 delta = _grabTarget[h] - _target[grabbed];
                 if (!InteractionMath.IsFinite(delta)) continue;
+                // The animated pose keeps resisting along a blade: in B&S the
+                // creature's pins brake the part sliding on it, the blade
+                // only carries it sideways.
+                if (_grabs[h].Blade) delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
                 for (int i = 0; i < _drive.Count; i++)
                     if (i != _pelvisBody && _drive.InSubtree(i, grabbed)) _target[i] += delta;
                 int up = _drive.Parent(grabbed);
@@ -351,8 +374,9 @@ namespace BannerlordVR.VR.Physics
                 Vec3 contact = boneWorld.TransformToParent(_grabs[h].Local);
                 _grabBody[h] = body;
                 _grabTarget[h] = _position[body] + (_hand[h] - contact);
-                _drive.SetHandle(h, body, _grabTarget[h]);
+                _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade ? _grabs[h].Axis : Vec3.Zero);
                 _lastInteraction = now;
+                if (_grabs[h].Blade) { if (_cycle.Phase == ActiveRagdollPhase.Standing) StepTowards(GrabHandle.Torso, body, now); continue; }
                 // HandleRagdoll lift and head rules apply while the creature is
                 // alive and standing; a destabilized body simply hangs.
                 if (_cycle.Phase != ActiveRagdollPhase.Standing && _cycle.Phase != ActiveRagdollPhase.StandingUp) continue;
@@ -395,12 +419,54 @@ namespace BannerlordVR.VR.Physics
             _root.origin = new Vec3(_root.origin.x + step.x, _root.origin.y + step.y, _root.origin.z);
         }
 
+        // HandleRagdoll bodyTurnDirection (Interactable_Human*.json): torso
+        // GrabberPosition, shoulder/head/neck PartDirection, hand/wrist/legs
+        // None. The creature yaws its root towards the grabber at
+        // angle * turnSpeed per second (Creature.turnSpeed 6).
+        public const float TurnSpeed = 6;
+        private float _lastTurn = -1;
+        private float _turned;
+        private void TurnBody(Agent grabber, float now)
+        {
+            float dt = _lastTurn < 0 ? 0 : Math.Min(.1f, now - _lastTurn);
+            _lastTurn = now;
+            if (grabber == null || dt <= 0 || _cycle.Phase != ActiveRagdollPhase.Standing) return;
+            for (int h = 0; h < _grabs.Length; h++)
+            {
+                GrabSlot slot = _grabs[h];
+                if (!slot.Active || slot.Blade) continue;
+                bool grabberPosition = slot.Kind == GrabHandle.Torso;
+                if (!grabberPosition && slot.Kind != GrabHandle.Shoulder && slot.Kind != GrabHandle.Head && slot.Kind != GrabHandle.Neck) continue;
+                Vec2 forward = _root.rotation.f.AsVec2;
+                Vec2 to = (grabber.Position - _root.origin).AsVec2;
+                if (forward.Length < .01f || to.Length < .05f) continue;
+                forward.Normalize(); to.Normalize();
+                bool front = forward.x * to.x + forward.y * to.y > 0;
+                if (!slot.HasFacing) { slot.HasFacing = true; slot.BackGrab = !front; _grabs[h] = slot; }
+                bool back = grabberPosition ? !front : slot.BackGrab;
+                if (back) forward = new Vec2(-forward.x, -forward.y);
+                float angle = (float)Math.Atan2(forward.x * to.y - forward.y * to.x, forward.x * to.x + forward.y * to.y);
+                float turn = angle * Math.Min(1, TurnSpeed * dt);
+                if (Math.Abs(turn) < 1e-4f) continue;
+                _root.rotation.s = RotateYaw(_root.rotation.s, turn);
+                _root.rotation.f = RotateYaw(_root.rotation.f, turn);
+                _turned += Math.Abs(turn);
+            }
+        }
+        private static Vec3 RotateYaw(Vec3 v, float angle)
+        {
+            float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
+            return new Vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+        }
+        public bool Turned => _configured && _turned > .1f;
+        public Vec3 RecoveryForward => _root.rotation.f;
+
         // Ragdoll.SetBodyPositionToHips: the stand-up targets the pose placed
         // under the current hips, on the measured ground, original facing.
         private void ReanchorUnderHips()
         {
             int pelvisBone = _bone[_pelvisBody];
-            Vec3 local = _capturedRoot.rotation.TransformToParent(_captured[pelvisBone].origin);
+            Vec3 local = _root.rotation.TransformToParent(_captured[pelvisBone].origin);
             Vec3 pelvis = _lastPelvis;
             Vec3 origin = new Vec3(pelvis.x - local.x, pelvis.y - local.y, _nearGround ? _groundPoint.z : _root.origin.z);
             if (InteractionMath.IsFinite(origin)) _root.origin = origin;

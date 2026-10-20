@@ -10,6 +10,10 @@ namespace BannerlordVR.VR.Physics
     public sealed class BodyPenetration
     {
         public EnemyBody Body { get; private set; }
+        public int HandIndex;
+        // True while the blade holds the part through the active ragdoll's
+        // hand joint (rigid across the blade) rather than a soft spring.
+        public bool Locked { get; private set; }
         private sbyte _bone;
         private Vec3 _localContact, _lastBladePoint;
         private bool _sampled;
@@ -123,6 +127,8 @@ namespace BannerlordVR.VR.Physics
             DamageTypes woundType = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
             if (woundLost > 0 && woundBody?.Agent != null && woundBody.Agent.IsActive() && (pending < .5f || victim == null))
                 EnemyPhysicsRuntime.RecordWound(source, woundBody, woundBody.ReadContact(_bone), _lastAnchor, woundType, woundLost, false);
+            if (Locked && Body != null) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
+            Locked = false;
             Body = null; _sampled = false; _source = null;
             if (victim == null || pending < .5f || !victim.IsActive()) return;
             DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
@@ -210,10 +216,18 @@ namespace BannerlordVR.VR.Physics
             _lastBladePoint = bladePoint; _sampled = true;
             Vec3 error = bladePoint - anchor;
             Vec3 relativeVelocity = p.Velocity - targetVelocity;
-            // Free axial sliding; friction is deliberately weaker than lateral attachment.
-            Vec3 lateralVelocity = relativeVelocity - axis * InteractionMath.Dot(relativeVelocity, axis);
-            Vec3 force = InteractionMath.SpringForce(error, lateralVelocity,
-                EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce * .5f);
+            // Damager.Penetrate locks x and y: on an active ragdoll the part is
+            // carried across the blade by the player's arm joint (5000 N/m,
+            // 3000 N), with its pose following. Elsewhere a soft spring.
+            Vec3 force = Vec3.Zero;
+            Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
+                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladePoint, axis, bone, anchor);
+            if (!Locked)
+            {
+                Vec3 lateralVelocity = relativeVelocity - axis * InteractionMath.Dot(relativeVelocity, axis);
+                force = InteractionMath.SpringForce(error, lateralVelocity,
+                    EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce * .5f);
+            }
             // B&S axial damper: the part is dragged along with the blade, with
             // a different brake going in and coming out, set by its armour.
             float damper = PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth);

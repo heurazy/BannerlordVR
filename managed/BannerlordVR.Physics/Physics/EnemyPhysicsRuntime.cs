@@ -17,7 +17,7 @@ namespace BannerlordVR.VR.Physics
             public float DiagSpeed, DiagNearest = float.MaxValue, DiagBoneGap, DiagGrip, DiagTrigger, DiagNext;
             public int DiagCasts, DiagRayHits, DiagRejected, DiagHits, DiagGrabs;
             public string DiagReject = "-", DiagItem = "-";
-            public Hand(int index) { Grab.HandIndex = index; }
+            public Hand(int index) { Grab.HandIndex = index; Penetration.HandIndex = index; }
             public readonly BodyPenetration Penetration = new BodyPenetration();
             public readonly CutStroke Cut = new CutStroke();
             public bool Sampled, GripDown, SuppressTrigger;
@@ -69,6 +69,8 @@ namespace BannerlordVR.VR.Physics
         public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
+        public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, MatrixFrame boneWorld, Vec3 contact)
+            => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, boneWorld, contact);
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
             PushEffect push = PushEffect.None, float hitMass = 2)

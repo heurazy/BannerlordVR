@@ -42,6 +42,9 @@ namespace BannerlordVR.VR.Physics
         private readonly int[] _handleBody = { -1, -1 };
         private readonly Vec3[] _handleTarget = new Vec3[MaxHandles], _lastHandleTarget = new Vec3[MaxHandles];
         private readonly bool[] _handleSampled = new bool[MaxHandles];
+        // Damager.Penetrate joint: x and y Locked, z (along the blade) free
+        // with its own damper. Zero means a grip, locked on every axis.
+        private readonly Vec3[] _handleAxis = new Vec3[MaxHandles];
 
         private float[] _mass = new float[0];
         private int[] _parent = new int[0];
@@ -88,11 +91,13 @@ namespace BannerlordVR.VR.Physics
         public void ResetVelocity() { _sampled = false; for (int h = 0; h < MaxHandles; h++) _handleSampled[h] = false; }
 
         // Handle h (one per player hand) pulls body towards a world point.
-        public bool SetHandle(int h, int body, Vec3 target)
+        public bool SetHandle(int h, int body, Vec3 target) => SetHandle(h, body, target, Vec3.Zero);
+        public bool SetHandle(int h, int body, Vec3 target, Vec3 freeAxis)
         {
             if (h < 0 || h >= MaxHandles || body < 0 || body >= Count || !InteractionMath.IsFinite(target)) return false;
             if (_handleBody[h] != body) _handleSampled[h] = false;
             _handleBody[h] = body; _handleTarget[h] = target;
+            _handleAxis[h] = InteractionMath.IsFinite(freeAxis) && freeAxis.Length > .5f ? freeAxis.NormalizedCopy() : Vec3.Zero;
             return true;
         }
         public void ClearHandle(int h) { if (h >= 0 && h < MaxHandles) { _handleBody[h] = -1; _handleSampled[h] = false; } }
@@ -153,8 +158,11 @@ namespace BannerlordVR.VR.Physics
                 Vec3 handVelocity = _handleSampled[h] ? (_handleTarget[h] - _lastHandleTarget[h]) * (1 / dt) : Vec3.Zero;
                 float k = Math.Min(HandSpring, _mass[i] * HandNaturalFrequency * HandNaturalFrequency);
                 float c = Math.Min(HandDamper * 4, _mass[i] * HandDampingRate);
-                force[i] += InteractionMath.ClampMagnitude((_handleTarget[h] - position[i]) * k -
-                    (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c, HandMaxForce);
+                Vec3 grip = (_handleTarget[h] - position[i]) * k -
+                    (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c;
+                Vec3 axis = _handleAxis[h];
+                if (axis.LengthSquared > 0) grip -= axis * InteractionMath.Dot(grip, axis);
+                force[i] += InteractionMath.ClampMagnitude(grip, HandMaxForce);
                 _lastHandleTarget[h] = _handleTarget[h]; _handleSampled[h] = true;
             }
             for (int i = 0; i < Count; i++) { _lastPosition[i] = position[i]; _lastTarget[i] = target[i]; }

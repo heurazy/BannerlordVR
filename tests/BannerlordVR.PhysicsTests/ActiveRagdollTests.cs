@@ -36,6 +36,10 @@ internal static class ActiveRagdollTests
         check(drive.SetHandle(0, 1, new Vec3(.2f, 0, 1.5f)) && drive.Handled(1) && drive.AnyHandle, "Handle attaches a body");
         drive.Tick(pos, target, 1f / 90, force);
         check(force[1].x > 0 && force[1].x <= RagdollPinDrive.HandMaxForce, "The grip pulls the part towards the hand even when destabilized");
+        // A blade joint: locked across the blade (x here), free along it (z).
+        drive.SetHandle(0, 1, new Vec3(.2f, 0, 1.8f), Vec3.Up);
+        drive.Tick(pos, target, 1f / 90, force);
+        check(force[1].x > 0 && Math.Abs(force[1].z) < 1e-3f, "A blade joint pulls across the blade only");
         drive.ClearHandle(0);
         drive.Tick(pos, target, 1f / 90, force);
         check(!drive.AnyHandle && Math.Abs(force[1].x) < 1e-3f, "Releasing the grip removes its force");
