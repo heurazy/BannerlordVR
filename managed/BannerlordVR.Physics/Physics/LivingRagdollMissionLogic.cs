@@ -278,7 +278,9 @@ namespace BannerlordVR.VR.Physics
                 bool attacking = stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady ||
                     stage == Agent.ActionStage.AttackRelease;
                 if (attacking) context = agent.Velocity.z > 1.5f ? PushContext.AttackJump : PushContext.Attack;
-                else context = agent.GetTargetAgent() == null ? PushContext.Idle : PushContext.Combat;
+                // A paused AI (a sandbox dummy, a held enemy) is not fighting,
+                // whatever target it still remembers.
+                else context = agent.IsPaused || agent.GetTargetAgent() == null ? PushContext.Idle : PushContext.Combat;
             }
             PushBodyZone zone = point.Part == BoneBodyPartType.Head || point.Part == BoneBodyPartType.Neck ||
                 point.Part == BoneBodyPartType.Legs ? PushBodyZone.HeadOrLeg : PushBodyZone.Torso;
