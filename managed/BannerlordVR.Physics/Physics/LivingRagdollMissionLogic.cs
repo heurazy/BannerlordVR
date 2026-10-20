@@ -39,10 +39,22 @@ namespace BannerlordVR.VR.Physics
                 if (!NativeRagdollBridge.Preflight(Agent, Mission, Skeleton))
                     throw new InvalidOperationException("Living ragdoll activation refused by recovery preflight.");
                 if (EnemyPhysicsSettings.ActiveRagdoll)
-                    PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + Active.Capture(Agent, Skeleton, StartDestabilized));
+                {
+                    bool ready = Active.Capture(Agent, Skeleton, StartDestabilized);
+                    PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + ready + " pose=" + Active.CaptureSource + " " + Actions(Agent));
+                }
                 else if (EnemyPhysicsSettings.ActiveBalance)
                     PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
+            }
+            public static string Actions(Agent agent)
+            {
+                try
+                {
+                    return "action0=" + agent.GetCurrentAction(0).GetName() + "/" + agent.GetCurrentActionType(0) +
+                        " action1=" + agent.GetCurrentAction(1).GetName() + "/" + agent.GetCurrentActionType(1);
+                }
+                catch (Exception) { return "action=?"; }
             }
             public void EndNative()
             {
@@ -325,11 +337,30 @@ namespace BannerlordVR.VR.Physics
             }
         }
         private int _releasesThisTick;
+        // Actions of released agents, one second later, for the fall pose.
+        private readonly Dictionary<Agent, float> _released = new Dictionary<Agent, float>();
+        private readonly List<Agent> _releasedDone = new List<Agent>();
+        private void TraceReleased()
+        {
+            if (_released.Count == 0) return;
+            _releasedDone.Clear();
+            foreach (KeyValuePair<Agent, float> pair in _released)
+                if (Mission.CurrentTime - pair.Value > 1) _releasedDone.Add(pair.Key);
+            foreach (Agent agent in _releasedDone)
+            {
+                _released.Remove(agent);
+                if (agent.IsActive())
+                    PhysicsLog.Info("ACTIVE_RAGDOLL after_release agent=" + agent.Index + " " + Entry.Actions(agent) +
+                        string.Format(CultureInfo.InvariantCulture, " z_above_ground={0:F2}",
+                            agent.Position.z - Mission.Scene.GetGroundHeightAtPosition(agent.Position)));
+            }
+        }
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
             int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
+            try { TraceReleased(); } catch (Exception) { _released.Clear(); }
             if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
@@ -477,8 +508,18 @@ namespace BannerlordVR.VR.Physics
                 }
             }
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5}",
-                Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported, distance, navmesh));
+                "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5} {6}",
+                Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported, distance, navmesh, Entry.Actions(entry.Agent)));
+            // The body comes back on its feet: whatever the engine started
+            // while it was physical (a fall loop for an agent it saw leave
+            // the ground) must not keep playing.
+            if (ActiveRagdollBody.Airborne(entry.Agent))
+            {
+                entry.Agent.SetActionChannel(0, ActionIndexCache.act_none, ignorePriority: true);
+                entry.Agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
+                PhysicsLog.Info("ACTIVE_RAGDOLL release cleared an airborne action.");
+            }
+            _released[entry.Agent] = Mission.CurrentTime;
             if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
             _releasesThisTick++;
             SafeRelease(entry);

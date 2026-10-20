@@ -105,16 +105,40 @@ namespace BannerlordVR.VR.Physics
             for (int h = 0; h < _grabs.Length; h++) { _grabs[h] = default(GrabSlot); _ungrab[h] = false; }
         }
 
+        // Last standing pose captured per skeleton layout. The pins target the
+        // pose the body had when it went physical; a body caught in a fall or
+        // jump action would be held in that free-fall pose (B&S pins follow
+        // the creature's standing animator instead).
+        private static readonly System.Collections.Generic.Dictionary<Monster, MatrixFrame[]> StandingPose =
+            new System.Collections.Generic.Dictionary<Monster, MatrixFrame[]>();
+        public static bool Airborne(Agent agent)
+        {
+            Agent.ActionCodeType type = agent.GetCurrentActionType(0);
+            return type == Agent.ActionCodeType.Fall || type == Agent.ActionCodeType.Jump ||
+                type == Agent.ActionCodeType.JumpStart || type == Agent.ActionCodeType.JumpEnd || type == Agent.ActionCodeType.JumpEndHard;
+        }
+        public string CaptureSource { get; private set; } = "-";
+
         // Before StartRagdollAsCorpse, while the skeleton is still animated.
         public bool Capture(Agent agent, Skeleton skeleton, bool destabilized)
         {
             Clear();
             _boneCount = skeleton.GetBoneCount();
             if (_boneCount < 2 || _boneCount > _captured.Length) return false;
+            bool airborne = Airborne(agent);
+            MatrixFrame[] standing = null;
+            if (airborne && agent.Monster != null && StandingPose.TryGetValue(agent.Monster, out standing) && standing.Length != _boneCount) standing = null;
             for (sbyte b = 0; b < _boneCount; b++)
             {
-                _captured[b] = skeleton.GetBoneEntitialFrameWithIndex(b);
+                _captured[b] = standing != null ? standing[b] : skeleton.GetBoneEntitialFrameWithIndex(b);
                 if (!InteractionMath.IsFinite(_captured[b].origin)) return false;
+            }
+            CaptureSource = standing != null ? "standing_reference" : airborne ? "airborne_current" : "current";
+            if (!airborne && !destabilized && agent.Monster != null)
+            {
+                var copy = new MatrixFrame[_boneCount];
+                Array.Copy(_captured, copy, _boneCount);
+                StandingPose[agent.Monster] = copy;
             }
             _capturedRoot = _root = agent.AgentVisuals.GetEntity().GetGlobalFrame();
             _destabilizeOnStart = destabilized;

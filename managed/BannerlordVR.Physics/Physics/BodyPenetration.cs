@@ -92,13 +92,24 @@ namespace BannerlordVR.VR.Physics
             Agent source = null, bool pressure = false)
         {
             PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : MaterialFor(body.Agent, point.Part);
-            if (!pressure && speed < PenetrationJoint.MinVelocity(profile, material)) return;
+            if (!pressure && speed < PenetrationJoint.MinVelocity(profile, material))
+            {
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "PENETRATION refused speed={0:F2} min={1:F2} material={2}", speed, PenetrationJoint.MinVelocity(profile, material), material));
+                return;
+            }
             Begin(body, point, contact);
             if (Body == null) return;
             _profile = profile; _material = material;
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
+            _maxDepth = 0; _lockedLogged = false;
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PENETRATION begin profile={0} zone={1} material={2} speed={3:F2} pressure={4} bone={5}",
+                    profile, _zone, material, speed, pressure, point.Bone));
         }
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
@@ -111,7 +122,15 @@ namespace BannerlordVR.VR.Physics
         }
         // Damage that would kill while the blade is still inside is held back
         // and dealt when it leaves the body: the victim dies on withdrawal.
-        private float _pending, _woundLost, _depthBase = -1;
+        private float _pending, _woundLost, _depthBase = -1, _maxDepth;
+        private bool _lockedLogged;
+        private void End(string reason, float value = 0)
+        {
+            if (EnemyPhysicsSettings.Trace && Body != null)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4}", reason, value, _age, _maxDepth, Locked));
+            Release();
+        }
         private EnemyBody _woundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
@@ -182,11 +201,11 @@ namespace BannerlordVR.VR.Physics
             if (Body == null) return false;
             EnemyPhysicsRuntime.MaintainLivingGrab(Body);
             _age += dt;
-            if ((!Body.IsCorpse && !Body.Agent.IsActive()) || _age > 8) { Release(); return false; }
+            if ((!Body.IsCorpse && !Body.Agent.IsActive()) || _age > 8) { End(_age > 8 ? "timeout" : "victim_inactive"); return false; }
             // Let a newly killed target enter the engine's corpse state itself.
             if (!Body.HasNativePhysics)
             {
-                if (_age > .4f) Release();
+                if (_age > .4f) End("no_native_physics");
                 return Body != null;
             }
             BodyPoint p = Body.ReadContact(_bone);
@@ -195,17 +214,18 @@ namespace BannerlordVR.VR.Physics
             Vec3 bladePoint = InteractionMath.ClosestPointOnSegment(bladeBase, bladeTip, anchor);
             Vec3 axis = bladeTip - bladeBase;
             if (axis.Length < .05f || (bladePoint - anchor).Length > .16f)
-            { Release(); return false; }
+            { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
             axis.Normalize();
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
-            { Release(); return false; }
+            { End(along < 0 ? "pulled_out" : "past_tip", along); return false; }
             // Depth counts what went in after the entry, not where along the
             // blade the first contact happened to be sampled.
             float rawDepth = Math.Max(0, (bladeTip - bladeBase).Length - along);
             if (_depthBase < 0) _depthBase = rawDepth;
             float depth = Math.Max(0, rawDepth - _depthBase);
             _lastAnchor = anchor;
+            _maxDepth = Math.Max(_maxDepth, depth);
             if (!Body.IsCorpse)
             {
                 EnemyPhysicsRuntime.DeepenWound(Body.Agent, _bone, depth);
@@ -222,6 +242,8 @@ namespace BannerlordVR.VR.Physics
             Vec3 force = Vec3.Zero;
             Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladePoint, axis, bone, anchor);
+            if (Locked && !_lockedLogged && EnemyPhysicsSettings.Trace)
+            { _lockedLogged = true; PhysicsLog.Info("PENETRATION locked to the arm joint age=" + _age.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)); }
             if (!Locked)
             {
                 Vec3 lateralVelocity = relativeVelocity - axis * InteractionMath.Dot(relativeVelocity, axis);
