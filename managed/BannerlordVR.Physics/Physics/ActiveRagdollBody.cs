@@ -49,6 +49,9 @@ namespace BannerlordVR.VR.Physics
             // A blade inside the part instead of a hand on it: locked across
             // the blade, free along it, no lift rules.
             public bool Blade, AxialLock; public Vec3 Axis;
+            // Damager angular X/Y limit: the blade may tilt this far (rad)
+            // from its entry direction in the part before it levers the part.
+            public Vec3 LocalAxis; public float AngleLimit;
             // HandleRagdoll.isBackGrab, decided when the hand closed.
             public bool HasFacing, BackGrab;
         }
@@ -244,13 +247,15 @@ namespace BannerlordVR.VR.Physics
         // Damager.Penetrate: the pierced part is jointed to the blade, held by
         // the player's arm. bladePoint is the blade point closest to the
         // contact, so the joint only corrects across the blade.
-        public bool Pierce(int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, MatrixFrame boneWorld, Vec3 contactWorld)
+        public bool Pierce(int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, Vec3 localAxis, float angleLimit,
+            MatrixFrame boneWorld, Vec3 contactWorld)
         {
             if (hand < 0 || hand >= _grabs.Length || !_configured || !InteractionMath.IsFinite(bladePoint) || !InteractionMath.IsFinite(axis)) return false;
             if (!_grabs[hand].Active || !_grabs[hand].Blade || _grabs[hand].Bone != bone)
                 _grabs[hand] = new GrabSlot { Active = true, Bone = bone, Kind = GrabHandle.Torso, Blade = true,
                     Local = boneWorld.TransformToLocalNonOrthogonal(contactWorld) };
-            GrabSlot slot = _grabs[hand]; slot.Axis = axis; slot.AxialLock = axialLock; _grabs[hand] = slot;
+            GrabSlot slot = _grabs[hand]; slot.Axis = axis; slot.AxialLock = axialLock;
+            slot.LocalAxis = localAxis; slot.AngleLimit = Math.Max(0, angleLimit); _grabs[hand] = slot;
             _hand[hand] = bladePoint;
             return true;
         }
@@ -372,6 +377,7 @@ namespace BannerlordVR.VR.Physics
             {
                 int grabbed = _grabBody[h];
                 if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
+                if (_grabs[h].Blade) LeverPart(h, grabbed);
                 Vec3 delta = _grabTarget[h] - _target[grabbed];
                 if (!InteractionMath.IsFinite(delta)) continue;
                 // The animated pose keeps resisting along a blade: in B&S the
@@ -384,6 +390,40 @@ namespace BannerlordVR.VR.Physics
                 for (int level = 1; level < ReachShare.Length && up >= 0 && up != _pelvisBody; level++, up = _drive.Parent(up))
                     _target[up] += delta * ReachShare[level];
             }
+        }
+
+        // The blade turned past the joint's angular limit relative to the
+        // part's posed direction: the part's pose, its subtree and (by
+        // share) its parents turn with it about the entry point, as the
+        // locked joint levers the part in B&S.
+        private void LeverPart(int h, int grabbed)
+        {
+            GrabSlot slot = _grabs[h];
+            if (slot.LocalAxis.LengthSquared < .5f || !InteractionMath.IsFinite(slot.Axis)) return;
+            MatrixFrame posed = _root.TransformToParent(_captured[slot.Bone]);
+            Vec3 partAxis = posed.rotation.TransformToParent(slot.LocalAxis);
+            if (partAxis.Length < 1e-4f) return;
+            partAxis.Normalize();
+            float cos = Math.Max(-1, Math.Min(1, InteractionMath.Dot(partAxis, slot.Axis)));
+            float angle = (float)Math.Acos(cos) - slot.AngleLimit;
+            if (angle <= 1e-3f) return;
+            Vec3 turnAxis = Cross(partAxis, slot.Axis);
+            if (turnAxis.Length < 1e-5f) return;
+            turnAxis.Normalize();
+            Vec3 pivot = _target[grabbed] + (_hand[h] - _position[grabbed]);
+            for (int i = 0; i < _drive.Count; i++)
+                if (i != _pelvisBody && _drive.InSubtree(i, grabbed))
+                    _target[i] = pivot + Rotate(_target[i] - pivot, turnAxis, angle);
+            int up = _drive.Parent(grabbed);
+            for (int level = 1; level < ReachShare.Length && up >= 0 && up != _pelvisBody; level++, up = _drive.Parent(up))
+                _target[up] = pivot + Rotate(_target[up] - pivot, turnAxis, angle * ReachShare[level]);
+        }
+        private static Vec3 Cross(Vec3 a, Vec3 b) => new Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+        // Rodrigues rotation of v about unit axis k.
+        private static Vec3 Rotate(Vec3 v, Vec3 k, float angle)
+        {
+            float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
+            return v * c + Cross(k, v) * s + k * (InteractionMath.Dot(k, v) * (1 - c));
         }
 
         private void UpdateHandles(Skeleton skeleton, MatrixFrame frame, float now)

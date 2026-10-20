@@ -222,12 +222,13 @@ namespace BannerlordVR.VR.Physics
             return entry.Active.Handle(hand, point.Bone, Classify(body, point), handWorld, boneWorld, contact);
         }
         public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
-        public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, MatrixFrame boneWorld, Vec3 contact)
+        public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
+            Vec3 localAxis, float angleLimit, MatrixFrame boneWorld, Vec3 contact)
         {
             Entry entry = Find(body.Agent);
             if (entry == null || !entry.Lease.OwnsPhysics || !entry.Active.Configured) return false;
             entry.Lease.KeepHeld(Mission.CurrentTime);
-            return entry.Active.Pierce(hand, bone, bladePoint, axis, axialLock, boneWorld, contact);
+            return entry.Active.Pierce(hand, bone, bladePoint, axis, axialLock, localAxis, angleLimit, boneWorld, contact);
         }
         // Human handle used by B&S for the part the hand closed on.
         private static GrabHandle Classify(EnemyBody body, BodyPoint point)

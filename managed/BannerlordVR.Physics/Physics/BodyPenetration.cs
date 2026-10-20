@@ -128,6 +128,7 @@ namespace BannerlordVR.VR.Physics
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
+            _hasLocalAxis = false;
             if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
         // Damage that would kill while the blade is still inside is held back
@@ -135,6 +136,10 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private int _tier = 2;
+        // The blade direction in the part's frame at entry: the joint's
+        // angular limits are relative to it.
+        private Vec3 _localAxis;
+        private bool _hasLocalAxis;
         private float _depthLimit = float.PositiveInfinity;
         private void End(string reason, float value = 0)
         {
@@ -228,6 +233,11 @@ namespace BannerlordVR.VR.Physics
             if (axis.Length < .05f || (bladePoint - anchor).Length > .16f)
             { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
             axis.Normalize();
+            if (!_hasLocalAxis)
+            {
+                Vec3 local = bone.rotation.TransformToLocal(axis);
+                if (local.Length > 1e-4f) { local.Normalize(); _localAxis = local; _hasLocalAxis = true; }
+            }
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
             { End(along < 0 ? "pulled_out" : "past_tip", along); return false; }
@@ -262,7 +272,8 @@ namespace BannerlordVR.VR.Physics
             // 3000 N), with its pose following. Elsewhere a soft spring.
             Vec3 force = Vec3.Zero;
             Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
-                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladeTarget, axis, atLimit, bone, anchor);
+                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladeTarget, axis, atLimit,
+                    _hasLocalAxis ? _localAxis : Vec3.Zero, PenetrationJoint.AngleLimit(_profile, depth), bone, anchor);
             if (Locked && !_lockedLogged && EnemyPhysicsSettings.Trace)
             { _lockedLogged = true; PhysicsLog.Info("PENETRATION locked to the arm joint age=" + _age.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)); }
             if (!Locked)

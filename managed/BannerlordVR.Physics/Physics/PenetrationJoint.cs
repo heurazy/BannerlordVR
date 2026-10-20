@@ -35,6 +35,74 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
+        // DamagerData.penetrationShortDepth (penetrationShortDepthAngle 30 for
+        // every damager): the joint's angular X limit goes from 30 degrees at
+        // the surface to 0 at this depth; 0 means locked from the start.
+        public const float ShortDepthAngle = 30;
+        public static float ShortDepth(PenetrationProfile profile)
+        {
+            switch (profile)
+            {
+                case PenetrationProfile.DaggerPierce: return .03f;
+                case PenetrationProfile.Arrow: return 0;
+                case PenetrationProfile.AxeSlash1H:
+                case PenetrationProfile.AxeSlash2H: return .12f;
+                default: return .1f;
+            }
+        }
+        // Damager.RefreshJointDrive: Lerp(angle, 0, InverseLerp(0, shortDepth, depth)), radians.
+        public static float AngleLimit(PenetrationProfile profile, float depth)
+        {
+            float shortDepth = ShortDepth(profile);
+            if (shortDepth <= 0) return 0;
+            float t = Math.Max(0, Math.Min(1, depth / shortDepth));
+            return ShortDepthAngle * (1 - t) * (float)(Math.PI / 180);
+        }
+
+        // DamagerData.penetrationPressureForceCurve, keyed on the contact's
+        // relative speed: (time, value, inTangent, outTangent).
+        private static readonly float[,] PierceCurve = { { 0, 5, 0, 0 }, { .5f, 1.5f, -7.125f, -7.125f }, { 1, .25f, 0, 0 } };
+        private static readonly float[,] SlashCurve = { { 0, 5, 0, 0 }, { .5f, 1.5f, -7.125f, -7.125f }, { 1, .35f, 0, 0 } };
+        private static readonly float[,] AxeCurve = { { 0, 5, 0, 0 }, { 2, .5f, 0, 0 } };
+        private static readonly float[,] ArrowCurve = { { 0, 5, 0, 0 }, { 2, 5, 0, 0 } };
+        public static float PressureThreshold(PenetrationProfile profile, float relativeSpeed)
+        {
+            switch (profile)
+            {
+                case PenetrationProfile.DaggerSlash:
+                case PenetrationProfile.SaberSlash: return Evaluate(SlashCurve, relativeSpeed);
+                case PenetrationProfile.AxeSlash1H:
+                case PenetrationProfile.AxeSlash2H: return Evaluate(AxeCurve, relativeSpeed);
+                case PenetrationProfile.Arrow: return Evaluate(ArrowCurve, relativeSpeed);
+                default: return Evaluate(PierceCurve, relativeSpeed);
+            }
+        }
+        // Unity AnimationCurve.Evaluate for unweighted keys (cubic Hermite),
+        // clamped outside the keys.
+        public static float Evaluate(float[,] keys, float t)
+        {
+            int n = keys.GetLength(0);
+            if (!(t > keys[0, 0])) return keys[0, 1];
+            if (t >= keys[n - 1, 0]) return keys[n - 1, 1];
+            int i = 0;
+            while (t > keys[i + 1, 0]) i++;
+            float t0 = keys[i, 0], t1 = keys[i + 1, 0], span = t1 - t0;
+            float s = (t - t0) / span, s2 = s * s, s3 = s2 * s;
+            float p0 = keys[i, 1], p1 = keys[i + 1, 1], m0 = keys[i, 3] * span, m1 = keys[i + 1, 2] * span;
+            return (2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * m0 + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * m1;
+        }
+        // CollisionInstance.pressureForce = contact impulse / weapon mass, the
+        // speed one PhysX step of contact takes off the weapon. The VR blade is
+        // not a body, so the impulse is rebuilt from what B&S's arm joint
+        // would push into the surface: the approach speed plus the arm spring
+        // on the controller's overshoot past the contact, over one 90 Hz step.
+        public const float PhysicsStep = 1f / 90;
+        public static float Pressure(float approachSpeed, float overshoot, float weaponMass)
+        {
+            float arm = Math.Min(RagdollPinDrive.HandMaxForce, RagdollPinDrive.HandSpring * Math.Max(0, overshoot));
+            return Math.Max(0, approachSpeed) + arm / Math.Max(.2f, weaponMass) * PhysicsStep;
+        }
+
         // penetrationDamperMultiplier of the DamageModifier row for the
         // material and weapon tier (PenetrationModifiers).
         public static float MaterialMultiplier(PenetrationProfile profile, PenetrationMaterial material, int tier) =>

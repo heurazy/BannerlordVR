@@ -21,10 +21,12 @@ namespace BannerlordVR.VR.Physics
             public readonly BodyPenetration Penetration = new BodyPenetration();
             public readonly CutStroke Cut = new CutStroke();
             public bool Sampled, GripDown, SuppressTrigger;
+            // A point resting on a body while the blade pushes (pressure entry).
+            public EnemyBody PressBody; public sbyte PressBone; public Vec3 PressLocal; public float PressAge;
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
-            public void Reset() { Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; }
+            public void Reset() { PressBody = null; Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; }
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
         private static readonly EnemyBody[] Records = CreateRecords();
@@ -69,8 +71,9 @@ namespace BannerlordVR.VR.Physics
         public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
-        public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, MatrixFrame boneWorld, Vec3 contact)
-            => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, axialLock, boneWorld, contact);
+        public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
+            Vec3 localAxis, float angleLimit, MatrixFrame boneWorld, Vec3 contact)
+            => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, axialLock, localAxis, angleLimit, boneWorld, contact);
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
             PushEffect push = PushEffect.None, float hitMass = 2)
@@ -411,30 +414,64 @@ namespace BannerlordVR.VR.Physics
             if (best != null && (!best.IsCorpse || best.HasNativePhysics)) hand.Grab.Begin(best, point, position);
         }
 
-        // Damager.TryHitByPressure: the point pushed slowly into a body along
-        // the blade (within penetrationPressureMaxDot 0.2 of its axis) enters
-        // without a strike; damage then comes from depth.
-        private const float PressureMaxDot = .2f, PressureMinSpeed = .05f;
+        // Damager.TryHitByPressure: a point pushed into a body along the blade
+        // (within penetrationPressureMaxDot 0.2 of its axis) enters without a
+        // strike once the contact's pressure reaches the damager's
+        // penetrationPressureForceCurve at the contact speed, times the
+        // material's pressureForceMultiplier. The point rests on the surface
+        // while the hand pushes; damage then comes from depth.
+        private const float PressureMaxDot = .2f, PressLateral = .06f, PressTimeout = 2;
         private static void TryPressure(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage, Agent player, float dt)
         {
             if (!hand.Sampled || dt <= 0 || !BodyPenetration.ProfileFor(usage, true, out PenetrationProfile profile) ||
-                !PenetrationJoint.Get(profile).Pierce) return;
+                !PenetrationJoint.Get(profile).Pierce) { hand.PressBody = null; return; }
             Vec3 axis = tip - start;
+            if (axis.Length < .05f) { hand.PressBody = null; return; }
+            Vec3 axisN = axis.NormalizedCopy();
             Vec3 motion = tip - hand.PreviousTip;
             float length = motion.Length;
-            if (axis.Length < .05f || length / dt < PressureMinSpeed) return;
-            if (InteractionMath.Dot(motion * (1 / length), axis.NormalizedCopy()) < 1 - PressureMaxDot) return;
-            Agent agent = CastLimbs(hand.PreviousTip, tip, player.Index, .02f,
-                out float distance, out sbyte bone);
-            if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) return;
-            EnemyBody body = null;
-            foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
-            if (body == null || bone >= body.Skeleton.GetBoneCount()) return;
-            Vec3 contact = hand.PreviousTip + motion * (distance / length);
-            if (!Visible(hand.PreviousTip, contact, body) || EquipmentBlocks(body, hand.PreviousTip, tip, distance / length, .02f)) return;
+            EnemyBody body = hand.PressBody;
+            sbyte bone = hand.PressBone;
+            Vec3 contact;
+            if (body == null || body.Agent == null || !body.Agent.IsActive() || bone >= body.Skeleton.GetBoneCount())
+            {
+                hand.PressBody = null;
+                if (length < 1e-4f || InteractionMath.Dot(motion * (1 / length), axisN) < 1 - PressureMaxDot) return;
+                Agent agent = CastLimbs(hand.PreviousTip, tip, player.Index, .02f, out float distance, out bone);
+                if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) return;
+                body = null;
+                foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
+                if (body == null || bone >= body.Skeleton.GetBoneCount()) return;
+                contact = hand.PreviousTip + motion * (distance / length);
+                if (!Visible(hand.PreviousTip, contact, body) || EquipmentBlocks(body, hand.PreviousTip, tip, distance / length, .02f)) return;
+                MatrixFrame first = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(bone));
+                hand.PressBody = body; hand.PressBone = bone; hand.PressAge = 0;
+                hand.PressLocal = first.TransformToLocalNonOrthogonal(contact);
+            }
+            else
+            {
+                MatrixFrame boneWorld = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(bone));
+                contact = boneWorld.TransformToParent(hand.PressLocal);
+                hand.PressAge += dt;
+            }
+            float overshoot = InteractionMath.Dot(tip - contact, axisN);
+            Vec3 lateral = (tip - contact) - axisN * overshoot;
+            if (overshoot < -.02f || lateral.Length > PressLateral || hand.PressAge > PressTimeout) { hand.PressBody = null; return; }
             BodyPoint point = body.ReadContact(bone);
-            if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
-            hand.Penetration.Begin(body, point, contact, profile, length / dt, player, true, BodyPenetration.TierOf(hand.Item));
+            if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) { hand.PressBody = null; return; }
+            int tier = BodyPenetration.TierOf(hand.Item);
+            PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : BodyPenetration.MaterialFor(body.Agent, point.Part);
+            PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
+            float relativeSpeed = (motion * (1 / dt) - point.Velocity).Length;
+            float pressure = PenetrationJoint.Pressure(InteractionMath.Dot(motion, axisN) / dt, overshoot, hand.Item?.Weight ?? 1.5f);
+            float threshold = PenetrationJoint.PressureThreshold(profile, relativeSpeed) * row.PressureForceMultiplier;
+            if (pressure < threshold) return;
+            hand.PressBody = null;
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PRESSURE reached pressure={0:F2} threshold={1:F2} overshoot={2:F3} relative_speed={3:F2} material={4}",
+                    pressure, threshold, overshoot, relativeSpeed, material));
+            hand.Penetration.Begin(body, point, contact, profile, relativeSpeed, player, true, tier);
             if (hand.Penetration.Body != null) PhysicsInterop.Haptic(index, .3f, .03f);
         }
 
