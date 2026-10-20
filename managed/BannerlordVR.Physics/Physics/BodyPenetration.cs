@@ -156,7 +156,9 @@ namespace BannerlordVR.VR.Physics
             DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
             // Leave at least one point while the blade is in; the rest waits
             // for Release.
-            float now = Math.Max(0, Math.Min(damage, victim.Health - 1));
+            // Bannerlord deals whole points: the cap is too, or 88.6 rounds
+            // to 89 and leaves the victim under one point.
+            float now = Math.Max(0, Math.Min((float)Math.Floor(damage), (float)Math.Floor(victim.Health - 1)));
             if (damage - now > 0) { _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor; }
             float lost = now >= .5f ? PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, now, type) : 0;
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);

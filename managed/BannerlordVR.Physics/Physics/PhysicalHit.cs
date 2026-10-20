@@ -84,6 +84,10 @@ namespace BannerlordVR.VR.Physics
         public static float ApplyRagdollImpact(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, float damage)
         {
             if (victim == null || !victim.IsActive() || !InteractionMath.IsFinite(contact) || !InteractionMath.IsFinite(damage) || damage < .5f) return 0;
+            // A body held on a blade dies when the blade comes out, not when
+            // it knocks against something meanwhile.
+            if (EnemyPhysicsRuntime.Penetrated(victim)) damage = Math.Min(damage, (float)Math.Floor(victim.Health - 1));
+            if (damage < .5f) return 0;
             var point = new BodyPoint { Bone = bone, Part = part, World = contact };
             return Deliver(source, victim, point, contact, -Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
                 null, DamageTypes.Blunt, damage, Math.Max(1, (int)Math.Round(damage)), 0, false, true, PushEffect.None);
@@ -103,6 +107,11 @@ namespace BannerlordVR.VR.Physics
         public static void ApplyBloodLoss(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, int dose)
         {
             if (victim == null || !victim.IsActive() || dose <= 0 || !InteractionMath.IsFinite(contact)) return;
+            // An enemy the physics holds (blade inside, grip, physical body)
+            // keeps its last point until it is let go; bleeding from an
+            // earlier cut killed stab victims before withdrawal.
+            if (EnemyPhysicsRuntime.Protects(victim)) dose = Math.Min(dose, (int)Math.Floor(victim.Health - 1));
+            if (dose <= 0) return;
             // The initial wound already passed armor. Internal blood loss is a
             // quiet, non-staggering blow, not another weapon impact through armor.
             var point = new BodyPoint { Bone = bone, Part = part, World = contact };

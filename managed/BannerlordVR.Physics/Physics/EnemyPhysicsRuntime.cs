@@ -49,6 +49,12 @@ namespace BannerlordVR.VR.Physics
         public static bool SupportsLivingBody => _living?.Available == true;
         public static bool OwnsLivingPhysics(Agent agent) => _living?.Simulating(agent) == true;
         public static bool HasLivingLease(Agent agent) => _living?.HasLease(agent) == true;
+        public static bool Penetrated(Agent agent)
+        {
+            if (agent == null) return false;
+            foreach (Hand hand in Hands) if (hand.Penetration.Body?.Agent == agent) return true;
+            return false;
+        }
         public static bool Protects(Agent agent)
         {
             if (agent == null) return false;
