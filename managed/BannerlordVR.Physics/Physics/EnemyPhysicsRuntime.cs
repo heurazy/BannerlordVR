@@ -263,11 +263,22 @@ namespace BannerlordVR.VR.Physics
             hand.SuppressTrigger = usage == null || blade;
             if (blade)
             {
-                var entity = player.GetWeaponEntityFromEquipmentSlot(slot.Equipment);
-                if (!entity.IsValid) { hand.Reset(); return; }
-                MatrixFrame weaponFrame = entity.GetGlobalFrame();
-                basePoint = weaponFrame.origin;
-                tip = basePoint + weaponFrame.rotation.u.NormalizedCopy() * Math.Min(2.5f, usage.WeaponLength * .01f);
+                // The release draws the held weapon as its own skinned visual
+                // (VrSkinnedWeapon), not where the game's weapon entity sits;
+                // VrBlade measures the blade actually shown in the hand.
+                if (VrBlade.TryGet(player, slot, out VrBlade.Segment segment) && segment.Valid)
+                {
+                    basePoint = segment.GripWorld;
+                    tip = segment.TipWorld;
+                }
+                else
+                {
+                    var entity = player.GetWeaponEntityFromEquipmentSlot(slot.Equipment);
+                    if (!entity.IsValid) { hand.Reset(); return; }
+                    MatrixFrame weaponFrame = entity.GetGlobalFrame();
+                    basePoint = weaponFrame.origin;
+                    tip = basePoint + weaponFrame.rotation.u.NormalizedCopy() * Math.Min(2.5f, usage.WeaponLength * .01f);
+                }
             }
             bool changed = !hand.Sampled || hand.Item != weapon.Item || hand.Slot != slot.Equipment;
             if (changed || !blade) { hand.Penetration.Release(); hand.Cut.Reset(); }
@@ -430,6 +441,8 @@ namespace BannerlordVR.VR.Physics
                 hand.DiagBoneGap = (bone - pose.origin).Length;
             }
             hand.DiagItem = usage == null ? "empty" : (usage.WeaponClass + (blade ? "/blade" : ""));
+            if (blade && VrBlade.TryGet(player, slot, out VrBlade.Segment seg) && seg.Valid)
+                hand.DiagItem += string.Format(System.Globalization.CultureInfo.InvariantCulture, "/vrblade_len={0:F2}", seg.Length);
             if (now < hand.DiagNext) return;
             hand.DiagNext = now + 2;
             PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,

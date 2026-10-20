@@ -29,18 +29,15 @@ namespace BannerlordVR.VR.Physics
                     if (method != null) _input = (InputWrapper)Delegate.CreateDelegate(typeof(InputWrapper), method);
                 }
                 catch (Exception ex) { PhysicsLog.Error("BannerlordVR input wrapper unavailable; using the raw native input.", ex); }
-                PhysicsLog.Info("Controller input: raw native grip and trigger" + (_input != null ? ", trigger/grip swap followed from BannerlordVR." : "."));
+                PhysicsLog.Info("Controller input: physical squeeze and index trigger from the raw native state; BannerlordVR swap setting=" + SwapTriggerGrip() + ".");
             }
-            // The release's wrapper consumes the grip for its own grab/holster
-            // handling (it read 0 in VR), so the physics keeps the raw grip and
-            // trigger values, swapped only if the release swaps them.
-            int status = bvr_get_input_state(out state);
-            if (status == 0 && SwapTriggerGrip())
-            {
-                float g = state.Left.Grip; state.Left.Grip = state.Left.Trigger; state.Left.Trigger = g;
-                g = state.Right.Grip; state.Right.Grip = state.Right.Trigger; state.Right.Trigger = g;
-            }
-            return status;
+            // The raw export reports the PHYSICAL controls: Grip is the squeeze,
+            // Trigger the index trigger. The release's wrapper swaps them into
+            // its own convention (controls_swap_trigger_grip, where "Trigger"
+            // means the holding squeeze) and latches toggle grips, which made
+            // the physics read the held squeeze as a closed fist and never see
+            // a grab. The physics wants the physical controls, unswapped.
+            return bvr_get_input_state(out state);
         }
 
         private static PropertyInfo _swap;
