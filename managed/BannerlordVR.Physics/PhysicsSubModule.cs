@@ -56,25 +56,12 @@ namespace BannerlordVR.Physics
     [HarmonyPatch(typeof(MissionScreen), "AfterMissionTick", new[] { typeof(Mission), typeof(float) })]
     internal static class PhysicsTickPatch
     {
-        private static bool _combatHandedOver;
         [HarmonyPostfix]
         [HarmonyAfter("com.bannerlordvr.mod")]
         public static void Postfix(Mission __0, float __1)
         {
             try
             {
-                // One damage system per blade. The release's own physical
-                // combat registered a blow on every touch, so a blade held
-                // inside a body kept striking it and killed before withdrawal.
-                if (EnemyPhysicsSettings.Enabled && EnemyPhysicsSettings.WeaponDamage && VrPhysicalCombat.Enabled)
-                {
-                    VrPhysicalCombat.SetEnabled(false);
-                    if (!_combatHandedOver)
-                    {
-                        _combatHandedOver = true;
-                        PhysicsLog.Info("BannerlordVR physical combat handed over to the enemy physics (weapon damage on); not saved to the config.");
-                    }
-                }
                 EnemyPhysicsRuntime.Tick(__0, __1);
             }
             catch (Exception ex)
@@ -82,6 +69,41 @@ namespace BannerlordVR.Physics
                 PhysicsLog.Error("Enemy physics tick failed; resetting.", ex);
                 try { EnemyPhysicsRuntime.Reset(); } catch { }
             }
+        }
+    }
+
+    // One damage system per blade: with the physics owning weapon damage,
+    // the release's physical strikes are skipped. Switching VrPhysicalCombat
+    // off is not enough (VrMelee's instant hits still strike) and its panel
+    // turns it back on and saves combat=1.
+    [HarmonyPatch(typeof(VrPhysicalCombat), "Strike")]
+    internal static class ReleaseStrikePatch
+    {
+        private static bool _logged;
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            if (!EnemyPhysicsSettings.Enabled || !EnemyPhysicsSettings.WeaponDamage) return true;
+            if (!_logged) { _logged = true; PhysicsLog.Info("BannerlordVR physical strikes skipped: the enemy physics owns blade damage."); }
+            return false;
+        }
+    }
+
+    // Blows the physics did not deal never reach an enemy it is holding: a
+    // blade inside the body, a grip, or a body in physics mode. Covers the
+    // engine attacks VrMelee starts from swing gestures.
+    [HarmonyPatch(typeof(Agent), nameof(Agent.RegisterBlow))]
+    internal static class ProtectHeldVictimPatch
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(Agent __instance, Blow blow)
+        {
+            if (PhysicalHit.DeliveringOwnBlow || !EnemyPhysicsSettings.Enabled) return true;
+            Agent player = Mission.Current?.MainAgent;
+            if (player == null || blow.OwnerId != player.Index || !EnemyPhysicsRuntime.Protects(__instance)) return true;
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info("Foreign blow refused on held enemy " + __instance.Index + " (" + blow.InflictedDamage + " damage).");
+            return false;
         }
     }
 

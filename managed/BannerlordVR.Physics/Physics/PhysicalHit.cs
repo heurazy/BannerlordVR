@@ -7,6 +7,9 @@ namespace BannerlordVR.VR.Physics
 {
     public static class PhysicalHit
     {
+        // Set while the physics registers its own blow, so the guard that
+        // protects held enemies lets it through.
+        [ThreadStatic] public static bool DeliveringOwnBlow;
         // RegisterBlow preserves mortality rules, hit events and kill attribution.
         // This prototype uses an explicit armor-aware damage approximation, not
         // a claim to reproduce the native combat model's full damage calculation.
@@ -149,7 +152,9 @@ namespace BannerlordVR.VR.Physics
             collision.MovementSpeedDamageModifier = blow.MovementSpeedDamageModifier;
             collision.InflictedDamage = blow.InflictedDamage;
             collision.AbsorbedByArmor = (int)blow.AbsorbedByArmor;
-            victim.RegisterBlow(blow, in collision);
+            DeliveringOwnBlow = true;
+            try { victim.RegisterBlow(blow, in collision); }
+            finally { DeliveringOwnBlow = false; }
             // A blow can synchronously remove its victim or end the mission.
             // Query the captured index before reading the native health again.
             if (mission == null || mission != Mission.Current || mission.IsFinalized ||
