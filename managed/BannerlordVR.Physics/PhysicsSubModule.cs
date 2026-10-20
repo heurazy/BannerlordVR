@@ -56,12 +56,25 @@ namespace BannerlordVR.Physics
     [HarmonyPatch(typeof(MissionScreen), "AfterMissionTick", new[] { typeof(Mission), typeof(float) })]
     internal static class PhysicsTickPatch
     {
+        private static bool _combatHandedOver;
         [HarmonyPostfix]
         [HarmonyAfter("com.bannerlordvr.mod")]
         public static void Postfix(Mission __0, float __1)
         {
             try
             {
+                // One damage system per blade. The release's own physical
+                // combat registered a blow on every touch, so a blade held
+                // inside a body kept striking it and killed before withdrawal.
+                if (EnemyPhysicsSettings.Enabled && EnemyPhysicsSettings.WeaponDamage && VrPhysicalCombat.Enabled)
+                {
+                    VrPhysicalCombat.SetEnabled(false);
+                    if (!_combatHandedOver)
+                    {
+                        _combatHandedOver = true;
+                        PhysicsLog.Info("BannerlordVR physical combat handed over to the enemy physics (weapon damage on); not saved to the config.");
+                    }
+                }
                 EnemyPhysicsRuntime.Tick(__0, __1);
             }
             catch (Exception ex)

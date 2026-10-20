@@ -100,14 +100,14 @@ namespace BannerlordVR.VR.Physics
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
             Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; LastResistance = 0; _gate.Reset();
-            _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part;
+            _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
             if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
         // Damage that would kill while the blade is still inside is held back
         // and dealt when it leaves the body: the victim dies on withdrawal.
-        private float _pending, _woundLost;
+        private float _pending, _woundLost, _depthBase = -1;
         private EnemyBody _woundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
@@ -192,7 +192,11 @@ namespace BannerlordVR.VR.Physics
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
             { Release(); return false; }
-            float depth = Math.Max(0, (bladeTip - bladeBase).Length - along);
+            // Depth counts what went in after the entry, not where along the
+            // blade the first contact happened to be sampled.
+            float rawDepth = Math.Max(0, (bladeTip - bladeBase).Length - along);
+            if (_depthBase < 0) _depthBase = rawDepth;
+            float depth = Math.Max(0, rawDepth - _depthBase);
             _lastAnchor = anchor;
             if (!Body.IsCorpse)
             {

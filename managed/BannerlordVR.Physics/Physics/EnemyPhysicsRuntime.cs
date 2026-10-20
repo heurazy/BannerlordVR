@@ -495,7 +495,7 @@ namespace BannerlordVR.VR.Physics
             MissionWeapon weapon, EquipmentIndex slot, Agent player, float dt, float now, bool blade)
         {
             hand.DiagCasts++;
-            EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2;
+            EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
             for (int s = 0; s <= (blade ? samples : 0); s++)
@@ -532,7 +532,7 @@ namespace BannerlordVR.VR.Physics
                 }
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
-                earliest = fraction; hit = body; hitPoint = point; contact = c;
+                earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along;
                 velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
             }
             if (hit == null) return;
@@ -556,14 +556,17 @@ namespace BannerlordVR.VR.Physics
                 _living.EvaluatePush(hit, hitPoint, velocity, PhysicalHit.Material(usage, thrust));
             // A thrust that enters is not an impact kill: its damage comes from
             // depth and skewering, and lands when the blade is pulled out.
-            bool enters = thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
+            // A thrust enters through its point (B&S pierce damagers sit at the
+            // tip), never through the middle of a blade swept into the body.
+            bool atPoint = !blade || hitAlong >= .8f;
+            bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
                 velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part));
             if (!enters) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
-                BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
+                (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
                 hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player);
             PhysicsInterop.Haptic(index, .45f, .035f);
         }

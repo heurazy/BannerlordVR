@@ -82,7 +82,9 @@ namespace BannerlordVR.VR.Physics
         public float LastPoseError { get; private set; }
         public int Bodies => _drive.Count;
         public float RootSpeed { get; private set; }
-        public bool Moved => _configured && (_root.origin - _capturedRoot.origin).AsVec2.Length > .3f;
+        // Any visible drag counts: below this the animation restarted at the
+        // old spot and the released enemy snapped back.
+        public bool Moved => _configured && (_root.origin - _capturedRoot.origin).AsVec2.Length > .05f;
         public Vec3 RecoveryPosition => _root.origin;
 
         public void Clear()
