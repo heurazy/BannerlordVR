@@ -48,7 +48,7 @@ namespace BannerlordVR.VR.Physics
             }
             if (Mission.CurrentTime >= _nextHold)
             {
-                _nextHold = Mission.CurrentTime + .25f;
+                _nextHold = Mission.CurrentTime + .1f;
                 Freeze(player);
             }
             if (!_placed && !player.HasMount && Mission.CurrentTime - _began > .5f) Place(player);
@@ -63,24 +63,28 @@ namespace BannerlordVR.VR.Physics
             foreach (Agent agent in Mission.Agents)
             {
                 if (agent == player || !agent.IsActive() || !agent.IsAIControlled || agent.IsMount) continue;
-                if (living != null && living.HasLease(agent)) continue;
+                if (living != null && living.HasLease(agent)) { _leased.Add(agent); continue; }
+                // Back from the physics: it stands where the body was left.
+                if (_leased.Remove(agent)) _hold[agent] = agent.Position.AsVec2;
                 if (!_hold.TryGetValue(agent, out Vec2 at)) { at = agent.Position.AsVec2; _hold[agent] = at; }
                 Hold(agent, at);
             }
         }
 
-        // A target the agent may not walk to (speed limit 0) kept its legs
-        // walking on the spot, and the physics captured that stride as the
-        // pose to hold. Clear every movement goal instead; a dummy nudged off
-        // its spot by the physics stays where it was left.
+        // The agent stands on its own spot as its target. A speed limit of 0
+        // with a target it could not reach kept its legs walking on the spot
+        // (the physics then captured that stride as the pose to hold); with no
+        // target at all the engine walked it straight ahead at 3-4 m/s. With
+        // its spot as target and no speed limit it simply arrives and idles.
+        private readonly HashSet<Agent> _leased = new HashSet<Agent>();
         public static void Hold(Agent agent, Vec2 at)
         {
             agent.SetIsAIPaused(true);
-            agent.ClearTargetFrame();
-            agent.SetFormationFrameDisabled();
+            agent.SetMaximumSpeedLimit(-1, false);
+            Vec3 look = agent.LookDirection;
+            agent.SetTargetPositionAndDirection(in at, in look);
             agent.MovementFlags = 0;
             agent.MovementInputVector = Vec2.Zero;
-            agent.SetMaximumSpeedLimit(0, false);
         }
 
         private float _nextTrace;

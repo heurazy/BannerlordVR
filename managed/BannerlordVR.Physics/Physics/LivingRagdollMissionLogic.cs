@@ -76,9 +76,9 @@ namespace BannerlordVR.VR.Physics
                 Agent.MovementInputVector = Vec2.Zero;
                 Agent.EventControlFlags = 0;
                 Agent.SetMaximumSpeedLimit(0, false);
-                // No target: one the agent may not walk to played the walk
-                // cycle on the spot under the physical body.
-                Agent.ClearTargetFrame();
+                // Without a target the engine walks the agent straight ahead
+                // (3-4 m/s measured); its own spot keeps it under the body.
+                Agent.SetTargetPosition(_holdPosition);
             }
             public void ResumeDecisions()
             {
