@@ -1,4 +1,5 @@
 using System;
+using BannerlordVR.VR;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
@@ -11,6 +12,7 @@ namespace BannerlordVR.VR.Physics
     {
         public EnemyBody Body { get; private set; }
         public int HandIndex;
+        public HandRole Role;
         // Bannerlord ItemTiers Tier1..Tier6 are B&S item tiers 0..5.
         public static int TierOf(ItemObject item) => item == null ? 2 : Math.Max(0, Math.Min(6, (int)item.Tier));
         // True while the blade holds the part through the active ragdoll's
@@ -115,7 +117,7 @@ namespace BannerlordVR.VR.Physics
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
-            _maxDepth = 0; _lockedLogged = false;
+            _maxDepth = 0; _maxSeparation = 0; _lockedLogged = false;
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION begin profile={0} zone={1} material={2} tier={3} speed={4:F2} pressure={5} bone={6} depth_limit={7:F3} damper_x={8:F2}",
@@ -135,6 +137,7 @@ namespace BannerlordVR.VR.Physics
         // and dealt when it leaves the body: the victim dies on withdrawal.
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
+        private float _maxSeparation;
         private const float MaxShove = .1f, LateralLoss = .5f;
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
@@ -146,7 +149,8 @@ namespace BannerlordVR.VR.Physics
         {
             if (EnemyPhysicsSettings.Trace && Body != null)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4}", reason, value, _age, _maxDepth, Locked));
+                    "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4} shown_hand_offset={5:F3} max_offset={6:F3}",
+                    reason, value, _age, _maxDepth, Locked, PhysicalBlade.Separation(Role), _maxSeparation));
             Release();
         }
         private EnemyBody _woundBody;
@@ -164,6 +168,7 @@ namespace BannerlordVR.VR.Physics
             DamageTypes woundType = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
             if (woundLost > 0 && woundBody?.Agent != null && woundBody.Agent.IsActive() && (pending < .5f || victim == null))
                 EnemyPhysicsRuntime.RecordWound(source, woundBody, woundBody.ReadContact(_bone), _lastAnchor, woundType, woundLost, false);
+            PhysicalBlade.Clear(Role);
             if (Locked && Body != null) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
             Locked = false;
             Body = null; _sampled = false; _source = null;
@@ -276,7 +281,17 @@ namespace BannerlordVR.VR.Physics
                 depth = limit;
             }
             _lastAnchor = anchor;
+            // The shown weapon and hand stay jointed into the part.
+            Vec3 partAxis = Vec3.Zero;
+            if (_hasLocalAxis)
+            {
+                partAxis = bone.rotation.TransformToParent(_localAxis);
+                if (partAxis.Length > 1e-4f) partAxis.Normalize(); else partAxis = Vec3.Zero;
+            }
+            PhysicalBlade.SetPierce(Role, anchor, partAxis, PenetrationJoint.AngleLimit(_profile, depth),
+                bladeLength - _depthBase - limit, bladeBase, bladeTip);
             _maxDepth = Math.Max(_maxDepth, depth);
+            _maxSeparation = Math.Max(_maxSeparation, PhysicalBlade.Separation(Role));
             if (!Body.IsCorpse)
             {
                 EnemyPhysicsRuntime.DeepenWound(Body.Agent, _bone, depth);

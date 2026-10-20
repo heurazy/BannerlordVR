@@ -286,6 +286,7 @@ namespace BannerlordVR.VR.Physics
         private static void UpdateHand(int index, BvrHandState input, BvrHandState otherInput, VrHandSlot slot, Agent player, float dt, float now)
         {
             Hand hand = Hands[index];
+            hand.Penetration.Role = slot.Role;
             if (input.IsActive == 0 || !slot.Valid) { hand.Reset(); return; }
             MatrixFrame pose = VrCameraDriver.StageToHand(input.GripOrientation, input.GripPosition);
             Vec3 stage = new Vec3(input.GripPosition.X, input.GripPosition.Y, input.GripPosition.Z);
@@ -304,6 +305,9 @@ namespace BannerlordVR.VR.Physics
                 {
                     basePoint = segment.GripWorld;
                     tip = segment.TipWorld;
+                    // The shown blade may be held back by a joint or by
+                    // VrCollide; the physics works from the controller's.
+                    PhysicalBlade.ToRaw(slot.Role, ref basePoint, ref tip);
                 }
                 else
                 {
