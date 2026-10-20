@@ -38,7 +38,15 @@ namespace BannerlordVR.VR.Physics
         private float _lastInteraction;
         private int[] _bodyOfBone = new int[0];
         private int _headBody = -1;
-        private struct GrabSlot { public bool Active; public sbyte Bone; public GrabHandle Kind; public Vec3 Local; }
+        private struct GrabSlot
+        {
+            public bool Active, HasBase; public sbyte Bone; public GrabHandle Kind; public Vec3 Local;
+            // Heights measured when the hand closed. B&S compares with the
+            // animated pose, which its physical body matches; a Bannerlord
+            // ragdoll settles about 6 cm off it on activation, which tripped
+            // the 5 cm lift rule on the very first frame of every grab.
+            public float BaseReference, BaseRoot;
+        }
         private readonly GrabSlot[] _grabs = new GrabSlot[RagdollPinDrive.MaxHandles];
         private readonly bool[] _ungrab = new bool[RagdollPinDrive.MaxHandles];
         private readonly Vec3[] _hand = new Vec3[RagdollPinDrive.MaxHandles];
@@ -350,9 +358,15 @@ namespace BannerlordVR.VR.Physics
                 int reference = RagdollGrabRules.LiftsSelf(kind) ? body : _pelvisBody;
                 float groundZ = _root.origin.z;
                 float referenceHeight = _position[reference].z - groundZ;
-                float referenceOriginal = _captured[_bone[reference]].origin.z;
                 float headHeight = _headBody >= 0 ? _position[_headBody].z - groundZ : float.MaxValue;
-                float rootOriginal = _captured[_bone[_pelvisBody]].origin.z;
+                if (!_grabs[h].HasBase)
+                {
+                    GrabSlot slot = _grabs[h];
+                    slot.HasBase = true; slot.BaseReference = referenceHeight; slot.BaseRoot = _position[_pelvisBody].z - groundZ;
+                    _grabs[h] = slot;
+                }
+                float referenceOriginal = _grabs[h].BaseReference;
+                float rootOriginal = _grabs[h].BaseRoot;
                 GrabOutcome outcome = RagdollGrabRules.Evaluate(kind, referenceHeight, referenceOriginal, headHeight, rootOriginal);
                 if (outcome == GrabOutcome.Hold) { StepTowards(kind, body, now); continue; }
                 LastGrabOutcome = outcome;

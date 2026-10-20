@@ -107,7 +107,8 @@ namespace BannerlordVR.VR.Physics
         }
         // Damage that would kill while the blade is still inside is held back
         // and dealt when it leaves the body: the victim dies on withdrawal.
-        private float _pending;
+        private float _pending, _woundLost;
+        private EnemyBody _woundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
         public float PendingDamage => _pending;
@@ -115,9 +116,13 @@ namespace BannerlordVR.VR.Physics
         public void Release()
         {
             Agent victim = _pendingVictim;
-            float pending = _pending;
-            _pending = 0; _pendingVictim = null;
+            float pending = _pending, woundLost = _woundLost;
+            EnemyBody woundBody = _woundBody;
+            _pending = 0; _pendingVictim = null; _woundLost = 0; _woundBody = null;
             Agent source = _source;
+            DamageTypes woundType = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
+            if (woundLost > 0 && woundBody?.Agent != null && woundBody.Agent.IsActive() && (pending < .5f || victim == null))
+                EnemyPhysicsRuntime.RecordWound(source, woundBody, woundBody.ReadContact(_bone), _lastAnchor, woundType, woundLost, false);
             Body = null; _sampled = false; _source = null;
             if (victim == null || pending < .5f || !victim.IsActive()) return;
             DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
@@ -159,8 +164,9 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION {0} profile={1} zone={2} material={3} damage={4:F1} health_lost={5:F1} held_until_withdrawal={6:F1}",
                     kind, _profile, _zone, _material, damage, lost, _pending));
-            if (lost > 0 && Body != null && Body.Agent == victim)
-                EnemyPhysicsRuntime.RecordWound(_source, Body, Body.ReadContact(_bone), anchor, type, lost, false);
+            // The wound starts bleeding when the blade comes out, so bleeding
+            // cannot finish a victim the blade is still holding at 1 point.
+            if (lost > 0 && Body != null && Body.Agent == victim) { _woundLost += lost; _woundBody = Body; }
             if (!victim.IsActive()) Release();
         }
         public bool Tick(Vec3 bladeBase, Vec3 bladeTip, float dt)
