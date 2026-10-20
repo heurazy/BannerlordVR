@@ -144,6 +144,9 @@ namespace BannerlordVR.VR.Physics
                 StandingPose[agent.Monster] = copy;
             }
             _capturedRoot = _root = agent.AgentVisuals.GetEntity().GetGlobalFrame();
+            Vec3 look = agent.LookDirection; look.z = 0;
+            Vec3 local = look.Length > 1e-4f ? _root.rotation.TransformToLocal(look.NormalizedCopy()) : new Vec3(0, 1, 0);
+            _facingLocal = local.Length > 1e-4f ? local.NormalizedCopy() : new Vec3(0, 1, 0);
             _destabilizeOnStart = destabilized;
             _lastInteraction = agent.Mission?.CurrentTime ?? 0;
             _captureValid = InteractionMath.IsFinite(_root.origin);
@@ -384,6 +387,10 @@ namespace BannerlordVR.VR.Physics
                 // creature's pins brake the part sliding on it, the blade
                 // only carries it sideways.
                 if (_grabs[h].Blade && !_grabs[h].AxialLock) delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
+                // A blade joint is rigid; a hand grip reaches by the handle's
+                // IK weight, so a body grabbed by the torso or head keeps most
+                // of its pose instead of bending wholesale towards the hand.
+                if (!_grabs[h].Blade) delta *= RagdollGrabRules.IkWeight(_grabs[h].Kind);
                 for (int i = 0; i < _drive.Count; i++)
                     if (i != _pelvisBody && _drive.InSubtree(i, grabbed)) _target[i] += delta;
                 int up = _drive.Parent(grabbed);
@@ -407,6 +414,9 @@ namespace BannerlordVR.VR.Physics
             float cos = Math.Max(-1, Math.Min(1, InteractionMath.Dot(partAxis, slot.Axis)));
             float angle = (float)Math.Acos(cos) - slot.AngleLimit;
             if (angle <= 1e-3f) return;
+            // The pose is levered at most this far: past it the pins would
+            // swing the limbs round faster than the body can follow.
+            angle = Math.Min(angle, MaxLever);
             Vec3 turnAxis = Cross(partAxis, slot.Axis);
             if (turnAxis.Length < 1e-5f) return;
             turnAxis.Normalize();
@@ -418,6 +428,7 @@ namespace BannerlordVR.VR.Physics
             for (int level = 1; level < ReachShare.Length && up >= 0 && up != _pelvisBody; level++, up = _drive.Parent(up))
                 _target[up] = pivot + Rotate(_target[up] - pivot, turnAxis, angle * ReachShare[level]);
         }
+        private const float MaxLever = .6f;
         private static Vec3 Cross(Vec3 a, Vec3 b) => new Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
         // Rodrigues rotation of v about unit axis k.
         private static Vec3 Rotate(Vec3 v, Vec3 k, float angle)
@@ -519,7 +530,10 @@ namespace BannerlordVR.VR.Physics
                 // Creature.transform turns under its hips; a dragged Bannerlord
                 // pose root can sit away from them, so pivot on the hips.
                 Vec3 pivot = _position[_pelvisBody];
-                Vec2 forward = _root.rotation.f.AsVec2;
+                // Where the creature faces, not the visual entity's f axis
+                // (which turned the body towards a wrong heading: 2.4 rad in
+                // one grab in the logs).
+                Vec2 forward = Facing().AsVec2;
                 Vec2 to = (grabber.Position - pivot).AsVec2;
                 if (forward.Length < .01f || to.Length < .3f) continue;
                 forward.Normalize(); to.Normalize();
@@ -549,7 +563,14 @@ namespace BannerlordVR.VR.Physics
             return new Vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
         }
         public bool Turned => _configured && _turned > .1f;
-        public Vec3 RecoveryForward => _root.rotation.f;
+        public Vec3 RecoveryForward => Facing();
+        // The agent's look direction at capture, carried by the pose root.
+        private Vec3 _facingLocal = new Vec3(0, 1, 0);
+        private Vec3 Facing()
+        {
+            Vec3 f = _root.rotation.TransformToParent(_facingLocal); f.z = 0;
+            return f.Length > 1e-4f ? f.NormalizedCopy() : _root.rotation.f;
+        }
 
         // Ragdoll.SetBodyPositionToHips: the stand-up targets the pose placed
         // under the current hips, on the measured ground, original facing.

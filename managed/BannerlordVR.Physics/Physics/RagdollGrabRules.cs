@@ -15,6 +15,12 @@ namespace BannerlordVR.VR.Physics
         public static float LiftOffset(GrabHandle handle) => handle == GrabHandle.Legs ? .1f : .05f;
         public const float UngrabLiftOffset = .15f;
 
+        // HandleRagdollData.IkPositionWeight: how far the creature's animated
+        // limb reaches for the grip. Torso, head, neck and shoulder handles
+        // 0.25 (the body mostly keeps its own pose and resists), hand, wrist
+        // and legs 1 (Interactable_Human*.json).
+        public static float IkWeight(GrabHandle handle) =>
+            handle == GrabHandle.Hand || handle == GrabHandle.Wrist || handle == GrabHandle.Legs ? 1 : .25f;
         public static GrabOutcome LiftBehaviour(GrabHandle handle)
         {
             switch (handle)
