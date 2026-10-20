@@ -24,6 +24,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool ActiveProbeGrab = VrConfig.Bool("enemy_physics_active_probe_grab", false);
         // Probe load: total number of enemies running the cycle at once.
         public static readonly int ActiveProbeBodies = Math.Max(1, Math.Min(12, VrConfig.Int("enemy_physics_active_probe_bodies", 1)));
+        // Custom battle test range: player on foot, AI frozen, five dummies.
+        public static readonly bool Sandbox = VrConfig.Bool("enemy_physics_sandbox", false);
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
         // Logs pushes, ragdoll impacts and parries during normal VR play.
         public static readonly bool Trace = RuntimeProbe || VrConfig.Bool("enemy_physics_trace", false);

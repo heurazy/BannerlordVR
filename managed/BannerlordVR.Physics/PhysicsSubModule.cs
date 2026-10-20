@@ -42,6 +42,8 @@ namespace BannerlordVR.Physics
                     mission.AddMissionBehavior(new LivingRagdollMissionLogic());
                 if (EnemyPhysicsSettings.Bleeding)
                     mission.AddMissionBehavior(new BleedingMissionLogic());
+                if (EnemyPhysicsSettings.Sandbox)
+                    mission.AddMissionBehavior(new PhysicsSandbox());
                 if (EnemyPhysicsSettings.RuntimeProbe && EnemyPhysicsSettings.CadenceProbe)
                     mission.AddMissionBehavior(new PhysicsCadenceProbe());
             }
