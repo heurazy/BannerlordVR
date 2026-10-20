@@ -23,7 +23,7 @@ namespace BannerlordVR.VR.Physics
                     }
                 }
             }
-            VrLog.Info("Physics JIT warm-up prepared " + prepared + " methods.");
+            PhysicsLog.Info("Physics JIT warm-up prepared " + prepared + " methods.");
         }
 
         private static System.Collections.Generic.IEnumerable<Type> Concat(this Type[] first, Type[] second)

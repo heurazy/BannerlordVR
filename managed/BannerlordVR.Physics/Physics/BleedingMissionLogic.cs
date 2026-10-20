@@ -188,7 +188,7 @@ namespace BannerlordVR.VR.Physics
                     foreach (Entry entry in _entries) if (entry.Victim == agent && entry.Wound.Active) recorded = true;
                     if (!recorded) { ProbeStop("FAIL", "wound_not_recorded"); return; }
                     _probeAfterInitial = true; _probeDeadline = Mission.CurrentTime + 9;
-                    VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "WOUND_PROBE begin agent={0} initial_health={1:F1} after_hit={2:F1} expected_bleed_damage=2",
                         _probeIndex, before, _probeAfterHit));
                     return;
@@ -208,7 +208,7 @@ namespace BannerlordVR.VR.Physics
             bool pass = !_probeForeignHit && _probeOwnerMatches && _probeHitCallbacks == 3 &&
                 Math.Abs(bleed - 2) < .01f && !woundActive;
             _probeFinished = true;
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "WOUND_PROBE result={0} bleed_damage={1:F1} callbacks={2} owner_matches={3} external_hit={4} wound_expired={5} alive=True",
                 _probeForeignHit ? "INCONCLUSIVE" : pass ? "PASS" : "FAIL", bleed, _probeHitCallbacks,
                 _probeOwnerMatches, _probeForeignHit, !woundActive));
@@ -220,7 +220,7 @@ namespace BannerlordVR.VR.Physics
             if (!_probeApplying) { _probeForeignHit = true; return; }
             _probeHitCallbacks++;
             _probeOwnerMatches &= source == _probeSource;
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "WOUND_PROBE hit phase={0} damage={1} health={2:F1} owner_matches={3}",
                 _probeAfterInitial ? "delayed" : "initial", blow.InflictedDamage, victim.Health, source == _probeSource));
         }
@@ -229,7 +229,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (_probeFinished) return;
             _probeStarted = _probeFinished = true;
-            VrLog.Info("WOUND_PROBE result=" + result + " reason=" + reason);
+            PhysicsLog.Info("WOUND_PROBE result=" + result + " reason=" + reason);
         }
 
         public override void OnAgentRemoved(Agent victim, Agent affector, AgentState state, KillingBlow blow)
@@ -259,7 +259,7 @@ namespace BannerlordVR.VR.Physics
         {
             _failed = true; Clear();
             if (EnemyPhysicsSettings.RuntimeProbe && EnemyPhysicsSettings.WoundProbe) ProbeStop("FAIL", "managed_exception");
-            VrLog.Error("Bleeding stopped for this mission after an error; wounds cleared.", ex);
+            PhysicsLog.Error("Bleeding stopped for this mission after an error; wounds cleared.", ex);
         }
     }
 }

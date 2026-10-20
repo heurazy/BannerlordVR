@@ -51,7 +51,6 @@ namespace BannerlordVR.VR
 
             if (!enabled)
             {
-                Physics.EnemyPhysicsRuntime.Reset();
                 // Let go of anything currently held so the character is not left
                 // mid-pose with a weapon parked where a controller used to be.
                 VrWeaponHands.Reset();

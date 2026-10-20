@@ -41,7 +41,7 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex)
             {
                 Ids[k] = -1;
-                VrLog.Error("Blood particle " + Names[k] + " unavailable.", ex);
+                PhysicsLog.Error("Blood particle " + Names[k] + " unavailable.", ex);
             }
         }
     }

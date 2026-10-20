@@ -29,11 +29,11 @@ namespace BannerlordVR.VR.Physics
             _entity = GameEntity.CreateEmpty(mission.Scene, false, false, false);
             _entity.CreateAndAddScriptComponent(nameof(BvrPhysicsStepClock), true);
             _clock = _entity.GetFirstScriptOfType<BvrPhysicsStepClock>();
-            if (_clock == null) { VrLog.Info("PHYSICS_CLOCK refused=script_not_attached"); return false; }
+            if (_clock == null) { PhysicsLog.Info("PHYSICS_CLOCK refused=script_not_attached"); return false; }
             _clock.Attach(this);
             mission.Scene.EnableFixedTick();
             mission.Scene.SetFixedTickCallbackActive(true);
-            VrLog.Info("PHYSICS_CLOCK attached; forces limited to one application per PhysX step.");
+            PhysicsLog.Info("PHYSICS_CLOCK attached; forces limited to one application per PhysX step.");
             return true;
         }
         public void Shutdown(Mission mission)

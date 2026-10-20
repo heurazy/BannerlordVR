@@ -50,15 +50,12 @@ namespace BannerlordVR.Patches
         private static bool _loggedFirst;
 
         [HarmonyPostfix]
-        public static void Postfix(Mission __0, float __1)
+        public static void Postfix()
         {
             try
             {
                 if (!VrSystem.IsActive)
-                {
-                    PhysicsReset();
                     return;
-                }
 
                 VrBreadcrumb.Set(VrBreadcrumb.MissionTick);
 
@@ -93,8 +90,6 @@ namespace BannerlordVR.Patches
                 // affected by this. See VrMotionHands.
                 if (VrMotionHands.ShouldPose)
                     VrWeaponHands.Tick();
-
-                BannerlordVR.VR.Physics.EnemyPhysicsRuntime.Tick(__0, __1);
             }
             catch (Exception ex)
             {
@@ -107,7 +102,5 @@ namespace BannerlordVR.Patches
                 }
             }
         }
-
-        private static void PhysicsReset() => BannerlordVR.VR.Physics.EnemyPhysicsRuntime.Reset();
     }
 }

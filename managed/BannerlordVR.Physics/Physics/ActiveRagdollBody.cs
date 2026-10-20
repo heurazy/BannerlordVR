@@ -146,7 +146,7 @@ namespace BannerlordVR.VR.Physics
             if (_pelvisBody < 0) _pelvisBody = 0;
             if (!_drive.Configure(mass, parent))
             {
-                VrLog.Info("ACTIVE_RAGDOLL refused=body_tree; bodies=" + count);
+                PhysicsLog.Info("ACTIVE_RAGDOLL refused=body_tree; bodies=" + count);
                 return false;
             }
             _cycle.Begin(_destabilizeOnStart);
@@ -154,7 +154,7 @@ namespace BannerlordVR.VR.Physics
             // Same order of magnitude as B&S Rigidbody.maxDepenetration and
             // part velocity caps: a solver spike cannot launch a soldier.
             agent.SetVelocityLimitsOnRagdoll(20, 40);
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3}",
                 count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds));
             return true;
@@ -246,7 +246,7 @@ namespace BannerlordVR.VR.Physics
             _cycle.Tick(sampleDt, _nearGround, RootSpeed);
             if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) ReanchorUnderHips();
             if (_cycle.Phase != before)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_RAGDOLL phase={0} fall={1} time={2:F3} root_speed={3:F2} pose_error={4:F3}",
                     _cycle.Phase, _cycle.Fall, now, RootSpeed, LastPoseError));
             for (int i = 0; i < _drive.Count; i++) _target[i] = _root.TransformToParent(_captured[_bone[i]]).origin;
@@ -327,7 +327,7 @@ namespace BannerlordVR.VR.Physics
                 GrabOutcome outcome = RagdollGrabRules.Evaluate(kind, referenceHeight, referenceOriginal, headHeight, rootOriginal);
                 if (outcome == GrabOutcome.Hold) { StepTowards(kind, body, now); continue; }
                 LastGrabOutcome = outcome;
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_RAGDOLL grab outcome={0} handle={1} reference_height={2:F3} original={3:F3} head={4:F3} time={5:F3}",
                     outcome, kind, referenceHeight, referenceOriginal, headHeight, now));
                 if (outcome == GrabOutcome.Destabilize) _cycle.Destabilize();

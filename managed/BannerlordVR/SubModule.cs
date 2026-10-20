@@ -22,17 +22,6 @@ namespace BannerlordVR
 
         private Harmony _harmony;
 
-        public override void OnMissionBehaviorInitialize(Mission mission)
-        {
-            base.OnMissionBehaviorInitialize(mission);
-            if (mission.GetMissionBehavior<VR.Physics.LivingRagdollMissionLogic>() == null)
-                mission.AddMissionBehavior(new VR.Physics.LivingRagdollMissionLogic());
-            if (VR.Physics.EnemyPhysicsSettings.Bleeding && mission.GetMissionBehavior<VR.Physics.BleedingMissionLogic>() == null)
-                mission.AddMissionBehavior(new VR.Physics.BleedingMissionLogic());
-            if (VR.Physics.EnemyPhysicsSettings.RuntimeProbe && VR.Physics.EnemyPhysicsSettings.CadenceProbe)
-                mission.AddMissionBehavior(new VR.Physics.PhysicsCadenceProbe());
-        }
-
         protected override void OnSubModuleLoad()
         {
             base.OnSubModuleLoad();
@@ -54,12 +43,7 @@ namespace BannerlordVR
             }
 
             VrHandCalibration.Load();
-            if (VR.Physics.EnemyPhysicsSettings.LivingRagdolls ||
-                (VR.Physics.EnemyPhysicsSettings.RuntimeProbe && !VR.Physics.EnemyPhysicsSettings.WoundProbe &&
-                 (!VR.Physics.EnemyPhysicsSettings.CadenceProbe || VR.Physics.EnemyPhysicsSettings.CadenceRagdoll)))
-                VR.Physics.NativeRagdollBridge.Initialize();
-            if (!VR.Physics.EnemyPhysicsSettings.RuntimeProbe) VrSystem.Initialize();
-            else VrLog.Info("PHYSICS_PROBE mode: flat rendering; OpenXR initialization skipped for the isolated engine test.");
+            VrSystem.Initialize();
         }
 
         protected override void OnBeforeInitialModuleScreenSetAsRoot()
@@ -87,8 +71,6 @@ namespace BannerlordVR
             VrBreadcrumb.Set(VrBreadcrumb.AppTick);
 
             VrSystem.Tick();
-            if (!VrSystem.IsActive || Mission.Current == null)
-                VR.Physics.EnemyPhysicsRuntime.Reset();
 
             // BEFORE the IsActive gate below, and that is the point: this is what
             // puts the main menu and the campaign map in the headset, and neither
@@ -158,7 +140,6 @@ namespace BannerlordVR
 
         protected override void OnSubModuleUnloaded()
         {
-            VR.Physics.EnemyPhysicsRuntime.Reset();
             // Before anything else: the game keeps running long enough to read
             // input after this, and it must read the real thing.
             VrInputManager.Restore();

@@ -362,13 +362,12 @@ namespace BannerlordVR.VR
             // the same GetKeyState as a stick, so throwing the travel away here
             // would turn a squeeze into an on-off switch further down.
             InputKey triggerKey = left ? InputKey.ControllerLTrigger : InputKey.ControllerRTrigger;
-            bool physicalTrigger = Physics.EnemyPhysicsRuntime.OwnsTrigger(left);
-            if (h.Trigger > 0.01f && !physicalTrigger)
+            if (h.Trigger > 0.01f)
             {
                 Analog[(int)triggerKey] = new Vec2(h.Trigger, 0f);
                 used = true;
             }
-            Set(triggerKey, !physicalTrigger && h.Trigger >= TriggerThreshold);
+            Set(triggerKey, h.Trigger >= TriggerThreshold);
 
             // THE TRIGGERS CLICK, but only where there is a pointer to click
             // with. A trigger during play is a swing or a shot, and binding it

@@ -38,7 +38,7 @@ namespace BannerlordVR.VR.Physics
             if (!Valid(_pelvis, count) || !Valid(_chest, count) || !Valid(_left, count) || !Valid(_right, count) ||
                 _pelvis == _chest || _left == _right)
             {
-                VrLog.Info("BALANCE reference refused=bone_mapping; pelvis=" + _pelvis + "; chest=" + _chest +
+                PhysicsLog.Info("BALANCE reference refused=bone_mapping; pelvis=" + _pelvis + "; chest=" + _chest +
                     "; left=" + _left + "; right=" + _right + "; count=" + count);
                 return false;
             }
@@ -54,7 +54,7 @@ namespace BannerlordVR.VR.Physics
             bool anatomy = _motor.Begin(pelvis, chest, left, right, mass);
             Captured = (leftGround || rightGround) && anatomy;
             if (!Captured) _motor.Clear();
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "BALANCE reference mass={0:F2} pelvis_height={1:F3} torso_height={2:F3} foot_span={3:F3} left_ground={4} right_ground={5} left_gap={6:F3} right_gap={7:F3} anatomy={8}",
                 mass, pelvis.z - (left.z + right.z) * .5f, chest.z - pelvis.z, (left - right).Length,
                 leftGround, rightGround, leftGap, rightGap, anatomy));
@@ -64,12 +64,12 @@ namespace BannerlordVR.VR.Physics
         {
             if (_motor.Phase == BodyBalancePhase.Inactive) return;
             if (clock == null || clock.Stalled(mission.CurrentTime))
-            { _motor.Clear(); VrLog.Info("BALANCE stopped: PhysX step clock unavailable."); return; }
+            { _motor.Clear(); PhysicsLog.Info("BALANCE stopped: PhysX step clock unavailable."); return; }
             if (!_measured)
             {
                 _measured = true;
                 if (!NativeRagdollBridge.ReadMass(agent, mission, skeleton, out float mass) || !_motor.SetPhysicalMass(mass))
-                { _motor.Clear(); VrLog.Info("BALANCE stopped: physical mass unavailable or outside supported range."); return; }
+                { _motor.Clear(); PhysicsLog.Info("BALANCE stopped: physical mass unavailable or outside supported range."); return; }
             }
             MatrixFrame frame = agent.AgentVisuals.GetEntity().GetGlobalFrame();
             Vec3 pelvis = Point(skeleton, frame, _pelvis), chest = Point(skeleton, frame, _chest);
@@ -81,7 +81,7 @@ namespace BannerlordVR.VR.Physics
                 if (_leftGrounded || _rightGrounded)
                     _groundHeight = FloorHeight(left, right, leftGap, rightGap, _leftGrounded, _rightGrounded);
                 if (EnemyPhysicsSettings.RuntimeProbe)
-                    VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "BALANCE sample pelvis_z={0:F3} left_gap={1:F3} right_gap={2:F3} phase={3}",
                         pelvis.z, leftGap, rightGap, _motor.Phase));
                 _nextGround = mission.CurrentTime + .1f;
@@ -89,7 +89,7 @@ namespace BannerlordVR.VR.Physics
             BodyBalancePhase before = _motor.Phase;
             _motor.Tick(pelvis, chest, left, right, _leftGrounded, _rightGrounded, dt, _groundHeight - _initialGroundHeight);
             if (_motor.Phase != before)
-                VrLog.Info("BALANCE transition phase=" + _motor.Phase + "; reason=" + _motor.Failure +
+                PhysicsLog.Info("BALANCE transition phase=" + _motor.Phase + "; reason=" + _motor.Failure +
                     "; left_ground=" + _leftGrounded + "; right_ground=" + _rightGrounded);
             Vec3 pelvisForce = _motor.PelvisForce, chestForce = _motor.ChestForce;
             if (pelvisForce.LengthSquared == 0 && chestForce.LengthSquared == 0) return;

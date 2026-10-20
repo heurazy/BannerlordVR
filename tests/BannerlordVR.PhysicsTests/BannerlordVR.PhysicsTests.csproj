@@ -12,20 +12,20 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="TaleWorlds.Library"><HintPath>$(BannerlordDir)/bin/Win64_Shipping_Client/TaleWorlds.Library.dll</HintPath></Reference>
     <Reference Include="TaleWorlds.DotNet"><HintPath>$(BannerlordDir)/bin/Win64_Shipping_Client/TaleWorlds.DotNet.dll</HintPath></Reference>
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/InteractionMath.cs" Link="InteractionMath.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/AdaptivePhysicsBudget.cs" Link="AdaptivePhysicsBudget.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/LivingRagdollLease.cs" Link="LivingRagdollLease.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/CutStroke.cs" Link="CutStroke.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/BleedingWound.cs" Link="BleedingWound.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/ActiveBodyBalance.cs" Link="ActiveBodyBalance.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/PhysicsStepGate.cs" Link="PhysicsStepGate.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/ActiveRagdollCycle.cs" Link="ActiveRagdollCycle.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollGrabRules.cs" Link="RagdollGrabRules.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/PenetrationJoint.cs" Link="PenetrationJoint.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollImpact.cs" Link="RagdollImpact.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/PenetrationDamage.cs" Link="PenetrationDamage.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/Dismemberment.cs" Link="Dismemberment.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/PushReaction.cs" Link="PushReaction.cs" />
-    <Compile Include="../../managed/BannerlordVR/VR/Physics/RagdollPinDrive.cs" Link="RagdollPinDrive.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/InteractionMath.cs" Link="InteractionMath.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/AdaptivePhysicsBudget.cs" Link="AdaptivePhysicsBudget.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/LivingRagdollLease.cs" Link="LivingRagdollLease.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/CutStroke.cs" Link="CutStroke.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/BleedingWound.cs" Link="BleedingWound.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/ActiveBodyBalance.cs" Link="ActiveBodyBalance.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/PhysicsStepGate.cs" Link="PhysicsStepGate.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/ActiveRagdollCycle.cs" Link="ActiveRagdollCycle.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/RagdollGrabRules.cs" Link="RagdollGrabRules.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/PenetrationJoint.cs" Link="PenetrationJoint.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/RagdollImpact.cs" Link="RagdollImpact.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/PenetrationDamage.cs" Link="PenetrationDamage.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/Dismemberment.cs" Link="Dismemberment.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/PushReaction.cs" Link="PushReaction.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/RagdollPinDrive.cs" Link="RagdollPinDrive.cs" />
   </ItemGroup>
 </Project>

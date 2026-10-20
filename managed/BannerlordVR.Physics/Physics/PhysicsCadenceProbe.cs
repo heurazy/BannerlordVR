@@ -47,8 +47,8 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex)
             {
                 _finished = true;
-                VrLog.Error("CADENCE_PROBE stopped after diagnostic error.", ex);
-                try { Shutdown(); } catch (Exception cleanup) { VrLog.Error("Cadence diagnostic cleanup failed.", cleanup); }
+                PhysicsLog.Error("CADENCE_PROBE stopped after diagnostic error.", ex);
+                try { Shutdown(); } catch (Exception cleanup) { PhysicsLog.Error("Cadence diagnostic cleanup failed.", cleanup); }
             }
         }
         private void Tick(float dt)
@@ -57,7 +57,7 @@ namespace BannerlordVR.VR.Physics
             if (_began < 0)
             {
                 if (Game.Current?.GameType?.GetType().FullName != "TaleWorlds.MountAndBlade.CustomBattle.CustomGame")
-                { _finished = true; VrLog.Info("CADENCE_PROBE refused=not_custom_battle"); return; }
+                { _finished = true; PhysicsLog.Info("CADENCE_PROBE refused=not_custom_battle"); return; }
                 _probeEntity = GameEntity.CreateEmpty(Mission.Scene, false, false, false);
                 _probeEntity.CreateAndAddScriptComponent(nameof(BvrPhysicsStepClock), true);
                 _component = _probeEntity.GetFirstScriptOfType<BvrPhysicsStepClock>();
@@ -65,7 +65,7 @@ namespace BannerlordVR.VR.Physics
                 Mission.Scene.EnableFixedTick();
                 Mission.Scene.SetFixedTickCallbackActive(true);
                 _began = Mission.CurrentTime; _baselineFixed = Volatile.Read(ref _fixedCount);
-                VrLog.Info("CADENCE_PROBE begin; diagnostic_entity=True; script_attached=" + (_component != null) +
+                PhysicsLog.Info("CADENCE_PROBE begin; diagnostic_entity=True; script_attached=" + (_component != null) +
                     "; fixed_scene_callback_enabled=True; ragdoll_cycle=" + EnemyPhysicsSettings.CadenceRagdoll + "; no_added_force_or_damage=True");
             }
             _frames++;
@@ -74,13 +74,13 @@ namespace BannerlordVR.VR.Physics
             float elapsed = Mission.CurrentTime - _began;
             if (elapsed < (EnemyPhysicsSettings.CadenceRagdoll ? 6 : 2)) return;
             _finished = true;
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "CADENCE_PROBE result=OBSERVED elapsed={0:F4} mission_callbacks={1} fixed_callbacks={2} mission_thread={3} fixed_thread={4} fixed_thread_changes={5} frame_dt_min={6:F6} frame_dt_max={7:F6} fixed_dt_min_us={8} fixed_dt_max_us={9} invalid_fixed={10}",
                 elapsed, _frames, Volatile.Read(ref _fixedCount) - _baselineFixed,
                 Thread.CurrentThread.ManagedThreadId, Volatile.Read(ref _fixedThread),
                 Volatile.Read(ref _fixedThreadChanges), _frameMin, _frameMax,
                 Volatile.Read(ref _fixedMinUs), Volatile.Read(ref _fixedMaxUs), Volatile.Read(ref _invalidFixed)));
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "CADENCE_PROBE physics_steps={0} physics_thread={1} thread_changes={2} step_min_us={3} step_max_us={4}",
                 Volatile.Read(ref _physicsSteps), Volatile.Read(ref _physicsThread),
                 Volatile.Read(ref _physicsThreadChanges), Volatile.Read(ref _physicsMinUs), Volatile.Read(ref _physicsMaxUs)));

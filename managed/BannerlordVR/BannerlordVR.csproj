@@ -111,7 +111,12 @@
   <!-- =====================================================================
        Deploy. Copies our artifacts only; never the game's own assemblies.
        ===================================================================== -->
-  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(SkipDeploy)' != 'true'">
+  <!-- Off by default in this fork: the public source lacks the arm classes of
+       the released mod (VrArmSeam, VrArmBones, VrArmIk), so this build renders
+       wrongly in the headset. Players run the official BannerlordVR release;
+       the enemy physics ships as its own module (BannerlordVR.Physics).
+       Pass -p:DeployVrMod=true to install this build anyway. -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployVrMod)' == 'true' And '$(SkipDeploy)' != 'true'">
     <ItemGroup>
       <DeployBin Include="$(OutputPath)BannerlordVR.dll" />
       <DeployBin Include="$(OutputPath)BannerlordVR.pdb" Condition="Exists('$(OutputPath)BannerlordVR.pdb')" />

@@ -85,11 +85,11 @@ namespace BannerlordVR.VR.Physics
                 MatrixFrame local = MatrixFrame.Identity;
                 visuals.CreateParticleSystemAttachedToBone("psys_game_blood_sword_exit", parent, ref local);
             }
-            catch (Exception ex) { VrLog.Error("Stump blood particle unavailable.", ex); }
+            catch (Exception ex) { PhysicsLog.Error("Stump blood particle unavailable.", ex); }
             BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
             BoneBodyPartType part = visuals.GetBoneTypeData(bone).BodyPartType;
             if (EnemyPhysicsSettings.Trace)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
         }
@@ -107,7 +107,7 @@ namespace BannerlordVR.VR.Physics
                 equipment[EquipmentIndex.Head] = new EquipmentElement(severed);
                 agent.UpdateSpawnEquipmentAndRefreshVisuals(equipment);
             }
-            catch (Exception ex) { VrLog.Error("Head removal by equipment refresh failed.", ex); }
+            catch (Exception ex) { PhysicsLog.Error("Head removal by equipment refresh failed.", ex); }
         }
 
         // Scale read back from the skinned skeleton, for the in-game probe.

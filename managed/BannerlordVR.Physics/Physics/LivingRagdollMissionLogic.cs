@@ -39,9 +39,9 @@ namespace BannerlordVR.VR.Physics
                 if (!NativeRagdollBridge.Preflight(Agent, Mission, Skeleton))
                     throw new InvalidOperationException("Living ragdoll activation refused by recovery preflight.");
                 if (EnemyPhysicsSettings.ActiveRagdoll)
-                    VrLog.Info("ACTIVE_RAGDOLL capture ready=" + Active.Capture(Agent, Skeleton, StartDestabilized));
+                    PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + Active.Capture(Agent, Skeleton, StartDestabilized));
                 else if (EnemyPhysicsSettings.ActiveBalance)
-                    VrLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
+                    PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
             }
             public void EndNative()
@@ -156,7 +156,7 @@ namespace BannerlordVR.VR.Physics
                 catch (Exception ex)
                 {
                     _failed = true; entry.Clear();
-                    VrLog.Error("Living ragdoll activation failed; backend stopped for this mission.", ex);
+                    PhysicsLog.Error("Living ragdoll activation failed; backend stopped for this mission.", ex);
                     return false;
                 }
             }
@@ -245,7 +245,7 @@ namespace BannerlordVR.VR.Physics
             // meleeModule.StopAttack, then the full-stagger recoil window.
             agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
             _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(PushEffect.StaggerFull), Effect = PushEffect.StaggerFull };
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture, "PARRY agent={0} stage={1} weapon_speed={2:F2} time={3:F3}",
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PARRY agent={0} stage={1} weapon_speed={2:F2} time={3:F3}",
                 agent.Index, stage, weaponSpeed, now));
             return true;
         }
@@ -294,7 +294,7 @@ namespace BannerlordVR.VR.Physics
             if (effect != PushEffect.None && effect != PushEffect.Destabilize)
                 _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(effect), Effect = effect };
             if (EnemyPhysicsSettings.Trace)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture, "PUSH material={0} speed={1:F2} level={2} zone={3} context={4} effect={5}",
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PUSH material={0} speed={1:F2} level={2} zone={3} context={4} effect={5}",
                     material, velocity.Length, level, zone, context, effect));
             return effect;
         }
@@ -310,9 +310,9 @@ namespace BannerlordVR.VR.Physics
             {
                 _failed = true;
                 try { entry.Lease.EmergencyStop(); }
-                catch (Exception cleanup) { VrLog.Error("Living ragdoll emergency cleanup failed.", cleanup); }
+                catch (Exception cleanup) { PhysicsLog.Error("Living ragdoll emergency cleanup failed.", cleanup); }
                 finally { entry.Clear(); }
-                VrLog.Error("Living ragdoll release failed; backend stopped for this mission.", ex);
+                PhysicsLog.Error("Living ragdoll release failed; backend stopped for this mission.", ex);
             }
         }
         private int _releasesThisTick;
@@ -337,7 +337,7 @@ namespace BannerlordVR.VR.Physics
                 {
                     _probeStarted = _probeFinished = _failed = true;
                     if (_probeEntry != null) SafeRelease(_probeEntry);
-                    VrLog.Error("PHYSICS_PROBE result=FAIL reason=managed_exception", ex);
+                    PhysicsLog.Error("PHYSICS_PROBE result=FAIL reason=managed_exception", ex);
                 }
             }
             foreach (Entry entry in _entries)
@@ -384,7 +384,7 @@ namespace BannerlordVR.VR.Physics
                     if (entry.Lease.Faulted)
                     {
                         _failed = true;
-                        VrLog.Info("Living ragdoll recovery did not finish in time; backend stopped for this mission.");
+                        PhysicsLog.Info("Living ragdoll recovery did not finish in time; backend stopped for this mission.");
                     }
                     if (!entry.Lease.Occupied)
                     {
@@ -398,12 +398,12 @@ namespace BannerlordVR.VR.Physics
                     if (entry == _probeEntry && !_probeFinished)
                     {
                         _probeFinished = true;
-                        VrLog.Info("PHYSICS_PROBE result=FAIL reason=managed_native_transition_exception");
+                        PhysicsLog.Info("PHYSICS_PROBE result=FAIL reason=managed_native_transition_exception");
                     }
                     try { entry.Lease.EmergencyStop(); }
-                    catch (Exception cleanup) { VrLog.Error("Living ragdoll emergency cleanup failed.", cleanup); }
+                    catch (Exception cleanup) { PhysicsLog.Error("Living ragdoll emergency cleanup failed.", cleanup); }
                     finally { entry.Clear(); }
-                    VrLog.Error("Living ragdoll recovery failed; backend stopped for this mission.", ex);
+                    PhysicsLog.Error("Living ragdoll recovery failed; backend stopped for this mission.", ex);
                 }
             }
             LastTickCpuMilliseconds = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
@@ -424,7 +424,7 @@ namespace BannerlordVR.VR.Physics
                             occupied++;
                             phases |= 1 << (int)entry.Active.Phase;
                         }
-                        VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                             "ACTIVE_PROBE spike ms={0:F3} time={1:F3} leases={2} phases_mask={3} releases_this_tick={4} gc0_during_tick={5}",
                             LastTickCpuMilliseconds, Mission.CurrentTime, occupied, phases, _releasesThisTick, GC.CollectionCount(0) - collections));
                     }
@@ -449,7 +449,7 @@ namespace BannerlordVR.VR.Physics
             if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
                 distance < 30 && navmesh)
             { entry.Agent.TeleportToPosition(position); teleported = true; }
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL release time={0:F3} pose_error={1:F3} moved={2} teleported={3} distance_m={4:F2} navmesh={5}",
                 Mission.CurrentTime, entry.Active.LastPoseError, moved, teleported, distance, navmesh));
             if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
@@ -465,7 +465,7 @@ namespace BannerlordVR.VR.Physics
             Agent victim = entry.Agent;
             float lost = PhysicalHit.ApplyRagdollImpact(body.LastPusher, victim, bone, part, body.ImpactPoint, damage);
             if (EnemyPhysicsSettings.Trace)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "RAGDOLL_IMPACT agent={0} bone={1} part={2} speed={3:F2} damage={4:F2} health_lost={5:F2} time={6:F3}",
                     victim.Index, bone, part, body.ImpactSpeed, damage, lost, Mission.CurrentTime));
             if (entry == _probeEntry) { _probeImpacts++; _probeImpactLoss += lost; }
@@ -507,7 +507,7 @@ namespace BannerlordVR.VR.Physics
                     break;
                 }
             }
-            VrLog.Info("ACTIVE_PROBE load bodies=" + (_probeLoad.Count + 1));
+            PhysicsLog.Info("ACTIVE_PROBE load bodies=" + (_probeLoad.Count + 1));
         }
         private void ObserveProbeLoad(Entry entry)
         {
@@ -539,7 +539,7 @@ namespace BannerlordVR.VR.Physics
                 Vec3 back = -entry.Agent.LookDirection; back.z = 0;
                 if (back.LengthSquared < 1e-4f) back = Vec3.Forward;
                 back = back.NormalizedCopy() * 7;
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_PROBE push time={0:F3} standing_max_error_m={1:F3} effect={2}",
                     Mission.CurrentTime, _probeStandingError,
                     PushReaction.HitEffect(PushReaction.Level(PushMaterial.Punch, back.Length), PushBodyZone.Torso, PushContext.Idle)));
@@ -568,7 +568,7 @@ namespace BannerlordVR.VR.Physics
                 _probeGrabbing = _probePushed = true;
                 _probeStandingError = body.MaxStandingError;
                 _probeHand = boneWorld.origin;
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_PROBE grab neck time={0:F3} standing_max_error_m={1:F3}", Mission.CurrentTime, _probeStandingError));
             }
             if (!_probeGrabbing) return;
@@ -578,7 +578,7 @@ namespace BannerlordVR.VR.Physics
             {
                 _probeGrabbing = false;
                 body.ReleaseHandle(0);
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_PROBE grab release time={0:F3} outcome={1} phase={2}", Mission.CurrentTime, body.LastGrabOutcome, body.Phase));
                 return;
             }
@@ -602,7 +602,7 @@ namespace BannerlordVR.VR.Physics
             _channelMaxStep = Math.Max(_channelMaxStep, step);
             _channelMaxFromCapture = Math.Max(_channelMaxFromCapture, (channel - physical).Length);
             _lastChannel = channel; _channelSamples++;
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ANIM_CHANNEL time={0:F3} phase={1} channel=({2:F3},{3:F3},{4:F3}) physical=({5:F3},{6:F3},{7:F3}) step_m={8:F3} anim={9}",
                 Mission.CurrentTime, entry.Active.Phase, channel.x, channel.y, channel.z, physical.x, physical.y, physical.z,
                 step, entry.Skeleton.GetAnimationAtChannel(0)));
@@ -619,19 +619,19 @@ namespace BannerlordVR.VR.Physics
             if (GameNetwork.IsMultiplayer || Game.Current?.GameType?.GetType().FullName != "TaleWorlds.MountAndBlade.CustomBattle.CustomGame")
             {
                 _probeStarted = _probeFinished = true;
-                VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=not_terrestrial_custom_battle");
+                PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=not_terrestrial_custom_battle");
                 return;
             }
             if (!NativeRagdollBridge.Ready)
             {
                 _probeStarted = _probeFinished = true;
-                VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=native_recovery_bridge_unavailable");
+                PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=native_recovery_bridge_unavailable");
                 return;
             }
             if (elapsed > 60)
             {
                 _probeStarted = _probeFinished = true;
-                VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=no_isolated_eligible_enemy");
+                PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=no_isolated_eligible_enemy");
                 return;
             }
             foreach (Agent agent in Mission.Agents)
@@ -649,19 +649,19 @@ namespace BannerlordVR.VR.Physics
                     if (!NativeRagdollBridge.Preflight(agent, Mission, skeleton))
                     {
                         _probeStarted = _probeFinished = true; entry.Clear();
-                        VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=native_recovery_preflight_refused");
+                        PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=native_recovery_preflight_refused");
                         return;
                     }
                     _probeStarted = true; _probeEntry = entry; _probeHealth = agent.Health;
                     _probeBegan = Mission.CurrentTime;
                     _probeOrigin = ProbePelvis(entry); _probeLastState = RagdollState.Disabled;
-                    VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "PHYSICS_PROBE begin agent={0} time={1:F3} health={2:F1} state={3} paused={4}",
                         agent.Index, Mission.CurrentTime, agent.Health, agent.State, agent.IsPaused));
                     if (!entry.Lease.Begin(entry, Mission.CurrentTime, LeaseSeconds))
                     {
                         _probeFinished = true; entry.Clear();
-                        VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=activation_rejected");
+                        PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=activation_rejected");
                     }
                     else
                     {
@@ -680,7 +680,7 @@ namespace BannerlordVR.VR.Physics
             RagdollState state = entry.Skeleton.GetCurrentRagdollState();
             if (state != _probeLastState)
             {
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "PHYSICS_PROBE transition time={0:F3} native={1} lease={2} paused={3}",
                     Mission.CurrentTime, state, entry.Lease.Phase, entry.Agent.IsPaused));
                 _probeLastState = state;
@@ -710,11 +710,11 @@ namespace BannerlordVR.VR.Physics
             bool sameHealth = alive && Math.Abs(entry.Agent.Health - (_probeHealth - _probeImpactLoss)) < .01f;
             bool passed = _probeSawActive && disabled && !paused && sameHealth && !entry.Lease.Faulted &&
                 (_probeMaxDisplacement > .02f || (EnemyPhysicsSettings.ActiveBalance && _probeBalanceTicks >= 10));
-            VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "PHYSICS_PROBE result={0} active_seen={1} native_disabled={2} alive={3} paused={4} same_health={5} max_pelvis_displacement_m={6:F3}",
                 passed ? "PASS" : "FAIL", _probeSawActive, disabled, alive, paused, sameHealth, _probeMaxDisplacement));
             if (EnemyPhysicsSettings.ActiveRagdoll)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_PROBE result={0} standing_max_error_m={1:F3} pushed={2} destabilized={3} stood_up={4} recovered={5} released_by_cycle={6} release_pose_error_m={7:F3} teleported={8} lowest_pelvis_m={9:F3} force_steps={10} alive={11} same_health={12} unpaused={13} native_disabled={14} cpu_ms_mean={15:F4} cpu_ms_max_steady={16:F4} cpu_ms_activation_tick={18:F4} agents={17} impacts={19} impact_health_lost={20:F1}",
                     passed && _probePushed && (!EnemyPhysicsSettings.ActiveProbeGrab || _probeGrabOutcome) && _probeSawDestabilized && _probeSawStandUp && _probeSawRecovered && _probeActiveReleased && _probeTeleported &&
                         _probeStandingError < .15f && _probeMinPelvis < -.4f ? "PASS" : "FAIL",
@@ -723,7 +723,7 @@ namespace BannerlordVR.VR.Physics
                     alive, sameHealth, !paused, disabled, _probeCpuTicks == 0 ? 0 : _probeCpuTotal / _probeCpuTicks, _probeCpuMax,
                     Mission.Agents.Count, _probeCpuActivationMax, _probeImpacts, _probeImpactLoss));
             else if (EnemyPhysicsSettings.ActiveBalance)
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "BALANCE_PROBE result={0} captured={1} force_ticks={2} support_lost={3} max_drop_m={4:F3} peak_force={5:F1} skipped_ticks={6} physx_steps_while_supported={7} max_rise_m={8:F3}",
                     passed && _probeBalanceCaptured && _probeBalanceTicks >= 10 && !_probeBalanceFell && _probeMaxDrop < .25f && _probeMaxRise < .1f ? "PASS" : "FAIL",
                     _probeBalanceCaptured, _probeBalanceTicks, _probeBalanceFell, _probeMaxDrop, _probePeakSupport,
@@ -744,7 +744,7 @@ namespace BannerlordVR.VR.Physics
             bool matches = alive && _probeAgent.AgentVisuals?.GetSkeleton()?.Pointer == _probeSkeleton.Pointer;
             if (!matches)
             {
-                VrLog.Info("PHYSICS_PROBE followup=STOP reason=agent_removed_or_skeleton_replaced");
+                PhysicsLog.Info("PHYSICS_PROBE followup=STOP reason=agent_removed_or_skeleton_replaced");
                 _probeAgent = null; _probeSkeleton = null;
                 return;
             }
@@ -753,7 +753,7 @@ namespace BannerlordVR.VR.Physics
             _probeLocomotionDistance = Math.Max(_probeLocomotionDistance, (_probeAgent.Position - _probeRecoveryOrigin).Length);
             if (state != _probeLastState || done || Mission.CurrentTime >= _probeNextFollow)
             {
-                VrLog.Info(string.Format(CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "PHYSICS_PROBE followup time={0:F3} native={1} alive={2} paused={3} same_health={4} observation_done={5} root_distance_m={6:F3} speed={7:F3} action={8}",
                     Mission.CurrentTime, state, alive, _probeAgent.IsPaused,
                     Math.Abs(_probeAgent.Health - _probeHealth) < .01f, done, _probeLocomotionDistance,
@@ -777,7 +777,7 @@ namespace BannerlordVR.VR.Physics
             {
                 if (entry.Agent != affectedAgent || !entry.Lease.Occupied) continue;
                 try { entry.Lease.Tick(Mission.CurrentTime); }
-                catch (Exception ex) { _failed = true; VrLog.Error("Living ragdoll death handoff failed.", ex); }
+                catch (Exception ex) { _failed = true; PhysicsLog.Error("Living ragdoll death handoff failed.", ex); }
                 finally { entry.Lease.AbandonDeleted(); entry.Clear(); }
             }
         }
@@ -790,17 +790,17 @@ namespace BannerlordVR.VR.Physics
             if (_probeStarted && !_probeFinished)
             {
                 _probeFinished = true;
-                VrLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=mission_ended_before_observation");
+                PhysicsLog.Info("PHYSICS_PROBE result=INCONCLUSIVE reason=mission_ended_before_observation");
             }
             // Mission calls OnEndMission before Agent.OnRemove and scene teardown.
             foreach (Entry entry in _entries)
             {
                 try { entry.Lease.EmergencyStop(); }
-                catch (Exception ex) { VrLog.Error("Living ragdoll shutdown failed.", ex); }
+                catch (Exception ex) { PhysicsLog.Error("Living ragdoll shutdown failed.", ex); }
                 finally { entry.Clear(); }
             }
             try { _clock.Shutdown(Mission); }
-            catch (Exception ex) { VrLog.Error("PhysX step clock shutdown failed.", ex); }
+            catch (Exception ex) { PhysicsLog.Error("PhysX step clock shutdown failed.", ex); }
         }
     }
 }

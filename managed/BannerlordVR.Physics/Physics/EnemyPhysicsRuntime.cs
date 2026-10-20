@@ -89,7 +89,7 @@ namespace BannerlordVR.VR.Physics
                     player == null || !player.IsActive() || player.HasMount ||
                     GameNetwork.IsMultiplayer || !VrCameraDriver.HasPose ||
                     VrMissionPhase.UiWantsScreen || VrMissionPhase.UiWantsOverlay || VrHandCalibration.Capturing ||
-                    NativeMethods.bvr_overlay_visible() != 0)
+                    PhysicsInterop.OverlayVisible())
                 { Reset(); return; }
                 if (_mission != mission || _player != player)
                 {
@@ -121,7 +121,7 @@ namespace BannerlordVR.VR.Physics
                 }
                 ShedUnheldBodies(player);
                 Scan(mission, player, dt);
-                if (NativeMethods.bvr_get_input_state(out BvrInputState input) != (int)BvrStatus.Ok)
+                if (PhysicsInterop.GetInputState(out BvrInputState input) != (int)BvrStatus.Ok)
                 { ClearHands(); return; }
                 var skeleton = player.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || !VrHandSlots.Resolve(player, skeleton, out VrHandSlot main, out VrHandSlot off))
@@ -134,7 +134,7 @@ namespace BannerlordVR.VR.Physics
                 if (now - _lastLog > 10)
                 {
                     _lastLog = now;
-                    VrLog.Info(string.Format("Enemy physics: {0}/{1} bodies (adaptive limit {2}); CPU mean {3:F3} ms, p95 {4:F3}, p99 {5:F3}; budget {6:F2} ms. CPU work only, not total frame time.",
+                    PhysicsLog.Info(string.Format("Enemy physics: {0}/{1} bodies (adaptive limit {2}); CPU mean {3:F3} ms, p95 {4:F3}, p99 {5:F3}; budget {6:F2} ms. CPU work only, not total frame time.",
                         ActiveBodies, Bodies.Length, Budget.BodyLimit, Budget.Mean,
                         Budget.Percentile(.95), Budget.Percentile(.99), Budget.Milliseconds));
                 }
@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex)
             {
                 Reset(); _failed = true;
-                VrLog.Error("Enemy physics disabled for this session after an error; all grabs released.", ex);
+                PhysicsLog.Error("Enemy physics disabled for this session after an error; all grabs released.", ex);
             }
             finally
             {
@@ -266,7 +266,7 @@ namespace BannerlordVR.VR.Physics
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
                 if (embedded && hand.Penetration.LastResistance > 40)
-                    NativeMethods.bvr_trigger_haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
+                    PhysicsInterop.Haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
                 bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
                     usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
                 if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
@@ -328,7 +328,7 @@ namespace BannerlordVR.VR.Physics
                 Vec3 velocity = (start - hand.PreviousBase) * (1 / dt) - point.Velocity;
                 PhysicalHit.ApplyDrawCut(player, body, point, contact, velocity, weapon, slot);
                 if (index == 0) body.LastHitLeft = now; else body.LastHitRight = now;
-                NativeMethods.bvr_trigger_haptic(index, .35f, .045f);
+                PhysicsInterop.Haptic(index, .35f, .045f);
             }
             return true; // Reserve this continuous contact instead of also applying impact damage.
         }
@@ -388,7 +388,7 @@ namespace BannerlordVR.VR.Physics
             BodyPoint point = body.ReadContact(bone);
             if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
             hand.Penetration.Begin(body, point, contact, profile, length / dt, player, true);
-            if (hand.Penetration.Body != null) NativeMethods.bvr_trigger_haptic(index, .3f, .03f);
+            if (hand.Penetration.Body != null) PhysicsInterop.Haptic(index, .3f, .03f);
         }
 
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
@@ -423,7 +423,7 @@ namespace BannerlordVR.VR.Physics
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
                     bool parried = _living != null && _living.Parry(body, length / dt);
-                    NativeMethods.bvr_trigger_haptic(index, parried ? .6f : .15f, parried ? .05f : .02f);
+                    PhysicsInterop.Haptic(index, parried ? .6f : .15f, parried ? .05f : .02f);
                     continue;
                 }
                 BodyPoint point = body.ReadContact(bone);
@@ -441,7 +441,7 @@ namespace BannerlordVR.VR.Physics
                 bool twoHanded = usage.WeaponFlags.HasAnyFlag(WeaponFlags.NotUsableWithOneHand);
                 if (DismemberFx.TrySlice(player, hit, contact, start, tip, velocity, sliceProfile, twoHanded, false))
                 {
-                    NativeMethods.bvr_trigger_haptic(index, .8f, .06f);
+                    PhysicsInterop.Haptic(index, .8f, .06f);
                     return;
                 }
             }
@@ -455,7 +455,7 @@ namespace BannerlordVR.VR.Physics
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
                 hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player);
-            NativeMethods.bvr_trigger_haptic(index, .45f, .035f);
+            PhysicsInterop.Haptic(index, .45f, .035f);
         }
 
         private static bool EquipmentBlocks(EnemyBody body, Vec3 start, Vec3 end, float bodyFraction, float radius)

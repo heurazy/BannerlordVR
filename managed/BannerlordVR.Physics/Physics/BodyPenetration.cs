@@ -130,7 +130,7 @@ namespace BannerlordVR.VR.Physics
             float lost = PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, damage, type);
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);
             if (EnemyPhysicsSettings.Trace)
-                VrLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION {0} profile={1} zone={2} material={3} damage={4:F1} health_lost={5:F1}",
                     kind, _profile, _zone, _material, damage, lost));
             if (lost > 0 && Body != null && Body.Agent == victim)
