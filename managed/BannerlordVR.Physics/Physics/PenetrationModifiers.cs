@@ -114,10 +114,12 @@ namespace BannerlordVR.VR.Physics
 
         // tier: B&S item tier 0..6 (Bannerlord ItemTiers Tier1..Tier6 = 0..5).
         // Bannerlord files lamellar and scale under Plate; by design choice
-        // they use the B&S chainmail rows (B&S plate stops every blade).
+        // they use the B&S leather rows, pierced along the whole blade (B&S
+        // plate stops every blade, its mail stops a sword at 20 cm).
+        // Bannerlord chainmail keeps the B&S chainmail rows.
         public static Row Get(PenetrationProfile profile, PenetrationMaterial material, int tier)
         {
-            if (material == PenetrationMaterial.Plate) material = PenetrationMaterial.Chainmail;
+            if (material == PenetrationMaterial.Plate) material = PenetrationMaterial.Leather;
             tier = Math.Max(0, Math.Min(6, tier));
             Row row = Table[(int)ModifierFor(profile)][(int)material][tier];
             return row.Valid ? row : R(false, float.PositiveInfinity, float.PositiveInfinity, 1, false, 1, 0);

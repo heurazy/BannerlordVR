@@ -13,8 +13,9 @@ internal static class PenetrationJointTests
               PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true, 3) == 4000,
             "Chainmail brakes by tier (DamageModifier_Pierce x6 for T1-T2, x4 from T3)");
         check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Plate, true, true, 2) ==
-              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true, 2),
-            "Bannerlord plate and lamellar use the chainmail rows");
+              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Leather, true, true, 2) &&
+              float.IsPositiveInfinity(PenetrationModifiers.Get(PenetrationProfile.SwordPierce, PenetrationMaterial.Plate, 3).DepthLimit(4)),
+            "Bannerlord plate and lamellar use the leather rows: pierced along the whole blade");
         check(PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, true, 3) == 0 &&
               PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, false, 3) == 10000,
             "An axe bites freely and is hard to pull out");
