@@ -224,7 +224,9 @@ namespace BannerlordVR.VR.Physics
             if (Body == null) return false;
             EnemyPhysicsRuntime.MaintainLivingGrab(Body);
             _age += dt;
-            if ((!Body.IsCorpse && !Body.Agent.IsActive()) || _age > 8) { End(_age > 8 ? "timeout" : "victim_inactive"); return false; }
+            // No time limit: Damager.UpdatePenetration keeps a blade in as long
+            // as it is not pulled out (the 8 s cut ended held stabs).
+            if (!Body.IsCorpse && !Body.Agent.IsActive()) { End("victim_inactive"); return false; }
             // Let a newly killed target enter the engine's corpse state itself.
             if (!Body.HasNativePhysics)
             {
