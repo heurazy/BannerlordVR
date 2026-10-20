@@ -14,6 +14,7 @@ namespace BannerlordVR.VR.Physics
     internal sealed class ActiveRagdollBody
     {
         private const int MaxBodies = 32;
+        public const float MaxAngularVelocity = 7;
         private readonly RagdollPinDrive _drive = new RagdollPinDrive();
         private readonly ActiveRagdollCycle _cycle = new ActiveRagdollCycle();
         // Bone hierarchies per skeleton layout. Walking parents through the
@@ -208,7 +209,10 @@ namespace BannerlordVR.VR.Physics
             _configured = true;
             // Same order of magnitude as B&S Rigidbody.maxDepenetration and
             // part velocity caps: a solver spike cannot launch a soldier.
-            agent.SetVelocityLimitsOnRagdoll(20, 40);
+            // B&S leaves Rigidbody.maxAngularVelocity at Unity's 7 rad/s on
+            // every ragdoll part; 40 let unpinned limbs (Bannerlord gives no
+            // torque, so nothing holds a part's own twist) spin six times faster.
+            agent.SetVelocityLimitsOnRagdoll(20, MaxAngularVelocity);
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3}",
                 count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds));
