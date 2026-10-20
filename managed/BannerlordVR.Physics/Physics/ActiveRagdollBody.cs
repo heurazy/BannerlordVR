@@ -48,7 +48,7 @@ namespace BannerlordVR.VR.Physics
             public float BaseReference, BaseRoot;
             // A blade inside the part instead of a hand on it: locked across
             // the blade, free along it, no lift rules.
-            public bool Blade; public Vec3 Axis;
+            public bool Blade, AxialLock; public Vec3 Axis;
             // HandleRagdoll.isBackGrab, decided when the hand closed.
             public bool HasFacing, BackGrab;
         }
@@ -244,13 +244,13 @@ namespace BannerlordVR.VR.Physics
         // Damager.Penetrate: the pierced part is jointed to the blade, held by
         // the player's arm. bladePoint is the blade point closest to the
         // contact, so the joint only corrects across the blade.
-        public bool Pierce(int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, MatrixFrame boneWorld, Vec3 contactWorld)
+        public bool Pierce(int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, MatrixFrame boneWorld, Vec3 contactWorld)
         {
             if (hand < 0 || hand >= _grabs.Length || !_configured || !InteractionMath.IsFinite(bladePoint) || !InteractionMath.IsFinite(axis)) return false;
             if (!_grabs[hand].Active || !_grabs[hand].Blade || _grabs[hand].Bone != bone)
                 _grabs[hand] = new GrabSlot { Active = true, Bone = bone, Kind = GrabHandle.Torso, Blade = true,
                     Local = boneWorld.TransformToLocalNonOrthogonal(contactWorld) };
-            GrabSlot slot = _grabs[hand]; slot.Axis = axis; _grabs[hand] = slot;
+            GrabSlot slot = _grabs[hand]; slot.Axis = axis; slot.AxialLock = axialLock; _grabs[hand] = slot;
             _hand[hand] = bladePoint;
             return true;
         }
@@ -377,7 +377,7 @@ namespace BannerlordVR.VR.Physics
                 // The animated pose keeps resisting along a blade: in B&S the
                 // creature's pins brake the part sliding on it, the blade
                 // only carries it sideways.
-                if (_grabs[h].Blade) delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
+                if (_grabs[h].Blade && !_grabs[h].AxialLock) delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
                 for (int i = 0; i < _drive.Count; i++)
                     if (i != _pelvisBody && _drive.InSubtree(i, grabbed)) _target[i] += delta;
                 int up = _drive.Parent(grabbed);
@@ -398,7 +398,7 @@ namespace BannerlordVR.VR.Physics
                 Vec3 contact = boneWorld.TransformToParent(_grabs[h].Local);
                 _grabBody[h] = body;
                 _grabTarget[h] = _position[body] + (_hand[h] - contact);
-                _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade ? _grabs[h].Axis : Vec3.Zero);
+                _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade && !_grabs[h].AxialLock ? _grabs[h].Axis : Vec3.Zero);
                 _lastInteraction = now;
                 if (_grabs[h].Blade) { if (_cycle.Phase == ActiveRagdollPhase.Standing) StepTowards(GrabHandle.Torso, body, now); continue; }
                 // HandleRagdoll lift and head rules apply while the creature is

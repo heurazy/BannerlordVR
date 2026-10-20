@@ -35,41 +35,24 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
-        // DamageModifier_Pierce / PierceFine / Slash / SlashAxe multipliers.
-        public static float MaterialMultiplier(PenetrationProfile profile, PenetrationMaterial material)
+        // penetrationDamperMultiplier of the DamageModifier row for the
+        // material and weapon tier (PenetrationModifiers).
+        public static float MaterialMultiplier(PenetrationProfile profile, PenetrationMaterial material, int tier) =>
+            PenetrationModifiers.Get(profile, material, tier).DamperMultiplier;
+
+        // penetrationMinVelocity: slower contacts do not enter; a row that
+        // refuses penetration never does.
+        public static float MinVelocity(PenetrationProfile profile, PenetrationMaterial material, int tier)
         {
-            bool fine = profile == PenetrationProfile.DaggerPierce;
-            bool axe = profile == PenetrationProfile.AxeSlash1H || profile == PenetrationProfile.AxeSlash2H;
-            bool pierce = Get(profile).Pierce;
-            switch (material)
-            {
-                case PenetrationMaterial.Flesh: return fine ? .75f : axe ? .9f : pierce ? 1 : .5f;
-                case PenetrationMaterial.Leather: return fine ? 1.25f : axe ? 1.4f : pierce ? 1.5f : 1;
-                case PenetrationMaterial.Chainmail: return fine ? 2 : axe ? 1.8f : pierce ? 4 : 1;
-                default: return fine ? 6 : axe ? 3 : pierce ? 8 : 1;
-            }
+            PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
+            return row.Allow ? row.MinVelocity : float.PositiveInfinity;
         }
 
-        // DamageModifier penetrationMinVelocity: slower contacts do not enter.
-        public static float MinVelocity(PenetrationProfile profile, PenetrationMaterial material)
-        {
-            bool axe = profile == PenetrationProfile.AxeSlash1H || profile == PenetrationProfile.AxeSlash2H;
-            if (Get(profile).Pierce) return 1;
-            if (axe) return material == PenetrationMaterial.Plate ? 4.5f : 3;
-            switch (material)
-            {
-                case PenetrationMaterial.Flesh: return 1.5f;
-                case PenetrationMaterial.Leather:
-                case PenetrationMaterial.Chainmail: return 3;
-                default: return 4;
-            }
-        }
-
-        public static float Damper(PenetrationProfile profile, PenetrationMaterial material, bool held, bool deepening)
+        public static float Damper(PenetrationProfile profile, PenetrationMaterial material, bool held, bool deepening, int tier)
         {
             Profile p = Get(profile);
             float d = held ? (deepening ? p.HeldIn : p.HeldOut) : p.Loose;
-            return d * MaterialMultiplier(profile, material);
+            return d * MaterialMultiplier(profile, material, tier);
         }
 
         // Force on the pierced part along the blade axis: it follows the blade

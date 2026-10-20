@@ -11,6 +11,8 @@ namespace BannerlordVR.VR.Physics
     {
         public EnemyBody Body { get; private set; }
         public int HandIndex;
+        // Bannerlord ItemTiers Tier1..Tier6 are B&S item tiers 0..5.
+        public static int TierOf(ItemObject item) => item == null ? 2 : Math.Max(0, Math.Min(6, (int)item.Tier));
         // True while the blade holds the part through the active ragdoll's
         // hand joint (rigid across the blade) rather than a soft spring.
         public bool Locked { get; private set; }
@@ -89,27 +91,35 @@ namespace BannerlordVR.VR.Physics
         // pressure: Damager.TryHitByPressure, a slow push along the blade that
         // enters without impact damage and without the minimum speed.
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, float speed,
-            Agent source = null, bool pressure = false)
+            Agent source = null, bool pressure = false, int tier = 2)
         {
             PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : MaterialFor(body.Agent, point.Part);
-            if (!pressure && speed < PenetrationJoint.MinVelocity(profile, material))
+            PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
+            // Damager.CheckPenetration: the material row must allow it, a
+            // pressure entry needs pressureAllowed, an impact the min speed.
+            string refused = !row.Allow ? "material" : pressure ? (row.Pressure ? null : "no_pressure") :
+                speed < row.MinVelocity ? "speed" : null;
+            if (refused != null)
             {
                 if (EnemyPhysicsSettings.Trace)
                     PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "PENETRATION refused speed={0:F2} min={1:F2} material={2}", speed, PenetrationJoint.MinVelocity(profile, material), material));
+                        "PENETRATION refused reason={0} speed={1:F2} min={2:F2} material={3} tier={4}", refused, speed, row.MinVelocity, material, tier));
                 return;
             }
             Begin(body, point, contact);
             if (Body == null) return;
-            _profile = profile; _material = material;
+            _profile = profile; _material = material; _tier = tier;
+            // penetrationVelocityMaxDepth: a pressure entry has no impact
+            // speed and stops at the curve's start.
+            _depthLimit = row.DepthLimit(pressure ? row.MinVelocity : speed);
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _lockedLogged = false;
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "PENETRATION begin profile={0} zone={1} material={2} speed={3:F2} pressure={4} bone={5}",
-                    profile, _zone, material, speed, pressure, point.Bone));
+                    "PENETRATION begin profile={0} zone={1} material={2} tier={3} speed={4:F2} pressure={5} bone={6} depth_limit={7:F3} damper_x={8:F2}",
+                    profile, _zone, material, tier, speed, pressure, point.Bone, _depthLimit, row.DamperMultiplier));
         }
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
@@ -124,6 +134,8 @@ namespace BannerlordVR.VR.Physics
         // and dealt when it leaves the body: the victim dies on withdrawal.
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
+        private int _tier = 2;
+        private float _depthLimit = float.PositiveInfinity;
         private void End(string reason, float value = 0)
         {
             if (EnemyPhysicsSettings.Trace && Body != null)
@@ -224,6 +236,15 @@ namespace BannerlordVR.VR.Physics
             float rawDepth = Math.Max(0, (bladeTip - bladeBase).Length - along);
             if (_depthBase < 0) _depthBase = rawDepth;
             float depth = Math.Max(0, rawDepth - _depthBase);
+            // Joint zMotion Limited at the depth limit: past it the blade
+            // carries the part instead of going deeper.
+            bool atLimit = depth > _depthLimit;
+            Vec3 bladeTarget = bladePoint;
+            if (atLimit)
+            {
+                bladeTarget = bladePoint - axis * (depth - _depthLimit);
+                depth = _depthLimit;
+            }
             _lastAnchor = anchor;
             _maxDepth = Math.Max(_maxDepth, depth);
             if (!Body.IsCorpse)
@@ -234,25 +255,25 @@ namespace BannerlordVR.VR.Physics
             }
             Vec3 targetVelocity = _sampled ? InteractionMath.ClampMagnitude((bladePoint - _lastBladePoint) * (1 / dt), 8) : Vec3.Zero;
             _lastBladePoint = bladePoint; _sampled = true;
-            Vec3 error = bladePoint - anchor;
+            Vec3 error = bladeTarget - anchor;
             Vec3 relativeVelocity = p.Velocity - targetVelocity;
             // Damager.Penetrate locks x and y: on an active ragdoll the part is
             // carried across the blade by the player's arm joint (5000 N/m,
             // 3000 N), with its pose following. Elsewhere a soft spring.
             Vec3 force = Vec3.Zero;
             Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
-                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladePoint, axis, bone, anchor);
+                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladeTarget, axis, atLimit, bone, anchor);
             if (Locked && !_lockedLogged && EnemyPhysicsSettings.Trace)
             { _lockedLogged = true; PhysicsLog.Info("PENETRATION locked to the arm joint age=" + _age.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)); }
             if (!Locked)
             {
-                Vec3 lateralVelocity = relativeVelocity - axis * InteractionMath.Dot(relativeVelocity, axis);
+                Vec3 lateralVelocity = atLimit ? relativeVelocity : relativeVelocity - axis * InteractionMath.Dot(relativeVelocity, axis);
                 force = InteractionMath.SpringForce(error, lateralVelocity,
                     EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce * .5f);
             }
             // B&S axial damper: the part is dragged along with the blade, with
             // a different brake going in and coming out, set by its armour.
-            float damper = PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth);
+            float damper = atLimit ? 0 : PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth, _tier);
             Vec3 axial = PenetrationJoint.AxialForce(axis, p.Velocity, targetVelocity, damper, _mass);
             // Sliding inside the wound bleeds; pulling out spills at the exit.
             if (!Body.IsCorpse && Math.Abs(depth - _lastDepth) > .004f)

@@ -69,8 +69,8 @@ namespace BannerlordVR.VR.Physics
         public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
-        public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, MatrixFrame boneWorld, Vec3 contact)
-            => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, boneWorld, contact);
+        public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock, MatrixFrame boneWorld, Vec3 contact)
+            => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, axialLock, boneWorld, contact);
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
             PushEffect push = PushEffect.None, float hitMass = 2)
@@ -434,7 +434,7 @@ namespace BannerlordVR.VR.Physics
             if (!Visible(hand.PreviousTip, contact, body) || EquipmentBlocks(body, hand.PreviousTip, tip, distance / length, .02f)) return;
             BodyPoint point = body.ReadContact(bone);
             if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
-            hand.Penetration.Begin(body, point, contact, profile, length / dt, player, true);
+            hand.Penetration.Begin(body, point, contact, profile, length / dt, player, true, BodyPenetration.TierOf(hand.Item));
             if (hand.Penetration.Body != null) PhysicsInterop.Haptic(index, .3f, .03f);
         }
 
@@ -586,7 +586,7 @@ namespace BannerlordVR.VR.Physics
             bool atPoint = !blade || hitAlong >= .8f;
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
-                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part));
+                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
             // Inside the impact cooldown only an actual entry counts.
             if (hitCooled && !enters) return;
             if (!enters) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
@@ -594,7 +594,7 @@ namespace BannerlordVR.VR.Physics
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
-                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player);
+                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item));
             PhysicsInterop.Haptic(index, .45f, .035f);
         }
 

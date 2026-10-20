@@ -6,23 +6,30 @@ internal static class PenetrationJointTests
 {
     public static void Run(Action<bool, string> check)
     {
-        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, true) == 1000 &&
-              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, false) == 500,
-            "Held sword: 1000 going in, 500 coming out (DamagerData SwordPierce)");
-        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Plate, true, true) == 8000 &&
-              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true) == 4000,
-            "Armour multiplies the brake (DamageModifier_Pierce plate x8, chainmail x4)");
-        check(PenetrationJoint.Damper(PenetrationProfile.DaggerPierce, PenetrationMaterial.Plate, true, true) == 3000,
-            "Fine piercing is braked less by plate (PierceFine x6)");
-        check(PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, true) == 0 &&
-              PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, false) == 9000,
+        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, true, 2) == 1000 &&
+              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, false, 2) == 500,
+            "Held tier 2 sword: 1000 going in, 500 coming out (DamagerData SwordPierce, flesh x1)");
+        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true, 2) == 6000 &&
+              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true, 3) == 4000,
+            "Chainmail brakes by tier (DamageModifier_Pierce x6 for T1-T2, x4 from T3)");
+        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Plate, true, true, 2) ==
+              PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, true, true, 2),
+            "Bannerlord plate and lamellar use the chainmail rows");
+        check(PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, true, 3) == 0 &&
+              PenetrationJoint.Damper(PenetrationProfile.AxeSlash1H, PenetrationMaterial.Flesh, true, false, 3) == 10000,
             "An axe bites freely and is hard to pull out");
-        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, false, true) == 1250,
+        check(PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, false, true, 2) == 1250,
             "A loose weapon uses penetrationDamper");
-        check(PenetrationJoint.MinVelocity(PenetrationProfile.SaberSlash, PenetrationMaterial.Plate) == 4 &&
-              PenetrationJoint.MinVelocity(PenetrationProfile.AxeSlash2H, PenetrationMaterial.Plate) == 4.5f &&
-              PenetrationJoint.MinVelocity(PenetrationProfile.SwordPierce, PenetrationMaterial.Plate) == 1,
-            "Minimum penetration speeds per material");
+        check(PenetrationJoint.MinVelocity(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, 1) == .5f &&
+              PenetrationJoint.MinVelocity(PenetrationProfile.SwordPierce, PenetrationMaterial.Leather, 0) == 6 &&
+              PenetrationJoint.MinVelocity(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, 2) == 3 &&
+              float.IsPositiveInfinity(PenetrationJoint.MinVelocity(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, 0)) &&
+              float.IsPositiveInfinity(PenetrationJoint.MinVelocity(PenetrationProfile.SaberSlash, PenetrationMaterial.Chainmail, 3)),
+            "Minimum penetration speeds per material and tier; mail stops tier 0 points and every slash");
+        PenetrationModifiers.Row mail = PenetrationModifiers.Get(PenetrationProfile.SwordPierce, PenetrationMaterial.Chainmail, 2);
+        check(!mail.Pressure && Math.Abs(mail.DepthLimit(3.5f) - .1f) < 1e-4f && Math.Abs(mail.DepthLimit(9) - .2f) < 1e-4f &&
+              float.IsPositiveInfinity(PenetrationModifiers.Get(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, 2).DepthLimit(5)),
+            "Mail: no pressure entry, depth limited by impact speed (0.2 m per m/s over the minimum, held at 0.2 m)");
 
         Vec3 axis = new Vec3(0, 1, 0);
         Vec3 pull = PenetrationJoint.AxialForce(axis, Vec3.Zero, new Vec3(.5f, -1, 0), 500, 20);
@@ -42,7 +49,7 @@ internal static class PenetrationJointTests
         for (int i = 0; i < 90; i++)
         {
             Vec3 f = PenetrationJoint.AxialForce(axis, new Vec3(0, v, 0), new Vec3(0, blade, 0),
-                PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, false), 20);
+                PenetrationJoint.Damper(PenetrationProfile.SwordPierce, PenetrationMaterial.Flesh, true, false, 2), 20);
             v += f.y / 20 * (1f / 90);
             bounded &= v <= 0 && v >= blade - 1e-4f;
         }
