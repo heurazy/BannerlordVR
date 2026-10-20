@@ -333,7 +333,7 @@ namespace BannerlordVR.VR.Physics
             { hand.Cut.Reset(); return false; }
             Vec3 axis = (tip - start).NormalizedCopy();
             Vec3 edgeStart = start + axis * .08f;
-            Agent agent = _mission.RayCastForClosestAgentsLimbs(edgeStart, tip, player.Index,
+            Agent agent = CastLimbs(edgeStart, tip, player.Index,
                 .015f, out float distance, out sbyte bone);
             float length = (tip - edgeStart).Length;
             if (agent != body.Agent || bone < 0 || bone >= body.Skeleton.GetBoneCount() ||
@@ -398,7 +398,7 @@ namespace BannerlordVR.VR.Physics
             float length = motion.Length;
             if (axis.Length < .05f || length / dt < PressureMinSpeed) return;
             if (InteractionMath.Dot(motion * (1 / length), axis.NormalizedCopy()) < 1 - PressureMaxDot) return;
-            Agent agent = _mission.RayCastForClosestAgentsLimbs(hand.PreviousTip, tip, player.Index, .02f,
+            Agent agent = CastLimbs(hand.PreviousTip, tip, player.Index, .02f,
                 out float distance, out sbyte bone);
             if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) return;
             EnemyBody body = null;
@@ -440,6 +440,42 @@ namespace BannerlordVR.VR.Physics
             hand.DiagSpeed = hand.DiagGrip = hand.DiagTrigger = 0; hand.DiagNearest = float.MaxValue;
             hand.DiagCasts = hand.DiagRayHits = hand.DiagRejected = hand.DiagHits = hand.DiagGrabs = 0; hand.DiagReject = "-";
         }
+        // Contact query used by every gesture. The engine's closest-limb ray
+        // returned nothing in VR against frozen sandbox dummies at 45 cm, so
+        // the tracked bodies are also asked one by one, then tested against
+        // their sampled bone spheres.
+        public static string LastCastMethod { get; private set; } = "-";
+        private static Agent CastLimbs(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
+        {
+            Agent agent = _mission.RayCastForClosestAgentsLimbs(from, to, excluded, thickness, out distance, out bone);
+            if (agent != null && bone >= 0) { LastCastMethod = "closest_limbs"; return agent; }
+            float length = (to - from).Length;
+            Agent best = null; float bestDistance = float.MaxValue; sbyte bestBone = -1;
+            foreach (EnemyBody body in Bodies)
+            {
+                if (body?.Agent == null || body.Agent.Index == excluded) continue;
+                if (_mission.RayCastForGivenAgentsLimbs(from, to, body.Agent.Index, thickness, out float d, out sbyte b) &&
+                    b >= 0 && InteractionMath.IsFinite(d) && d < bestDistance)
+                { best = body.Agent; bestDistance = d; bestBone = b; LastCastMethod = "given_limbs"; }
+            }
+            if (best == null && length > 1e-5f)
+            {
+                foreach (EnemyBody body in Bodies)
+                {
+                    if (body?.Agent == null || body.Agent.Index == excluded) continue;
+                    for (int i = 0; i < body.Count; i++)
+                    {
+                        BodyPoint point = body.Points[i];
+                        if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + thickness, out float t)) continue;
+                        float d = t * length;
+                        if (d < bestDistance) { best = body.Agent; bestDistance = d; bestBone = point.Bone; LastCastMethod = "bone_spheres"; }
+                    }
+                }
+            }
+            distance = best == null ? 0 : bestDistance; bone = bestBone;
+            return best;
+        }
+
         private static void Reject(Hand hand, string reason) { hand.DiagRejected++; hand.DiagReject = reason; }
 
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
@@ -459,10 +495,10 @@ namespace BannerlordVR.VR.Physics
                 // Query the engine's real limb colliders and returned bone, not
                 // guessed spheres. Closest-agent selection also prevents hitting
                 // an admitted enemy through a nearer ally or excluded rider.
-                Agent agent = _mission.RayCastForClosestAgentsLimbs(previous, current, player.Index,
+                Agent agent = CastLimbs(previous, current, player.Index,
                     blade ? .025f : .065f, out float distance, out sbyte bone);
                 if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) continue;
-                hand.DiagRayHits++;
+                hand.DiagRayHits++; hand.DiagReject = "via_" + LastCastMethod;
                 float fraction = distance / length;
                 if (fraction >= earliest) continue;
                 EnemyBody body = null;

@@ -29,9 +29,31 @@ namespace BannerlordVR.VR.Physics
                     if (method != null) _input = (InputWrapper)Delegate.CreateDelegate(typeof(InputWrapper), method);
                 }
                 catch (Exception ex) { PhysicsLog.Error("BannerlordVR input wrapper unavailable; using the raw native input.", ex); }
-                PhysicsLog.Info("Controller input: " + (_input != null ? "BannerlordVR wrapper (swap and grip settings applied)." : "raw native export."));
+                PhysicsLog.Info("Controller input: raw native grip and trigger" + (_input != null ? ", trigger/grip swap followed from BannerlordVR." : "."));
             }
-            return _input != null ? _input(out state, false) : bvr_get_input_state(out state);
+            // The release's wrapper consumes the grip for its own grab/holster
+            // handling (it read 0 in VR), so the physics keeps the raw grip and
+            // trigger values, swapped only if the release swaps them.
+            int status = bvr_get_input_state(out state);
+            if (status == 0 && SwapTriggerGrip())
+            {
+                float g = state.Left.Grip; state.Left.Grip = state.Left.Trigger; state.Left.Trigger = g;
+                g = state.Right.Grip; state.Right.Grip = state.Right.Trigger; state.Right.Trigger = g;
+            }
+            return status;
+        }
+
+        private static PropertyInfo _swap;
+        private static bool SwapTriggerGrip()
+        {
+            try
+            {
+                if (_swap == null)
+                    _swap = typeof(BvrInputState).Assembly.GetType("BannerlordVR.Interop.NativeMethods")?
+                        .GetProperty("SwapTriggerGrip", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                return _swap != null && (bool)_swap.GetValue(null);
+            }
+            catch { return false; }
         }
 
         public static void Haptic(int hand, float amplitude, float seconds)
