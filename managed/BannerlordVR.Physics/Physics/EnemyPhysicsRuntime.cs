@@ -13,6 +13,10 @@ namespace BannerlordVR.VR.Physics
         private sealed class Hand
         {
             public readonly EnemyGrab Grab = new EnemyGrab();
+            // Trace diagnostics, logged every 2 s per hand.
+            public float DiagSpeed, DiagNearest = float.MaxValue, DiagBoneGap, DiagGrip, DiagTrigger, DiagNext;
+            public int DiagCasts, DiagRayHits, DiagRejected, DiagHits, DiagGrabs;
+            public string DiagReject = "-", DiagItem = "-";
             public Hand(int index) { Grab.HandIndex = index; }
             public readonly BodyPenetration Penetration = new BodyPenetration();
             public readonly CutStroke Cut = new CutStroke();
@@ -276,10 +280,11 @@ namespace BannerlordVR.VR.Physics
             bool newGrab = grip && !hand.GripDown && usage == null;
             if (!changed)
             {
-                if (newGrab) TryGrab(hand, pose.origin);
+                if (newGrab) { TryGrab(hand, pose.origin); if (hand.Grab.Held) hand.DiagGrabs++; }
                 // Use stage-space displacement to reject locomotion-only punches.
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
+                if (EnemyPhysicsSettings.Trace) Diagnose(index, hand, pose, slot, player, usage, blade, input, gestureSpeed, now);
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
                 if (embedded && hand.Penetration.LastResistance > 40)
                     PhysicsInterop.Haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
@@ -407,9 +412,40 @@ namespace BannerlordVR.VR.Physics
             if (hand.Penetration.Body != null) PhysicsInterop.Haptic(index, .3f, .03f);
         }
 
+        // Where the physics thinks the hand is, against the character's own hand
+        // bone, plus what the hand is doing; validates the pose conversion of
+        // the BannerlordVR release and shows which gate stops a contact.
+        private static void Diagnose(int index, Hand hand, MatrixFrame pose, VrHandSlot slot, Agent player,
+            WeaponComponentData usage, bool blade, BvrHandState input, float speed, float now)
+        {
+            hand.DiagSpeed = Math.Max(hand.DiagSpeed, speed);
+            hand.DiagGrip = Math.Max(hand.DiagGrip, input.Grip);
+            hand.DiagTrigger = Math.Max(hand.DiagTrigger, input.Trigger);
+            foreach (EnemyBody body in Bodies)
+                if (body != null) hand.DiagNearest = Math.Min(hand.DiagNearest, (body.Agent.Position + Vec3.Up - pose.origin).Length);
+            Skeleton skeleton = player.AgentVisuals?.GetSkeleton();
+            if (skeleton != null && slot.Bone >= 0 && slot.Bone < skeleton.GetBoneCount())
+            {
+                Vec3 bone = player.AgentVisuals.GetEntity().GetGlobalFrame().TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(slot.Bone)).origin;
+                hand.DiagBoneGap = (bone - pose.origin).Length;
+            }
+            hand.DiagItem = usage == null ? "empty" : (usage.WeaponClass + (blade ? "/blade" : ""));
+            if (now < hand.DiagNext) return;
+            hand.DiagNext = now + 2;
+            PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "HAND {0} item={1} pose=({2:F2},{3:F2},{4:F2}) gap_to_hand_bone_m={5:F2} max_speed={6:F2} max_grip={7:F2} max_trigger={8:F2} nearest_body_m={9:F2} casts={10} ray_hits={11} rejected={12} last_reject={13} hits={14} grabs={15}",
+                index == 0 ? "L" : "R", hand.DiagItem, pose.origin.x, pose.origin.y, pose.origin.z, hand.DiagBoneGap, hand.DiagSpeed,
+                hand.DiagGrip, hand.DiagTrigger, hand.DiagNearest == float.MaxValue ? -1 : hand.DiagNearest,
+                hand.DiagCasts, hand.DiagRayHits, hand.DiagRejected, hand.DiagReject, hand.DiagHits, hand.DiagGrabs));
+            hand.DiagSpeed = hand.DiagGrip = hand.DiagTrigger = 0; hand.DiagNearest = float.MaxValue;
+            hand.DiagCasts = hand.DiagRayHits = hand.DiagRejected = hand.DiagHits = hand.DiagGrabs = 0; hand.DiagReject = "-";
+        }
+        private static void Reject(Hand hand, string reason) { hand.DiagRejected++; hand.DiagReject = reason; }
+
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
             MissionWeapon weapon, EquipmentIndex slot, Agent player, float dt, float now, bool blade)
         {
+            hand.DiagCasts++;
             EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
@@ -426,18 +462,21 @@ namespace BannerlordVR.VR.Physics
                 Agent agent = _mission.RayCastForClosestAgentsLimbs(previous, current, player.Index,
                     blade ? .025f : .065f, out float distance, out sbyte bone);
                 if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) continue;
+                hand.DiagRayHits++;
                 float fraction = distance / length;
                 if (fraction >= earliest) continue;
                 EnemyBody body = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
-                if (body == null || now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f ||
-                    bone >= body.Skeleton.GetBoneCount()) continue;
+                if (body == null) { Reject(hand, "agent_not_tracked"); continue; }
+                if (now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f) { Reject(hand, "cooldown"); continue; }
+                if (bone >= body.Skeleton.GetBoneCount()) { Reject(hand, "bone_range"); continue; }
                 Vec3 c = previous + (current - previous) * fraction;
-                if (!Visible(previous, c, body)) continue;
+                if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
                 if (EquipmentBlocks(body, previous, current, fraction, blade ? .025f : .065f))
                 {
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
+                    Reject(hand, "equipment");
                     bool parried = _living != null && _living.Parry(body, length / dt);
                     PhysicsInterop.Haptic(index, parried ? .6f : .15f, parried ? .05f : .02f);
                     continue;
@@ -448,6 +487,7 @@ namespace BannerlordVR.VR.Physics
                 velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
             }
             if (hit == null) return;
+            hand.DiagHits++;
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
             // B&S dismemberment: a fast cut across a joint slices and kills.
