@@ -135,6 +135,7 @@ namespace BannerlordVR.VR.Physics
         // and dealt when it leaves the body: the victim dies on withdrawal.
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
+        private const float MaxShove = .1f;
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
         // angular limits are relative to it.
@@ -263,7 +264,10 @@ namespace BannerlordVR.VR.Physics
                 // the weapon stays in the body, the arm keeps shoving it);
                 // only a hand far beyond any reach has let go of it.
                 if (depth - limit > 1.5f) { End("overshoot", depth - limit); return false; }
-                bladeTarget = bladePoint - axis * (depth - limit);
+                // The part belongs where the stopped blade's depth ends, further
+                // along the blade (towards the tip). The shove is bounded: past
+                // 10 cm the arm joint's pull would launch the body.
+                bladeTarget = bladePoint + axis * Math.Min(depth - limit, MaxShove);
                 depth = limit;
             }
             _lastAnchor = anchor;
