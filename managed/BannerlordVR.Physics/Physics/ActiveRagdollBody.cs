@@ -451,7 +451,11 @@ namespace BannerlordVR.VR.Physics
                         (_position[_pelvisBody] - _target[_pelvisBody]).Length, _position[_pelvisBody].z, _target[_pelvisBody].z,
                         lowestFoot, _groundPoint.z, _nearGround, (_root.origin - _capturedRoot.origin).AsVec2.Length, _turned));
                 }
-                if (_grabs[h].Blade) { if (_cycle.Phase == ActiveRagdollPhase.Standing) StepTowards(GrabHandle.Torso, body, now); continue; }
+                // HandleRagdollData.moveStep is a grab handle's; a creature
+                // with a blade in it does not step after its body. Stepping the
+                // pose root here let the body slide down the blade to the hilt
+                // on a slope, the pose following it.
+                if (_grabs[h].Blade) continue;
                 // HandleRagdoll lift and head rules apply while the creature is
                 // alive and standing; a destabilized body simply hangs.
                 if (_cycle.Phase != ActiveRagdollPhase.Standing && _cycle.Phase != ActiveRagdollPhase.StandingUp) continue;
