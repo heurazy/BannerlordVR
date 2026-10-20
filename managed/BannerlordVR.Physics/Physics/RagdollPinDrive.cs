@@ -36,6 +36,9 @@ namespace BannerlordVR.VR.Physics
         // between the player's grip and a grabbed part is the player's arm.
         public const float HandSpring = 5000, HandDamper = 40, HandMaxForce = 3000;
         public const int MaxHandles = 2;
+        // The grip joint acts alone on its body once the pins follow the hand
+        // (see ActiveRagdollBody.ReachTargets): omega*h = 0.31, c*h = 0.5.
+        public const float HandNaturalFrequency = 28, HandDampingRate = 45;
         private readonly int[] _handleBody = { -1, -1 };
         private readonly Vec3[] _handleTarget = new Vec3[MaxHandles], _lastHandleTarget = new Vec3[MaxHandles];
         private readonly bool[] _handleSampled = new bool[MaxHandles];
@@ -75,6 +78,13 @@ namespace BannerlordVR.VR.Physics
         }
 
         public float Mass(int body) => body >= 0 && body < Count ? _mass[body] : 0;
+        public int Parent(int body) => body >= 0 && body < Count ? _parent[body] : -1;
+        // True when ancestor is body itself or one of its parents.
+        public bool InSubtree(int body, int ancestor)
+        {
+            for (int b = body; b >= 0; b = _parent[b]) if (b == ancestor) return true;
+            return false;
+        }
         public void ResetVelocity() { _sampled = false; for (int h = 0; h < MaxHandles; h++) _handleSampled[h] = false; }
 
         // Handle h (one per player hand) pulls body towards a world point.
@@ -141,8 +151,8 @@ namespace BannerlordVR.VR.Physics
                 if (i < 0 || i >= Count) continue;
                 Vec3 velocity = sampled ? (position[i] - _lastPosition[i]) * (1 / dt) : Vec3.Zero;
                 Vec3 handVelocity = _handleSampled[h] ? (_handleTarget[h] - _lastHandleTarget[h]) * (1 / dt) : Vec3.Zero;
-                float k = Math.Min(HandSpring, _mass[i] * MaxNaturalFrequency * MaxNaturalFrequency);
-                float c = Math.Min(HandDamper, _mass[i] * MaxDampingRate);
+                float k = Math.Min(HandSpring, _mass[i] * HandNaturalFrequency * HandNaturalFrequency);
+                float c = Math.Min(HandDamper * 4, _mass[i] * HandDampingRate);
                 force[i] += InteractionMath.ClampMagnitude((_handleTarget[h] - position[i]) * k -
                     (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c, HandMaxForce);
                 _lastHandleTarget[h] = _handleTarget[h]; _handleSampled[h] = true;

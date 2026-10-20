@@ -42,6 +42,16 @@ namespace BannerlordVR.VR.Physics
         private readonly GrabSlot[] _grabs = new GrabSlot[RagdollPinDrive.MaxHandles];
         private readonly bool[] _ungrab = new bool[RagdollPinDrive.MaxHandles];
         private readonly Vec3[] _hand = new Vec3[RagdollPinDrive.MaxHandles];
+        // Where each grabbed body should be for its contact to sit in the hand.
+        private readonly int[] _grabBody = { -1, -1 };
+        private readonly Vec3[] _grabTarget = new Vec3[RagdollPinDrive.MaxHandles];
+        // HandleRagdollData.useIK: B&S moves the animated limb itself to the
+        // grip (hand, shoulder or head IK anchor), so its pins pull WITH the
+        // player's hand. Without IK on a Bannerlord ragdoll the same is done
+        // on the pin targets: the grabbed body and everything below it follow
+        // the hand fully, its parent half way and the grandparent a quarter,
+        // the way an arm reaches; the hips stay unless the creature steps.
+        private static readonly float[] ReachShare = { 1, .5f, .25f };
         public GrabOutcome LastGrabOutcome { get; private set; }
         // Ragdoll collision damage bookkeeping (RagdollImpact).
         private readonly Vec3[] _lastSample = new Vec3[MaxBodies], _sampleVelocity = new Vec3[MaxBodies];
@@ -196,7 +206,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (hand < 0 || hand >= _grabs.Length) return;
             _grabs[hand] = default(GrabSlot); _ungrab[hand] = false;
-            _drive.ClearHandle(hand);
+            _drive.ClearHandle(hand); _grabBody[hand] = -1;
         }
         public bool Grabbed => _grabs[0].Active || _grabs[1].Active;
         public float PartMass(sbyte bone) =>
@@ -250,6 +260,7 @@ namespace BannerlordVR.VR.Physics
                     "ACTIVE_RAGDOLL phase={0} fall={1} time={2:F3} root_speed={3:F2} pose_error={4:F3}",
                     _cycle.Phase, _cycle.Fall, now, RootSpeed, LastPoseError));
             for (int i = 0; i < _drive.Count; i++) _target[i] = _root.TransformToParent(_captured[_bone[i]]).origin;
+            ReachTargets();
             float error = 0;
             for (int i = 0; i < _drive.Count; i++) error = Math.Max(error, (_position[i] - _target[i]).Length);
             LastPoseError = error;
@@ -302,17 +313,35 @@ namespace BannerlordVR.VR.Physics
             _velocitySampled = true;
         }
 
+        private void ReachTargets()
+        {
+            for (int h = 0; h < _grabBody.Length; h++)
+            {
+                int grabbed = _grabBody[h];
+                if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
+                Vec3 delta = _grabTarget[h] - _target[grabbed];
+                if (!InteractionMath.IsFinite(delta)) continue;
+                for (int i = 0; i < _drive.Count; i++)
+                    if (i != _pelvisBody && _drive.InSubtree(i, grabbed)) _target[i] += delta;
+                int up = _drive.Parent(grabbed);
+                for (int level = 1; level < ReachShare.Length && up >= 0 && up != _pelvisBody; level++, up = _drive.Parent(up))
+                    _target[up] += delta * ReachShare[level];
+            }
+        }
+
         private void UpdateHandles(Skeleton skeleton, MatrixFrame frame, float now)
         {
             for (int h = 0; h < _grabs.Length; h++)
             {
-                if (!_grabs[h].Active) { _drive.ClearHandle(h); continue; }
+                if (!_grabs[h].Active) { _drive.ClearHandle(h); _grabBody[h] = -1; continue; }
                 sbyte bone = _grabs[h].Bone;
                 if (bone < 0 || bone >= _boneCount) { ReleaseHandle(h); _ungrab[h] = true; continue; }
                 int body = _bodyOfBone[bone];
                 MatrixFrame boneWorld = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone));
                 Vec3 contact = boneWorld.TransformToParent(_grabs[h].Local);
-                _drive.SetHandle(h, body, _position[body] + (_hand[h] - contact));
+                _grabBody[h] = body;
+                _grabTarget[h] = _position[body] + (_hand[h] - contact);
+                _drive.SetHandle(h, body, _grabTarget[h]);
                 _lastInteraction = now;
                 // HandleRagdoll lift and head rules apply while the creature is
                 // alive and standing; a destabilized body simply hangs.

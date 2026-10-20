@@ -105,7 +105,29 @@ namespace BannerlordVR.VR.Physics
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
             if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
-        public void Release() { Body = null; _sampled = false; _source = null; }
+        // Damage that would kill while the blade is still inside is held back
+        // and dealt when it leaves the body: the victim dies on withdrawal.
+        private float _pending;
+        private Agent _pendingVictim;
+        private Vec3 _lastAnchor;
+        public float PendingDamage => _pending;
+
+        public void Release()
+        {
+            Agent victim = _pendingVictim;
+            float pending = _pending;
+            _pending = 0; _pendingVictim = null;
+            Agent source = _source;
+            Body = null; _sampled = false; _source = null;
+            if (victim == null || pending < .5f || !victim.IsActive()) return;
+            DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
+            float lost = PhysicalHit.ApplyPenetration(source, victim, _bone, _part, _lastAnchor, pending, type);
+            BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PENETRATION withdrawn profile={0} zone={1} held_damage={2:F1} health_lost={3:F1} alive={4}",
+                    _profile, _zone, pending, lost, victim.IsActive()));
+        }
 
         private void DeepDamage(Vec3 anchor, float depth)
         {
@@ -127,12 +149,16 @@ namespace BannerlordVR.VR.Physics
         private void Deliver(Agent victim, Vec3 anchor, float damage, string kind)
         {
             DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
-            float lost = PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, damage, type);
+            // Leave at least one point while the blade is in; the rest waits
+            // for Release.
+            float now = Math.Max(0, Math.Min(damage, victim.Health - 1));
+            if (damage - now > 0) { _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor; }
+            float lost = now >= .5f ? PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, now, type) : 0;
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "PENETRATION {0} profile={1} zone={2} material={3} damage={4:F1} health_lost={5:F1}",
-                    kind, _profile, _zone, _material, damage, lost));
+                    "PENETRATION {0} profile={1} zone={2} material={3} damage={4:F1} health_lost={5:F1} held_until_withdrawal={6:F1}",
+                    kind, _profile, _zone, _material, damage, lost, _pending));
             if (lost > 0 && Body != null && Body.Agent == victim)
                 EnemyPhysicsRuntime.RecordWound(_source, Body, Body.ReadContact(_bone), anchor, type, lost, false);
             if (!victim.IsActive()) Release();
@@ -161,6 +187,7 @@ namespace BannerlordVR.VR.Physics
             if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
             { Release(); return false; }
             float depth = Math.Max(0, (bladeTip - bladeBase).Length - along);
+            _lastAnchor = anchor;
             if (!Body.IsCorpse)
             {
                 EnemyPhysicsRuntime.DeepenWound(Body.Agent, _bone, depth);

@@ -554,7 +554,12 @@ namespace BannerlordVR.VR.Physics
             // from the human hit reaction table and the enemy's current action.
             PushEffect push = hit.IsCorpse || _living == null ? PushEffect.None :
                 _living.EvaluatePush(hit, hitPoint, velocity, PhysicalHit.Material(usage, thrust));
-            PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+            // A thrust that enters is not an impact kill: its damage comes from
+            // depth and skewering, and lands when the blade is pulled out.
+            bool enters = thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
+                BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
+                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part));
+            if (!enters) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
