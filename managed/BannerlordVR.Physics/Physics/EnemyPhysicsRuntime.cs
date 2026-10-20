@@ -79,6 +79,8 @@ namespace BannerlordVR.VR.Physics
             HandlingCombat = false; ActiveBodies = 0;
         }
 
+        private static bool RadialMenuOpen() =>
+            TaleWorlds.ScreenSystem.ScreenManager.TopScreen is TaleWorlds.MountAndBlade.View.Screens.MissionScreen screen && screen.IsRadialMenuActive;
         private static bool _loggedInput, _loggedSlots;
         private static void Once(ref bool done, string message) { if (!done) { done = true; PhysicsLog.Info(message); } }
         public static void Tick(Mission mission, float dt)
@@ -92,7 +94,11 @@ namespace BannerlordVR.VR.Physics
                     mission == null || mission.MissionEnded ? "no_mission" : mission.Mode != MissionMode.Battle ? "mode_" + mission.Mode :
                     player == null || !player.IsActive() ? "no_player" : player.HasMount ? "player_mounted" :
                     GameNetwork.IsMultiplayer ? "multiplayer" : !VrCameraDriver.HasPose ? "no_head_pose" :
-                    VrMissionPhase.UiWantsScreen ? "ui_screen" : VrMissionPhase.UiWantsOverlay ? "ui_overlay" :
+                    // The release keys the HUD over the world for the whole mission
+                    // (ui_overlay_always), so UiWantsOverlay no longer means a menu:
+                    // pause only for an actual menu, the order menu or a wheel.
+                    VrMissionPhase.UiWantsScreen ? "ui_screen" : VrMissionPhase.UiMenuOpen ? "menu_open" :
+                    VrMissionPhase.OrderMenuOpen ? "order_menu" : RadialMenuOpen() ? "radial_menu" :
                     VrHandCalibration.Capturing ? "hand_calibration" : PhysicsInterop.OverlayVisible() ? "vr_overlay" : null;
                 if (blocked != _blocked)
                 {
