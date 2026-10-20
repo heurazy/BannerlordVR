@@ -94,24 +94,35 @@ namespace BannerlordVR.VR.Physics
 
         public static bool Hostile(Agent agent, Agent other) =>
             agent.Team != null && other.Team != null ? agent.Team.IsEnemyOf(other.Team) : agent.IsEnemyOf(other);
-        public static bool Eligible(Agent agent, Agent player, bool ownedPhysicalFall = false)
+        public static bool Eligible(Agent agent, Agent player, bool ownedPhysicalFall = false) =>
+            EligibleReason(agent, player, ownedPhysicalFall) == null;
+        // Why an agent is not taken by the physics (null when it is).
+        public static string EligibleReason(Agent agent, Agent player, bool ownedPhysicalFall = false)
         {
-            if (agent == null || agent == player || !agent.IsHuman || agent.MountAgent != null || agent.RiderAgent != null) return false;
-            if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return false;
+            if (agent == null || agent == player) return "self";
+            if (!agent.IsHuman) return "not_human";
+            if (agent.MountAgent != null || agent.RiderAgent != null) return "mounted";
+            if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return "state_" + agent.State;
             // Teams decide: the native IsEnemy is false for an agent without a
             // controller (the sandbox dummies), which left them untracked.
-            if (!Hostile(agent, player) || agent.IsUsingGameObject || agent.IsInLadderQueue) return false;
-            if (agent.GetScriptedFlags() != Agent.AIScriptedFrameFlags.None) return false;
-            if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return false;
-            if (agent.State != AgentState.Active) return true;
+            if (!Hostile(agent, player)) return "not_enemy";
+            if (agent.IsUsingGameObject || agent.IsInLadderQueue) return "using_object";
+            // Scripted movement and combat modes belong to the AI; an agent
+            // without one (a sandbox dummy) has none to respect.
+            if (agent.Controller == AgentControllerType.AI)
+            {
+                if (agent.GetScriptedFlags() != Agent.AIScriptedFrameFlags.None) return "scripted_" + agent.GetScriptedFlags();
+                if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return "scripted_combat";
+            }
+            if (agent.State != AgentState.Active) return null;
             for (int channel = 0; channel < 2; channel++)
             {
                 var action = agent.GetCurrentActionType(channel);
                 if (action == Agent.ActionCodeType.Mount || action == Agent.ActionCodeType.Dismount ||
                     (action == Agent.ActionCodeType.Fall && !ownedPhysicalFall) || (action >= Agent.ActionCodeType.JumpStart && action <= Agent.ActionCodeType.JumpEndHard) ||
-                    (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear)) return false;
+                    (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear)) return "action_" + action;
             }
-            return true;
+            return null;
         }
     }
 }

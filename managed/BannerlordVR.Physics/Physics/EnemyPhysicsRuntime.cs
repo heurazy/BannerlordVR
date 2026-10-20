@@ -39,7 +39,7 @@ namespace BannerlordVR.VR.Physics
         private static BleedingMissionLogic _bleeding;
         private static Agent _player;
         private static int _cursor;
-        private static float _time = -1, _lastLog;
+        private static float _time = -1, _lastLog, _nextRefusalLog;
         private static string _blocked = "start";
         private static bool _failed;
         public static bool HandlingCombat { get; private set; }
@@ -254,14 +254,30 @@ namespace BannerlordVR.VR.Physics
                         if (d > farthest) { farthest = d; chosen = i; }
                     }
                 }
-                if (found || chosen < 0 || !EnemyBody.Eligible(agent, player)) continue;
+                if (found || chosen < 0) continue;
+                string refused = EnemyBody.EligibleReason(agent, player);
+                if (refused != null)
+                {
+                    // Close agents only: why one within reach is ignored.
+                    if (EnemyPhysicsSettings.Trace && agent.IsHuman && distance < 25 && _time >= _nextRefusalLog && refused != "not_enemy")
+                    {
+                        _nextRefusalLog = _time + 2;
+                        PhysicsLog.Info("Physics ignores agent " + agent.Index + ": " + refused + " controller=" + agent.Controller);
+                    }
+                    continue;
+                }
                 // Reuse the record and its arrays after releasing any stale reference.
                 EnemyBody candidate = Records[chosen];
                 bool occupied = Bodies[chosen] != null;
                 Remove(chosen);
                 if (candidate.Bind(agent) && candidate.Sample(dt))
                 { Bodies[chosen] = candidate; if (!occupied) ActiveBodies++; }
-                else { candidate.Clear(); if (occupied) ActiveBodies--; }
+                else
+                {
+                    if (EnemyPhysicsSettings.Trace && _time >= _nextRefusalLog)
+                    { _nextRefusalLog = _time + 2; PhysicsLog.Info("Physics could not bind agent " + agent.Index + " (skeleton or sample failed)."); }
+                    candidate.Clear(); if (occupied) ActiveBodies--;
+                }
             }
             ActiveBodies = 0;
             for (int i = 0; i < Bodies.Length; i++) if (Bodies[i] != null) ActiveBodies++;
