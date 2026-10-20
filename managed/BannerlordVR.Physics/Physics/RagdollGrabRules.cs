@@ -13,6 +13,7 @@ namespace BannerlordVR.VR.Physics
         // Self: the grabbed part itself; otherwise the root (hips).
         public static bool LiftsSelf(GrabHandle handle) => handle == GrabHandle.Legs;
         public static float LiftOffset(GrabHandle handle) => handle == GrabHandle.Legs ? .1f : .05f;
+        public const float UngrabLiftOffset = .15f;
 
         public static GrabOutcome LiftBehaviour(GrabHandle handle)
         {
@@ -37,7 +38,10 @@ namespace BannerlordVR.VR.Physics
         public static float StepSpeedMultiplier(GrabHandle handle) => handle == GrabHandle.Wrist ? 1 : 3;
         // Locomotion.forwardSpeed 0.2 scales the offset into a move input;
         // Bannerlord's walk tops out near 1.5 m/s for a dragged soldier.
-        public const float ForwardSpeed = .2f, StepRateScale = 4, MaxStepSpeed = 1.5f;
+        // Tuned in VR: at the B&S rate the root lagged and the standing pins
+        // pulled a dragged enemy back to its spot ("the game refuses to move
+        // it"); the root now closes most of the gap within a few tenths of a second.
+        public const float ForwardSpeed = .2f, StepRateScale = 13, MaxStepSpeed = 2.5f;
 
         // Horizontal root displacement for one tick towards the reference.
         public static TaleWorlds.Library.Vec2 Step(GrabHandle handle, TaleWorlds.Library.Vec2 offset, float dt)
@@ -58,7 +62,10 @@ namespace BannerlordVR.VR.Physics
             if (!InteractionMath.IsFinite(referenceHeight) || !InteractionMath.IsFinite(referenceOriginalHeight) ||
                 !InteractionMath.IsFinite(headHeight) || !InteractionMath.IsFinite(rootOriginalHeight)) return GrabOutcome.Ungrab;
             GrabOutcome lift = LiftBehaviour(handle);
-            if (lift != GrabOutcome.Hold && referenceHeight > referenceOriginalHeight + LiftOffset(handle)) return lift;
+            // Without IK a pulled arm raises the hips by itself, so the grip
+            // only slips past UngrabLiftOffset; falls keep the B&S offsets.
+            float offset = lift == GrabOutcome.Ungrab ? UngrabLiftOffset : LiftOffset(handle);
+            if (lift != GrabOutcome.Hold && referenceHeight > referenceOriginalHeight + offset) return lift;
             if (headHeight < rootOriginalHeight) return GrabOutcome.Destabilize;
             return GrabOutcome.Hold;
         }

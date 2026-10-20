@@ -18,6 +18,7 @@ internal static class ActiveRagdollTests
             "Lifting the hips 6 cm by the neck makes the creature fall (Interactable_HumanHeadNeck)");
         check(RagdollGrabRules.Evaluate(GrabHandle.Neck, 1.04f, 1, 1.6f, 1) == GrabOutcome.Hold, "Within liftOffset the grab holds");
         check(RagdollGrabRules.Evaluate(GrabHandle.Torso, 1.2f, 1, 1.6f, 1) == GrabOutcome.Ungrab, "Lifting by the torso slips out of the grip");
+        check(RagdollGrabRules.Evaluate(GrabHandle.Torso, 1.1f, 1, 1.6f, 1) == GrabOutcome.Hold, "A 10 cm hip rise from a pulled arm keeps the grip");
         check(RagdollGrabRules.Evaluate(GrabHandle.Hand, 1.5f, 1, 1.6f, 1) == GrabOutcome.Hold, "A held hand has no lift behaviour");
         check(RagdollGrabRules.Evaluate(GrabHandle.Legs, .55f, .5f, 1.6f, 1) == GrabOutcome.Hold &&
               RagdollGrabRules.Evaluate(GrabHandle.Legs, .61f, .5f, 1.6f, 1) == GrabOutcome.Destabilize,
