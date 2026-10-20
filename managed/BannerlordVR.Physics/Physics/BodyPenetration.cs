@@ -228,32 +228,41 @@ namespace BannerlordVR.VR.Physics
             BodyPoint p = Body.ReadContact(_bone);
             MatrixFrame bone = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = bone.TransformToParent(_localContact);
-            Vec3 bladePoint = InteractionMath.ClosestPointOnSegment(bladeBase, bladeTip, anchor);
             Vec3 axis = bladeTip - bladeBase;
-            if (axis.Length < .05f || (bladePoint - anchor).Length > .16f)
-            { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
+            float bladeLength = axis.Length;
+            if (bladeLength < .05f) { End("no_blade"); return false; }
             axis.Normalize();
+            // The VR blade is the controller: it cannot be stopped by the
+            // joint. Measured on the blade's line, so a hand pushed on past
+            // the hilt still holds the part (the B&S weapon would stop there
+            // while the arm keeps pushing).
+            float along = InteractionMath.Dot(anchor - bladeBase, axis);
+            Vec3 bladePoint = bladeBase + axis * along;
+            if ((bladePoint - anchor).Length > .16f)
+            { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
             if (!_hasLocalAxis)
             {
                 Vec3 local = bone.rotation.TransformToLocal(axis);
                 if (local.Length > 1e-4f) { local.Normalize(); _localAxis = local; _hasLocalAxis = true; }
             }
-            float along = InteractionMath.Dot(anchor - bladeBase, axis);
-            if (along < -.02f || along > (bladeTip - bladeBase).Length + .03f)
-            { End(along < 0 ? "pulled_out" : "past_tip", along); return false; }
+            // The tip came back out of the entry: the blade is withdrawn.
+            if (along > bladeLength + .03f) { End("withdrawn", along - bladeLength); return false; }
             // Depth counts what went in after the entry, not where along the
             // blade the first contact happened to be sampled.
-            float rawDepth = Math.Max(0, (bladeTip - bladeBase).Length - along);
-            if (_depthBase < 0) _depthBase = rawDepth;
+            float rawDepth = Math.Max(0, bladeLength - along);
+            if (_depthBase < 0) _depthBase = Math.Min(rawDepth, bladeLength);
             float depth = Math.Max(0, rawDepth - _depthBase);
-            // Joint zMotion Limited at the depth limit: past it the blade
-            // carries the part instead of going deeper.
-            bool atLimit = depth > _depthLimit;
+            // Joint zMotion Limited at penetrationVelocityMaxDepth, and never
+            // past the hilt: beyond it the stopped blade carries the part.
+            float limit = Math.Min(_depthLimit, Math.Max(0, bladeLength - .02f - _depthBase));
+            bool atLimit = depth > limit;
             Vec3 bladeTarget = bladePoint;
             if (atLimit)
             {
-                bladeTarget = bladePoint - axis * (depth - _depthLimit);
-                depth = _depthLimit;
+                // A hand 60 cm past where the blade stopped has let go of it.
+                if (depth - limit > .6f) { End("overshoot", depth - limit); return false; }
+                bladeTarget = bladePoint - axis * (depth - limit);
+                depth = limit;
             }
             _lastAnchor = anchor;
             _maxDepth = Math.Max(_maxDepth, depth);

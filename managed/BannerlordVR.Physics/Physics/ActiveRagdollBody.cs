@@ -440,6 +440,17 @@ namespace BannerlordVR.VR.Physics
                 _grabTarget[h] = _position[body] + (_hand[h] - contact);
                 _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade && !_grabs[h].AxialLock ? _grabs[h].Axis : Vec3.Zero);
                 _lastInteraction = now;
+                if (EnemyPhysicsSettings.Trace && !_grabs[h].Blade && now >= _nextGrabTrace)
+                {
+                    _nextGrabTrace = now + .2f;
+                    float lowestFoot = float.MaxValue, highest = float.MinValue;
+                    for (int i = 0; i < _drive.Count; i++) { lowestFoot = Math.Min(lowestFoot, _position[i].z); highest = Math.Max(highest, _position[i].z); }
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "GRAB_TRACE hand={0} kind={1} bone={2} body={3} phase={4} pose_error={5:F3} hand_gap={6:F3} pelvis_off={7:F3} pelvis_z={8:F3} pelvis_target_z={9:F3} lowest_z={10:F3} ground_z={11:F3} near_ground={12} root_moved={13:F3} turned={14:F2}",
+                        h, _grabs[h].Kind, bone, body, _cycle.Phase, LastPoseError, (_hand[h] - contact).Length,
+                        (_position[_pelvisBody] - _target[_pelvisBody]).Length, _position[_pelvisBody].z, _target[_pelvisBody].z,
+                        lowestFoot, _groundPoint.z, _nearGround, (_root.origin - _capturedRoot.origin).AsVec2.Length, _turned));
+                }
                 if (_grabs[h].Blade) { if (_cycle.Phase == ActiveRagdollPhase.Standing) StepTowards(GrabHandle.Torso, body, now); continue; }
                 // HandleRagdoll lift and head rules apply while the creature is
                 // alive and standing; a destabilized body simply hangs.
@@ -488,7 +499,7 @@ namespace BannerlordVR.VR.Physics
         // None. The creature yaws its root towards the grabber at
         // angle * turnSpeed per second (Creature.turnSpeed 6).
         public const float TurnSpeed = 6, MaxTurnRate = 2;
-        private float _lastTurn = -1;
+        private float _lastTurn = -1, _nextGrabTrace;
         private float _turned;
         private void TurnBody(Agent grabber, float now)
         {
