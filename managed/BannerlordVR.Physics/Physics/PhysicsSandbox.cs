@@ -52,6 +52,7 @@ namespace BannerlordVR.VR.Physics
                 Freeze(player);
             }
             if (!_placed && !player.HasMount && Mission.CurrentTime - _began > .5f) Place(player);
+            TraceDummies();
         }
 
         // Every AI agent stands still where it is (or where it was placed),
@@ -64,11 +65,35 @@ namespace BannerlordVR.VR.Physics
                 if (agent == player || !agent.IsActive() || !agent.IsAIControlled || agent.IsMount) continue;
                 if (living != null && living.HasLease(agent)) continue;
                 if (!_hold.TryGetValue(agent, out Vec2 at)) { at = agent.Position.AsVec2; _hold[agent] = at; }
-                agent.SetIsAIPaused(true);
-                agent.SetMaximumSpeedLimit(0, false);
-                agent.SetTargetPosition(at);
-                agent.MovementInputVector = Vec2.Zero;
+                Hold(agent, at);
             }
+        }
+
+        // A target the agent may not walk to (speed limit 0) kept its legs
+        // walking on the spot, and the physics captured that stride as the
+        // pose to hold. Clear every movement goal instead; a dummy nudged off
+        // its spot by the physics stays where it was left.
+        public static void Hold(Agent agent, Vec2 at)
+        {
+            agent.SetIsAIPaused(true);
+            agent.ClearTargetFrame();
+            agent.SetFormationFrameDisabled();
+            agent.MovementFlags = 0;
+            agent.MovementInputVector = Vec2.Zero;
+            agent.SetMaximumSpeedLimit(0, false);
+        }
+
+        private float _nextTrace;
+        private void TraceDummies()
+        {
+            if (!EnemyPhysicsSettings.Trace || Mission.CurrentTime < _nextTrace || _dummies.Count == 0) return;
+            _nextTrace = Mission.CurrentTime + 3;
+            Agent a = _dummies[0];
+            if (a == null || !a.IsActive()) return;
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "SANDBOX dummy {0} velocity={1:F2} input=({2:F2},{3:F2}) flags={4} action0={5} action1={6}",
+                a.Index, a.MovementVelocity.Length, a.MovementInputVector.x, a.MovementInputVector.y, a.MovementFlags,
+                a.GetCurrentAction(0).GetName(), a.GetCurrentAction(1).GetName()));
         }
 
         private void Place(Agent player)
