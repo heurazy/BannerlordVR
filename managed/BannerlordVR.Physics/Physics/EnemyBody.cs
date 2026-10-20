@@ -92,11 +92,15 @@ namespace BannerlordVR.VR.Physics
             return true;
         }
 
+        public static bool Hostile(Agent agent, Agent other) =>
+            agent.Team != null && other.Team != null ? agent.Team.IsEnemyOf(other.Team) : agent.IsEnemyOf(other);
         public static bool Eligible(Agent agent, Agent player, bool ownedPhysicalFall = false)
         {
             if (agent == null || agent == player || !agent.IsHuman || agent.MountAgent != null || agent.RiderAgent != null) return false;
             if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return false;
-            if (!agent.IsEnemyOf(player) || agent.IsUsingGameObject || agent.IsInLadderQueue) return false;
+            // Teams decide: the native IsEnemy is false for an agent without a
+            // controller (the sandbox dummies), which left them untracked.
+            if (!Hostile(agent, player) || agent.IsUsingGameObject || agent.IsInLadderQueue) return false;
             if (agent.GetScriptedFlags() != Agent.AIScriptedFrameFlags.None) return false;
             if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return false;
             if (agent.State != AgentState.Active) return true;

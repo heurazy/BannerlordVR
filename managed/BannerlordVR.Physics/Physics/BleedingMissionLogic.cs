@@ -47,7 +47,7 @@ namespace BannerlordVR.VR.Physics
                            DamageTypes type, float healthLost, bool drawCut)
         {
             if (_failed || !EnemyPhysicsSettings.Bleeding || source == null || body?.Agent == null ||
-                !body.Agent.IsActive() || !body.Agent.IsEnemyOf(source) || !body.Agent.IsHuman ||
+                !body.Agent.IsActive() || !EnemyBody.Hostile(body.Agent, source) || !body.Agent.IsHuman ||
                 GameNetwork.IsMultiplayer || Mission.Mode != MissionMode.Battle ||
                 (type != DamageTypes.Cut && type != DamageTypes.Pierce) ||
                 !InteractionMath.IsFinite(healthLost) || healthLost < 1 || !InteractionMath.IsFinite(contact)) return;
