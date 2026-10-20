@@ -365,6 +365,14 @@ namespace BannerlordVR.VR.Physics
                         if (entry == _probeEntry && !_probeFinished) ObserveActiveProbe(entry);
                         else if (!_probeFinished) ObserveProbeLoad(entry);
                         if (entry.Active.ReadyToRelease) ReleaseRecovered(entry);
+                        else if (entry.Active.StuckOffPose)
+                        {
+                            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                                "ACTIVE_RAGDOLL stuck_off_pose pose_error={0:F3} action={1}", entry.Active.LastPoseError,
+                                entry.Active.LastPoseError < .6f ? "release" : "destabilize"));
+                            if (entry.Active.LastPoseError < .6f) ReleaseRecovered(entry);
+                            else entry.Active.Destabilize();
+                        }
                     }
                     else if (entry.Lease.OwnsPhysics && entry.NativeActive)
                     {

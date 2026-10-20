@@ -510,7 +510,7 @@ namespace BannerlordVR.VR.Physics
             MissionWeapon weapon, EquipmentIndex slot, Agent player, float dt, float now, bool blade)
         {
             hand.DiagCasts++;
-            EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0;
+            EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0; bool hitCooled = false;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
             for (int s = 0; s <= (blade ? samples : 0); s++)
@@ -532,8 +532,18 @@ namespace BannerlordVR.VR.Physics
                 EnemyBody body = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
                 if (body == null) { Reject(hand, "agent_not_tracked"); continue; }
-                if (now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f) { Reject(hand, "cooldown"); continue; }
                 if (bone >= body.Skeleton.GetBoneCount()) { Reject(hand, "bone_range"); continue; }
+                // A point driven along the blade is a new pierce attempt: B&S
+                // tries penetration on every contact. The cooldown only spaces
+                // impacts, so a first glancing touch no longer blocks the stab
+                // that follows it.
+                BodyPoint early = body.ReadContact(bone);
+                Vec3 sampleVelocity = (current - previous) * (1 / dt) - early.Velocity;
+                Vec3 bladeAxis = (tip - start).NormalizedCopy();
+                bool piercing = blade && along >= .8f && usage.ThrustDamage > 0 &&
+                    InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
+                bool cooled = now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f;
+                if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
                 Vec3 c = previous + (current - previous) * fraction;
                 if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
                 if (EquipmentBlocks(body, previous, current, fraction, blade ? .025f : .065f))
@@ -547,7 +557,7 @@ namespace BannerlordVR.VR.Physics
                 }
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
-                earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along;
+                earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
                 velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
             }
             if (hit == null) return;
@@ -577,6 +587,8 @@ namespace BannerlordVR.VR.Physics
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
                 velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part));
+            // Inside the impact cooldown only an actual entry counts.
+            if (hitCooled && !enters) return;
             if (!enters) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));

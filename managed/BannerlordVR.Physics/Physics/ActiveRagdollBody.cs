@@ -423,7 +423,7 @@ namespace BannerlordVR.VR.Physics
         // GrabberPosition, shoulder/head/neck PartDirection, hand/wrist/legs
         // None. The creature yaws its root towards the grabber at
         // angle * turnSpeed per second (Creature.turnSpeed 6).
-        public const float TurnSpeed = 6;
+        public const float TurnSpeed = 6, MaxTurnRate = 2;
         private float _lastTurn = -1;
         private float _turned;
         private void TurnBody(Agent grabber, float now)
@@ -437,19 +437,30 @@ namespace BannerlordVR.VR.Physics
                 if (!slot.Active || slot.Blade) continue;
                 bool grabberPosition = slot.Kind == GrabHandle.Torso;
                 if (!grabberPosition && slot.Kind != GrabHandle.Shoulder && slot.Kind != GrabHandle.Head && slot.Kind != GrabHandle.Neck) continue;
+                // Creature.transform turns under its hips; a dragged Bannerlord
+                // pose root can sit away from them, so pivot on the hips.
+                Vec3 pivot = _position[_pelvisBody];
                 Vec2 forward = _root.rotation.f.AsVec2;
-                Vec2 to = (grabber.Position - _root.origin).AsVec2;
-                if (forward.Length < .01f || to.Length < .05f) continue;
+                Vec2 to = (grabber.Position - pivot).AsVec2;
+                if (forward.Length < .01f || to.Length < .3f) continue;
                 forward.Normalize(); to.Normalize();
                 bool front = forward.x * to.x + forward.y * to.y > 0;
                 if (!slot.HasFacing) { slot.HasFacing = true; slot.BackGrab = !front; _grabs[h] = slot; }
-                bool back = grabberPosition ? !front : slot.BackGrab;
+                // Decided when the hand closed: re-deciding each frame flipped
+                // the target 180 degrees whenever the grabber stood beside the
+                // body and made it spin back and forth.
+                bool back = slot.BackGrab;
                 if (back) forward = new Vec2(-forward.x, -forward.y);
                 float angle = (float)Math.Atan2(forward.x * to.y - forward.y * to.x, forward.x * to.x + forward.y * to.y);
                 float turn = angle * Math.Min(1, TurnSpeed * dt);
+                // The pins follow a turning pose at a limited rate; faster
+                // turns left the body twisting behind its targets.
+                turn = Math.Max(-MaxTurnRate * dt, Math.Min(MaxTurnRate * dt, turn));
                 if (Math.Abs(turn) < 1e-4f) continue;
                 _root.rotation.s = RotateYaw(_root.rotation.s, turn);
                 _root.rotation.f = RotateYaw(_root.rotation.f, turn);
+                Vec3 arm = RotateYaw(_root.origin - pivot, turn);
+                _root.origin = new Vec3(pivot.x + arm.x, pivot.y + arm.y, _root.origin.z);
                 _turned += Math.Abs(turn);
             }
         }
@@ -476,6 +487,12 @@ namespace BannerlordVR.VR.Physics
         public bool ReadyToRelease => _configured && LastPoseError < .25f && !Grabbed &&
             (_cycle.Phase == ActiveRagdollPhase.Recovered ||
              (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > PhysicEnabledDuration));
+        // Untouched long after physicEnabledDuration yet still off its pose
+        // (an arm caught in the body, a turned pose the pins could not reach):
+        // B&S returns parts to animation after the duration regardless. Close
+        // poses are handed back, far ones fall and get up.
+        public bool StuckOffPose => _configured && !Grabbed && _cycle.Phase == ActiveRagdollPhase.Standing &&
+            _lastRootSample - _lastInteraction > PhysicEnabledDuration + 1 && LastPoseError >= .25f;
         public bool WantsHold => _configured && _cycle.Phase != ActiveRagdollPhase.Off && _cycle.Phase != ActiveRagdollPhase.Recovered;
     }
 }
