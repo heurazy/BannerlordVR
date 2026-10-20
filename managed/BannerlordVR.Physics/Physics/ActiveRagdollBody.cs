@@ -312,7 +312,11 @@ namespace BannerlordVR.VR.Physics
                 _nextGround = now + .1f;
             }
             UpdateHandles(skeleton, frame, now);
-            TurnBody(mission.MainAgent, now);
+            // bodyTurnDirection is off: B&S turns the creature's animator,
+            // whose legs step round; turning a frozen pose with its feet on
+            // the ground twisted the legs and swung the limbs (3.6 rad of
+            // turn over a few grabs in the logs).
+            if (EnemyPhysicsSettings.GrabBodyTurn) TurnBody(mission.MainAgent, now);
             ActiveRagdollPhase before = _cycle.Phase;
             _cycle.Tick(sampleDt, _nearGround, RootSpeed);
             if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) ReanchorUnderHips();

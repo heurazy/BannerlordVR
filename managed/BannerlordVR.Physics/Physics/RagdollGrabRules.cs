@@ -47,7 +47,10 @@ namespace BannerlordVR.VR.Physics
         // Tuned in VR: at the B&S rate the root lagged and the standing pins
         // pulled a dragged enemy back to its spot ("the game refuses to move
         // it"); the root now closes most of the gap within a few tenths of a second.
-        public const float ForwardSpeed = .2f, StepRateScale = 13, MaxStepSpeed = 2.5f;
+        // Without a walking animation under it the stepped pose slides on its
+        // feet: a 12 cm dead zone keeps the feet planted for sways and the
+        // slide is held to a walk.
+        public const float ForwardSpeed = .2f, StepRateScale = 13, MaxStepSpeed = 1.2f, SlideDeadZone = .12f;
 
         // Horizontal root displacement for one tick towards the reference.
         public static TaleWorlds.Library.Vec2 Step(GrabHandle handle, TaleWorlds.Library.Vec2 offset, float dt)
@@ -55,9 +58,10 @@ namespace BannerlordVR.VR.Physics
             if (!Steps(handle) || !InteractionMath.IsFinite(dt) || dt <= 0 || dt > .1f ||
                 !InteractionMath.IsFinite(offset.x) || !InteractionMath.IsFinite(offset.y)) return TaleWorlds.Library.Vec2.Zero;
             float distance = offset.Length;
-            if (distance <= StepThreshold(handle)) return TaleWorlds.Library.Vec2.Zero;
-            float speed = System.Math.Min(MaxStepSpeed, distance * ForwardSpeed * StepSpeedMultiplier(handle) * StepRateScale);
-            float travel = System.Math.Min(distance, speed * dt);
+            if (distance <= System.Math.Max(StepThreshold(handle), SlideDeadZone)) return TaleWorlds.Library.Vec2.Zero;
+            float beyond = distance - SlideDeadZone;
+            float speed = System.Math.Min(MaxStepSpeed, beyond * ForwardSpeed * StepSpeedMultiplier(handle) * StepRateScale);
+            float travel = System.Math.Min(beyond, speed * dt);
             return offset * (travel / distance);
         }
 

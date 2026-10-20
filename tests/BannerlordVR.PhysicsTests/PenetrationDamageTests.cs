@@ -31,8 +31,9 @@ internal static class PenetrationDamageTests
         Vec2 step = RagdollGrabRules.Step(GrabHandle.Torso, new Vec2(.5f, 0), 1f / 90);
         check(step.x > 0 && step.x < .5f && Math.Abs(step.y) < 1e-6f, "A pulled torso walks the root towards the head");
         check(RagdollGrabRules.Step(GrabHandle.Wrist, new Vec2(.03f, 0), 1f / 90).LengthSquared == 0 &&
-              RagdollGrabRules.Step(GrabHandle.Wrist, new Vec2(.3f, 0), 1f / 90).LengthSquared > 0,
-            "A wrist grab only steps beyond 4 cm");
+              RagdollGrabRules.Step(GrabHandle.Wrist, new Vec2(.3f, 0), 1f / 90).LengthSquared > 0 &&
+              RagdollGrabRules.Step(GrabHandle.Torso, new Vec2(.1f, 0), 1f / 90).LengthSquared == 0,
+            "A wrist grab only steps beyond 4 cm; sways under the 12 cm dead zone keep the feet planted");
         Vec2 far = RagdollGrabRules.Step(GrabHandle.Neck, new Vec2(20, 0), .1f);
         check(far.Length <= RagdollGrabRules.MaxStepSpeed * .1f + 1e-4f, "Stepping is capped at walking speed");
         check(RagdollGrabRules.Step(GrabHandle.Neck, new Vec2(float.NaN, 0), .01f).LengthSquared == 0 &&
