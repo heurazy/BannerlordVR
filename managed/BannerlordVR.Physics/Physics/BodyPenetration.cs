@@ -154,7 +154,7 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private float _maxSeparation;
-        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500;
+        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500, WithdrawMargin = .03f;
         private float _nextTrace;
         private Vec3 _prevAnchor, _prevBladeBase, _prevBladeAxis, _bladeVelocity;
         private bool _anchorSampled, _bladeSampled;
@@ -414,6 +414,13 @@ namespace BannerlordVR.VR.Physics
             float rawDepth = Math.Max(0, bladeLength - along);
             if (_depthBase < 0) _depthBase = Math.Min(rawDepth, bladeLength);
             float depth = Math.Max(0, rawDepth - _depthBase);
+            // UpdatePenetration: out once the depth from the entry is back to
+            // zero. The entry is found on the body's surface with the tip
+            // already some 25 cm in, so waiting for the tip itself to come
+            // back kept the body glued to the blade's line well clear of it:
+            // stabs held 14 s and could not be drawn out.
+            float signedDepth = bladeLength - along - _depthBase;
+            if ((_maxDepth > .02f || _age > .2f) && signedDepth < -WithdrawMargin) { End("withdrawn", -signedDepth); return false; }
             // Joint zMotion Limited at penetrationVelocityMaxDepth, and never
             // past the hilt: beyond it the stopped blade carries the part.
             float limit = Math.Min(_depthLimit, Math.Max(0, bladeLength - .02f - _depthBase));
