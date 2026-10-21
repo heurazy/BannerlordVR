@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
+            Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _bladeSampled = false; _bladeVelocity = Vec3.Zero; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
@@ -156,8 +156,8 @@ namespace BannerlordVR.VR.Physics
         private float _maxSeparation;
         private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500;
         private float _nextTrace;
-        private Vec3 _prevAnchor;
-        private bool _anchorSampled;
+        private Vec3 _prevAnchor, _prevBladeBase, _prevBladeAxis, _bladeVelocity;
+        private bool _anchorSampled, _bladeSampled;
         // STAB every 0.1 s while a blade is in: how deep, how the part and the
         // blade move along it and towards the player, the two damper forces.
         private void Trace(BodyPoint p, float depth, float limit, bool atLimit, bool dying, float bladeAxial, float partAxial,
@@ -227,7 +227,7 @@ namespace BannerlordVR.VR.Physics
                 DeepDamage(anchor, depth);
                 if (Body == null) return false;
             }
-            Vec3 targetVelocity = _sampled ? InteractionMath.ClampMagnitude((bladePoint - _lastBladePoint) * (1 / dt), 8) : Vec3.Zero;
+            Vec3 targetVelocity = _bladeVelocity;
             _lastBladePoint = bladePoint; _sampled = true;
             Vec3 relative = p.Velocity - targetVelocity;
             Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
@@ -383,6 +383,14 @@ namespace BannerlordVR.VR.Physics
             // while the arm keeps pushing).
             float along = InteractionMath.Dot(anchor - bladeBase, axis);
             Vec3 bladePoint = bladeBase + axis * along;
+            // The blade's own speed at the entry: the same spot on the blade
+            // (same distance from the grip) a tick apart. The closest point to
+            // the part moves with the part, so measured there the damper
+            // compared the part with itself and braked nothing: a limp body
+            // slid freely down a sloping blade, away or onto the player.
+            _bladeVelocity = _bladeSampled && dt > 1e-4f
+                ? InteractionMath.ClampMagnitude((bladePoint - (_prevBladeBase + _prevBladeAxis * along)) * (1 / dt), 12) : Vec3.Zero;
+            _prevBladeBase = bladeBase; _prevBladeAxis = axis; _bladeSampled = true;
             // Damager.Penetrate locks x and y and never lets go sideways: only
             // the blade leaving along its axis ends the joint. The VR blade
             // cannot be slowed by the body, so a fast hand leaves the part
@@ -441,7 +449,7 @@ namespace BannerlordVR.VR.Physics
                 DeepDamage(anchor, depth);
                 if (Body == null) return false;
             }
-            Vec3 targetVelocity = _sampled ? InteractionMath.ClampMagnitude((bladePoint - _lastBladePoint) * (1 / dt), 8) : Vec3.Zero;
+            Vec3 targetVelocity = _bladeVelocity;
             _lastBladePoint = bladePoint; _sampled = true;
             Vec3 error = bladeTarget - anchor;
             Vec3 relativeVelocity = p.Velocity - targetVelocity;
