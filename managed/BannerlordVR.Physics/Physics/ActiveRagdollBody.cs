@@ -614,7 +614,8 @@ namespace BannerlordVR.VR.Physics
                 // The animated pose keeps resisting along a blade: in B&S the
                 // creature's pins brake the part sliding on it, the blade
                 // only carries it sideways.
-                if (_grabs[h].Blade && !_grabs[h].AxialLock) delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
+                if (_grabs[h].Blade && (!_grabs[h].AxialLock || InteractionMath.Dot(delta, _grabs[h].Axis) < 0))
+                    delta -= _grabs[h].Axis * InteractionMath.Dot(delta, _grabs[h].Axis);
                 // A blade joint is rigid; a hand grip reaches by the handle's
                 // IK weight, so a body grabbed by the torso or head keeps most
                 // of its pose instead of bending wholesale towards the hand.
@@ -668,7 +669,9 @@ namespace BannerlordVR.VR.Physics
             for (int h = 0; h < _grabs.Length; h++)
             {
                 int b = _grabBody[h];
-                if (!_grabs[h].Active || !_grabs[h].Blade || b < 0 || b >= _drive.Count) continue;
+                // An inert body has nothing to turn it against: the torque on
+                // one part only wrung its joints.
+                if (Dying || !_grabs[h].Active || !_grabs[h].Blade || b < 0 || b >= _drive.Count) continue;
                 Vec3 now = _pierceAxis[h], want = _grabs[h].Axis;
                 if (now.LengthSquared < .5f || !InteractionMath.IsFinite(want) || want.Length < .5f) continue;
                 want = want.NormalizedCopy();
@@ -713,6 +716,16 @@ namespace BannerlordVR.VR.Physics
                 _limpHandle[h] = false;
                 _drive.ClearSpread(h);
                 int grabbed = _grabBody[h];
+                // A dying body hangs on the blade whole: the grip carries it all,
+                // its own part and the chain above most. On the pierced part
+                // alone (2000 N on 15 kg of a limp 100 kg body) the joints
+                // stretched and the body broke apart on the blade.
+                if (Dying && _grabs[h].Active && _grabs[h].Blade && grabbed >= 0 && grabbed < _drive.Count)
+                {
+                    for (int i = 0; i < _drive.Count; i++)
+                        _drive.SetSpread(h, i, _drive.InSubtree(i, grabbed) || _drive.InSubtree(grabbed, i) ? 1 : .5f);
+                    continue;
+                }
                 if (!_grabs[h].Active || grabbed < 0 || grabbed >= _armBody.Length || !_armBody[grabbed]) continue;
                 if (!_grabs[h].Blade && _grabs[h].Kind != GrabHandle.Wrist && _grabs[h].Kind != GrabHandle.Hand) continue;
                 int top = grabbed;
@@ -760,6 +773,8 @@ namespace BannerlordVR.VR.Physics
                 if (_grabs[h].Blade && _nearGround && _grabTarget[h].z < _groundPoint.z + GroundClearance)
                     _grabTarget[h] = new Vec3(_grabTarget[h].x, _grabTarget[h].y, _groundPoint.z + GroundClearance);
                 _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade && !_grabs[h].AxialLock ? _grabs[h].Axis : Vec3.Zero);
+                // At the hilt the part is only pushed towards the tip (off the blade).
+                _drive.SetPushOnly(h, _grabs[h].Blade && _grabs[h].AxialLock ? _grabs[h].Axis : Vec3.Zero);
                 _lastInteraction = now;
                 if (EnemyPhysicsSettings.Trace && !_grabs[h].Blade && now >= _nextGrabTrace)
                 {

@@ -54,6 +54,16 @@ namespace BannerlordVR.VR.Physics
         // Damager.Penetrate joint: x and y Locked, z (along the blade) free
         // with its own damper. Zero means a grip, locked on every axis.
         private readonly Vec3[] _handleAxis = new Vec3[MaxHandles];
+        // A blade at its depth limit (the hilt): zMotion Limited stops the
+        // part going further up the blade, never holds it from sliding off.
+        // Locked both ways, a blade pulled back dragged the body with it and
+        // the stab could not be withdrawn.
+        private readonly Vec3[] _pushOnlyAxis = new Vec3[MaxHandles];
+        public void SetPushOnly(int h, Vec3 axis)
+        {
+            if (h < 0 || h >= MaxHandles) return;
+            _pushOnlyAxis[h] = InteractionMath.IsFinite(axis) && axis.Length > .5f ? axis.NormalizedCopy() : Vec3.Zero;
+        }
 
         private float[] _mass = new float[0];
         private int[] _parent = new int[0];
@@ -218,6 +228,8 @@ namespace BannerlordVR.VR.Physics
                     (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c;
                 Vec3 axis = _handleAxis[h];
                 if (axis.LengthSquared > 0) grip -= axis * InteractionMath.Dot(grip, axis);
+                Vec3 pushOnly = _pushOnlyAxis[h];
+                if (pushOnly.LengthSquared > 0 && InteractionMath.Dot(grip, pushOnly) < 0) grip -= pushOnly * InteractionMath.Dot(grip, pushOnly);
                 grip = InteractionMath.ClampMagnitude(grip, HandMaxForce);
                 if (spread == null) force[i] += grip;
                 else for (int j = 0; j < Count; j++) if (spread[j] > 0) force[j] += grip * (_mass[j] * spread[j] / weighted);
