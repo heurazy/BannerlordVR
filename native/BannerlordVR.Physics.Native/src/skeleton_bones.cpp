@@ -152,3 +152,116 @@ int32_t BVR_CALL bvr_skeleton_collapse_bone(uintptr_t skeleton_value, int32_t bo
     entry[12] = x; entry[13] = y; entry[14] = z;
     return BVR_OK;
 }
+
+// Hook on the palette refresh (0x361010). The engine fills a bone's palette
+// matrix there from its record at a point of the frame that depends on how the
+// body moves: a collapse written from the mission tick was drawn for half a
+// second, then the ragdoll's own later refresh drew the head again. The hook
+// lets the engine compute the matrix, then collapses it again for every bone
+// of a severed limb, whoever called and whenever.
+//
+// The function starts 16-byte aligned with 12 bytes of position-independent
+// prologue (mov rax,rsp / mov [rax+18h],rbx / mov [rax+20h],rdi / push rbp):
+// they are copied to a trampoline that jumps back to +12, and replaced by
+// mov rax, hook / jmp rax in one 16-byte compare-exchange, so no thread can
+// run a half-written prologue. rax is free: the original sets it first.
+namespace
+{
+    struct Severed
+    {
+        volatile uintptr_t skeleton;   // 0 = free
+        volatile int32_t root;
+        volatile uint64_t bones;       // bit per bone index < 64
+    };
+    constexpr int MaxSevered = 32;
+    Severed severed[MaxSevered];
+    RefreshBone original_refresh = nullptr;
+    uint8_t* trampoline = nullptr;
+    bool hooked = false;
+
+    void __fastcall refresh_hook(void* skeleton, int8_t bone)
+    {
+        original_refresh(skeleton, bone);
+        const auto value = reinterpret_cast<uintptr_t>(skeleton);
+        if (bone < 0 || bone >= 64) return;
+        for (int i = 0; i < MaxSevered; i++)
+        {
+            if (severed[i].skeleton != value || !(severed[i].bones & (1ull << bone))) continue;
+            uint8_t* module = engine_base();
+            uint8_t* root = module ? record_of(value, severed[i].root) : nullptr;
+            float* entry = root ? palette_entry(module, static_cast<uint8_t*>(skeleton), bone) : nullptr;
+            if (!entry) return;
+            const float* p = reinterpret_cast<const float*>(root + 0x14);
+            for (int k = 0; k < 12; k++) entry[k] = 0;
+            entry[12] = p[0]; entry[13] = p[1]; entry[14] = p[2];
+            return;
+        }
+    }
+
+    bool install_hook()
+    {
+        if (hooked) return true;
+        uint8_t* module = engine_base();
+        if (!module) return false;
+        uint8_t* target = module + RefreshRva;
+        if ((reinterpret_cast<uintptr_t>(target) & 15) != 0) return false;
+        trampoline = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+        if (!trampoline) return false;
+        std::memcpy(trampoline, target, 12);
+        // jmp qword ptr [rip+0] ; target + 12
+        const uint8_t back[] = { 0xff, 0x25, 0, 0, 0, 0 };
+        std::memcpy(trampoline + 12, back, sizeof back);
+        const uintptr_t resume = reinterpret_cast<uintptr_t>(target) + 12;
+        std::memcpy(trampoline + 18, &resume, 8);
+        FlushInstructionCache(GetCurrentProcess(), trampoline, 64);
+        original_refresh = reinterpret_cast<RefreshBone>(trampoline);
+
+        alignas(16) uint8_t patch[16];
+        std::memcpy(patch, target, 16);
+        patch[0] = 0x48; patch[1] = 0xb8;   // mov rax, imm64
+        const uintptr_t hook = reinterpret_cast<uintptr_t>(&refresh_hook);
+        std::memcpy(patch + 2, &hook, 8);
+        patch[10] = 0xff; patch[11] = 0xe0; // jmp rax
+        DWORD old = 0;
+        if (!VirtualProtect(target, 16, PAGE_EXECUTE_READWRITE, &old)) return false;
+        alignas(16) long long expected[2], desired[2];
+        std::memcpy(expected, target, 16);
+        std::memcpy(desired, patch, 16);
+        const bool swapped = _InterlockedCompareExchange128(reinterpret_cast<volatile long long*>(target),
+            desired[1], desired[0], expected) != 0;
+        DWORD ignored = 0;
+        VirtualProtect(target, 16, old, &ignored);
+        FlushInstructionCache(GetCurrentProcess(), target, 16);
+        hooked = swapped;
+        return hooked;
+    }
+}
+
+// A severed limb: these bones of this skeleton are collapsed onto the root
+// bone's drawn position each time the engine refreshes them. Installs the
+// hook on first use.
+int32_t BVR_CALL bvr_limb_sever(uintptr_t skeleton_value, int32_t root, uint64_t bones)
+{
+    if (!record_of(skeleton_value, root)) return -21;
+    if (!install_hook()) return -25;
+    int free_slot = -1;
+    for (int i = 0; i < MaxSevered; i++)
+    {
+        if (severed[i].skeleton == skeleton_value && severed[i].root == root) { severed[i].bones = bones; return BVR_OK; }
+        if (severed[i].skeleton == 0 && free_slot < 0) free_slot = i;
+    }
+    if (free_slot < 0) return -26;
+    severed[free_slot].root = root;
+    severed[free_slot].bones = bones;
+    _InterlockedExchange64(reinterpret_cast<volatile long long*>(&severed[free_slot].skeleton), static_cast<long long>(skeleton_value));
+    return BVR_OK;
+}
+
+// Forgets every severed limb of a skeleton (before its visuals go away).
+int32_t BVR_CALL bvr_limb_forget(uintptr_t skeleton_value)
+{
+    for (int i = 0; i < MaxSevered; i++)
+        if (severed[i].skeleton == skeleton_value)
+            _InterlockedExchange64(reinterpret_cast<volatile long long*>(&severed[i].skeleton), 0);
+    return BVR_OK;
+}

@@ -40,6 +40,9 @@ BVR_API int32_t BVR_CALL bvr_skeleton_write_record(uintptr_t skeleton, int32_t b
    a bone's palette matrix collapsed onto one entity-space point. */
 BVR_API int32_t BVR_CALL bvr_skeleton_refresh_bone(uintptr_t skeleton, int32_t bone);
 BVR_API int32_t BVR_CALL bvr_skeleton_collapse_bone(uintptr_t skeleton, int32_t bone, float x, float y, float z);
+/* Severed limbs kept collapsed through a hook on the engine's palette refresh. */
+BVR_API int32_t BVR_CALL bvr_limb_sever(uintptr_t skeleton, int32_t root, uint64_t bones);
+BVR_API int32_t BVR_CALL bvr_limb_forget(uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 /* Read-only developer evidence: module-relative implementations reached by

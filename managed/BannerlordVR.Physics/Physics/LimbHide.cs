@@ -33,9 +33,17 @@ namespace BannerlordVR.VR.Physics
         private static extern int bvr_skeleton_write_record(UIntPtr skeleton, int bone, int offset, float[] values, int count);
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_skeleton_collapse_bone(UIntPtr skeleton, int bone, float x, float y, float z);
+        // The hook on the engine's palette refresh keeps a severed limb
+        // collapsed whenever the engine redraws its bones (native).
+        [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_limb_sever(UIntPtr skeleton, int root, ulong bones);
+        [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_limb_forget(UIntPtr skeleton);
+        private static Mission _mission;
 
         private const int RecordBytes = 0x100, DrawnRotation = 0x04, DrawnPosition = 0x14;
-        private const float HoldSeconds = 30, Tolerance = .003f, HeadSink = .30f;
+        // Kept for the whole mission, until the body's visuals go.
+        private const float HoldSeconds = float.MaxValue, Tolerance = .003f, HeadSink = .30f;
         private struct Pose { public float W, X, Y, Z; public Vec3 P; }
         private sealed class Cut
         {
@@ -63,6 +71,11 @@ namespace BannerlordVR.VR.Physics
                     for (sbyte up = b; up >= 0; up = skeleton.GetParentBoneIndex(up))
                         if (up == bone) { bones.Add(b); break; }
                 float now = Mission.Current?.CurrentTime ?? 0;
+                ulong mask = 0;
+                foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;
+                int sever = bvr_limb_sever(skeleton.Pointer, bone, mask);
+                PhysicsLog.Info("LIMB_TUCK sever hook status=" + sever + (sever == 0 ? "" : " (the limb is collapsed from the mission tick only)"));
+                _mission = Mission.Current;
                 Cuts.Add(new Cut { Agent = agent, Skeleton = skeleton, Kind = kind, Root = bone, Parent = parent,
                     Grandparent = skeleton.GetParentBoneIndex(parent), Bones = bones.ToArray(), Started = now, Until = now + HoldSeconds });
                 PhysicsLog.Info("LIMB_TUCK begin agent=" + agent.Index + " joint=" + kind + " root=" + skeleton.GetBoneName(bone) +
@@ -93,6 +106,8 @@ namespace BannerlordVR.VR.Physics
         private static void Pass(bool late)
         {
             if (Cuts.Count == 0 || _broken) return;
+            // A new mission: the old skeletons are gone, their pointers may be reused.
+            if (Mission.Current != _mission) { foreach (Cut old in Cuts) Forget(old); Cuts.Clear(); return; }
             float now = Mission.Current?.CurrentTime ?? 0;
             for (int i = Cuts.Count - 1; i >= 0; i--)
             {
@@ -103,6 +118,7 @@ namespace BannerlordVR.VR.Physics
                         cut.Agent.AgentVisuals.GetSkeleton()?.Pointer != cut.Skeleton.Pointer)
                     {
                         Report(cut, "ended");
+                        Forget(cut);
                         Cuts.RemoveAt(i); continue;
                     }
                     if (EnemyPhysicsSettings.LimbWatch) { Watch(cut, now); continue; }
@@ -256,8 +272,21 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
+        // A mission starts: no severed limb of an old one is kept.
+        public static void ForgetAll()
+        {
+            foreach (Cut cut in Cuts) Forget(cut);
+            Cuts.Clear(); _mission = null;
+        }
+
+        private static void Forget(Cut cut)
+        {
+            try { bvr_limb_forget(cut.Skeleton.Pointer); } catch (Exception) { }
+        }
+
         private static void Fail(string where, Exception ex)
         {
+            foreach (Cut cut in Cuts) Forget(cut);
             _broken = true; Cuts.Clear();
             PhysicsLog.Error("LIMB_TUCK " + where + " failed; severed limbs stay drawn.", ex);
         }

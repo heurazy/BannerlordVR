@@ -46,6 +46,7 @@ namespace BannerlordVR.Physics
 
         public override void OnMissionBehaviorInitialize(Mission mission)
         {
+            try { BannerlordVR.VR.Physics.LimbHide.ForgetAll(); } catch (Exception) { }
             base.OnMissionBehaviorInitialize(mission);
             try
             {
