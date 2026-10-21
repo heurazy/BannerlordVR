@@ -51,6 +51,10 @@ namespace BannerlordVR.VR.Physics
         private float _lastInteraction;
         private int[] _bodyOfBone = new int[0];
         private int _headBody = -1;
+        // Bodies of the arms (upper arm, forearm, hand): HandleRagdoll's
+        // releaseArmSpring/Damper act on RagdollPart.Type.*Arm | *Hand.
+        private bool[] _armBody = new bool[0];
+        private readonly bool[] _limpHandle = new bool[2];
         private struct GrabSlot
         {
             public bool Active, HasBase; public sbyte Bone; public GrabHandle Kind; public Vec3 Local;
@@ -228,6 +232,16 @@ namespace BannerlordVR.VR.Physics
             }
             sbyte head = agent.Monster.HeadLookDirectionBoneIndex;
             _headBody = head >= 0 && head < _boneCount ? _bodyOfBone[head] : -1;
+            _armBody = new bool[count];
+            try
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    BoneBodyPartType part = agent.AgentVisuals.GetBoneTypeData(_bone[i]).BodyPartType;
+                    _armBody[i] = part == BoneBodyPartType.ArmLeft || part == BoneBodyPartType.ArmRight;
+                }
+            }
+            catch (Exception) { Array.Clear(_armBody, 0, _armBody.Length); }
             // Several unparented bodies would be separate trees: hang them on
             // the first one so each still has a joint pin.
             for (int i = 1; i < count; i++) if (parent[i] < 0) parent[i] = 0;
@@ -247,8 +261,8 @@ namespace BannerlordVR.VR.Physics
             // torque, so nothing holds a part's own twist) spin six times faster.
             agent.SetVelocityLimitsOnRagdoll(20, MaxAngularVelocity);
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3}",
-                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds));
+                "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3} arm_bodies={5}",
+                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds, Array.FindAll(_armBody, a => a).Length));
             return true;
         }
 
@@ -420,6 +434,7 @@ namespace BannerlordVR.VR.Physics
                 _nextGround = now + .1f;
             }
             UpdateHandles(skeleton, frame, now);
+            ReleaseHeldArms();
             // bodyTurnDirection is off: B&S turns the creature's animator,
             // whose legs step round; turning a frozen pose with its feet on
             // the ground twisted the legs and swung the limbs (3.6 rad of
@@ -492,6 +507,7 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (!standing && i == _pelvisBody) continue;
+                if (_drive.PartScale(i) <= 0) continue;
                 MatrixFrame posed = _root.TransformToParent(_captured[_bone[i]]);
                 posed.rotation.Orthonormalize();
                 Vec3 error = RotationPin.Error(_rs[i], _rf[i], _ru[i], posed.rotation.s, posed.rotation.f, posed.rotation.u);
@@ -541,7 +557,7 @@ namespace BannerlordVR.VR.Physics
             for (int h = 0; h < _grabBody.Length; h++)
             {
                 int grabbed = _grabBody[h];
-                if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
+                if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active || _limpHandle[h]) continue;
                 // A standing body is not levered by the blade: its pins carried
                 // the whole body round with the blade (launched at 8.8 m/s in the
                 // logs); the B&S hand turns the weapon in the grip instead.
@@ -593,6 +609,31 @@ namespace BannerlordVR.VR.Physics
             // (and so the whole body) are left to the joints.
         }
         private const float MaxLever = .3f;
+
+        // HandleRagdoll.OnGrab on a wrist or hand (Interactable_HumanWrist /
+        // HumanHand: releaseArmSpring 0, releaseArmDamper 0): the held arm's
+        // pins go to zero and it follows the grip through its joints; the
+        // rest of the body keeps its pins. A blade through the arm holds it
+        // the same way. Pinned to its pose, a pierced forearm lifted by the
+        // blade was pulled back by the arm's pins, its targets shifted while
+        // the elbow could not follow: the arm bucked and the shown hand lagged
+        // 57 cm. ResetPinForce on release: the scales go back to 1.
+        private void ReleaseHeldArms()
+        {
+            for (int i = 0; i < _drive.Count; i++) _drive.SetPartScale(i, 1);
+            for (int h = 0; h < _grabs.Length; h++)
+            {
+                _limpHandle[h] = false;
+                int grabbed = _grabBody[h];
+                if (!_grabs[h].Active || grabbed < 0 || grabbed >= _armBody.Length || !_armBody[grabbed]) continue;
+                if (!_grabs[h].Blade && _grabs[h].Kind != GrabHandle.Wrist && _grabs[h].Kind != GrabHandle.Hand) continue;
+                int top = grabbed;
+                while (_drive.Parent(top) >= 0 && _armBody[_drive.Parent(top)]) top = _drive.Parent(top);
+                for (int i = 0; i < _drive.Count; i++)
+                    if (_armBody[i] && _drive.InSubtree(i, top)) _drive.SetPartScale(i, 0);
+                _limpHandle[h] = true;
+            }
+        }
         private static Vec3 Cross(Vec3 a, Vec3 b) => new Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
         // Rodrigues rotation of v about unit axis k.
         private static Vec3 Rotate(Vec3 v, Vec3 k, float angle)

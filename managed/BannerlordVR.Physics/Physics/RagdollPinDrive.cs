@@ -65,6 +65,11 @@ namespace BannerlordVR.VR.Physics
         public bool CancelGravity { get; set; } = true;
         public bool Grounded { get; set; }
         public float TotalMass { get; private set; }
+        // SetPinForceMultiplier with partTypes: a scale on one body's own
+        // pins (its position pin and its joint's rotation drive), 1 by default.
+        private float[] _partScale = new float[0];
+        public void SetPartScale(int body, float scale) { if (body >= 0 && body < Count) _partScale[body] = Math.Max(0, Math.Min(1, scale)); }
+        public float PartScale(int body) => body >= 0 && body < Count ? _partScale[body] : 1;
 
         // parent[i] < 0 marks the root body. Parents must precede children.
         public bool Configure(float[] mass, int[] parent)
@@ -83,6 +88,8 @@ namespace BannerlordVR.VR.Physics
             if (roots != 1 || parent[0] >= 0 || total > 500) return false;
             _mass = (float[])mass.Clone(); _parent = (int[])parent.Clone();
             _lastPosition = new Vec3[mass.Length]; _lastTarget = new Vec3[mass.Length];
+            _partScale = new float[mass.Length];
+            for (int i = 0; i < mass.Length; i++) _partScale[i] = 1;
             Count = mass.Length; TotalMass = total;
             return true;
         }
@@ -126,17 +133,18 @@ namespace BannerlordVR.VR.Physics
             {
                 Vec3 velocity = sampled ? (position[i] - _lastPosition[i]) * (1 / dt) : Vec3.Zero;
                 Vec3 targetVelocity = sampled ? (target[i] - _lastTarget[i]) * (1 / dt) : Vec3.Zero;
+                float part = multiplier * _partScale[i];
                 if (State == PinState.Standing)
                 {
-                    float k = Math.Min(SpringPosition * multiplier, _mass[i] * MaxNaturalFrequency * MaxNaturalFrequency);
-                    float c = Math.Min(DamperPosition * multiplier, _mass[i] * MaxDampingRate);
+                    float k = Math.Min(SpringPosition * part, _mass[i] * MaxNaturalFrequency * MaxNaturalFrequency);
+                    float c = Math.Min(DamperPosition * part, _mass[i] * MaxDampingRate);
                     Vec3 pin = (target[i] - position[i]) * k - (velocity - targetVelocity) * c;
-                    force[i] += InteractionMath.ClampMagnitude(pin, MaxPosition * multiplier);
+                    force[i] += InteractionMath.ClampMagnitude(pin, MaxPosition * part);
                     if (CancelGravity) force[i] += Vec3.Up * (_mass[i] * Gravity);
                 }
                 int p = _parent[i];
                 // Destabilized keeps no rotation drive on the root (rootPart).
-                if (p < 0) continue;
+                if (p < 0 || part <= 0) continue;
                 float springScale = State == PinState.Standing ? 1 :
                     Grounded ? DestabilizedGroundSpringRotation : DestabilizedSpringRotation;
                 float damperScale = State == PinState.Standing ? 1 : DestabilizedDamperRotation;
@@ -148,12 +156,12 @@ namespace BannerlordVR.VR.Physics
                 Vec3 parentTargetVelocity = sampled ? (target[p] - _lastTarget[p]) * (1 / dt) : Vec3.Zero;
                 float reduced = _mass[i] * _mass[p] / (_mass[i] + _mass[p]);
                 float inverseLever = 1 / (lever * lever);
-                float kr = Math.Min(SpringRotation * springScale * multiplier * inverseLever,
+                float kr = Math.Min(SpringRotation * springScale * part * inverseLever,
                     reduced * MaxNaturalFrequency * MaxNaturalFrequency);
-                float cr = Math.Min(DamperRotation * damperScale * multiplier * inverseLever, reduced * MaxDampingRate);
+                float cr = Math.Min(DamperRotation * damperScale * part * inverseLever, reduced * MaxDampingRate);
                 Vec3 relativeVelocity = (velocity - parentVelocity) - (targetVelocity - parentTargetVelocity);
                 Vec3 pair = InteractionMath.ClampMagnitude((targetOffset - offset) * kr - relativeVelocity * cr,
-                    MaxRotation * multiplier / lever);
+                    MaxRotation * part / lever);
                 force[i] += pair; force[p] -= pair;
             }
             // The grip joint acts in every state, as the hand joint does in B&S.
