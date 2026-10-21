@@ -46,19 +46,18 @@ namespace BannerlordVR.VR.Physics
                 float reach = EnemyPhysicsSettings.CloseReach;
                 if (reach <= 0 || player == null || !player.IsActive() || dt <= 0 || dt > .1f) return;
                 Vec2 input = player.MovementInputVector;
-                if (input.LengthSquared < .04f) return;
                 Vec2 at = player.Position.AsVec2;
                 float gap = EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy);
                 Vec3 velocity = player.Velocity;
                 float speed = new Vec2(velocity.x, velocity.y).Length;
-                if (EnemyPhysicsSettings.Trace && gap < 1.5f && Mission.Current.CurrentTime >= _nextTrace)
+                if (EnemyPhysicsSettings.Trace && gap < 1.5f && input.LengthSquared >= .04f && Mission.Current.CurrentTime >= _nextTrace)
                 {
                     _nextTrace = Mission.Current.CurrentTime + 1;
                     PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "CLOSE_REACH stick input=({0:F2},{1:F2}) gap={2:F2} speed={3:F2} lead={4:F2}",
                         input.x, input.y, gap, speed, new Vec2(VrCameraDriver.RoomOffset.x, VrCameraDriver.RoomOffset.y).Length));
                 }
-                if (gap > BlockRange || speed > BlockedSpeed) return;
+                if (input.LengthSquared < .04f || gap > BlockRange || speed > BlockedSpeed) return;
                 Vec3 look = player.LookDirection;
                 Vec2 forward = new Vec2(look.x, look.y);
                 Vec2 toEnemy = enemy - at;
@@ -87,6 +86,29 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex)
             {
                 PhysicsLog.Error("Stick lean failed.", ex);
+            }
+        }
+
+        // The stick reaches the agent in MissionMainAgentController.ControlTick
+        // (BannerlordVR's MovementInputPatch turns it head-relative there);
+        // read in the mission tick it was always empty.
+        [HarmonyPatch]
+        internal static class ControlTickPatch
+        {
+            private static float _last = -1;
+            // Missing, the lean is off and every other patch still applies.
+            public static bool Prepare() => TargetMethod() != null;
+            public static MethodBase TargetMethod() =>
+                AccessTools.Method(AccessTools.TypeByName("TaleWorlds.MountAndBlade.View.MissionViews.MissionMainAgentController"), "ControlTick", new Type[0]);
+
+            [HarmonyPostfix, HarmonyPriority(Priority.Last)]
+            public static void Postfix()
+            {
+                Mission mission = Mission.Current;
+                if (mission == null) return;
+                float now = mission.CurrentTime, dt = _last < 0 ? 0 : now - _last;
+                _last = now;
+                if (dt > 0 && EnemyPhysicsSettings.Enabled) StickLean(mission.MainAgent, dt);
             }
         }
 

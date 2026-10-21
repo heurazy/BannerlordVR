@@ -184,7 +184,6 @@ namespace BannerlordVR.VR.Physics
                 }
                 ShedUnheldBodies(player);
                 Scan(mission, player, dt);
-                PlayerReach.StickLean(player, dt);
                 if (PhysicsInterop.GetInputState(out BvrInputState input) != (int)BvrStatus.Ok)
                 { Once(ref _loggedInput, "Enemy physics: controller input unavailable this frame."); ClearHands(); return; }
                 var skeleton = player.AgentVisuals?.GetSkeleton();
