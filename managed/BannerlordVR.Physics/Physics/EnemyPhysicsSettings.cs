@@ -65,8 +65,12 @@ namespace BannerlordVR.VR.Physics
         // A sword's swing bites into the part and slides along the cut (B&S
         // slash joint) instead of only striking.
         public static readonly bool SlashCuts = VrConfig.Bool("enemy_physics_slash_cuts", true);
-        // A severed limb is shrunk away in the engine's bone records.
-        public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
+        // A severed limb is shrunk away in the engine's bone records. Off: a
+        // local scale of 0.001 was kept by the engine but never drawn (the
+        // renderer skins from rotation + position only), and the transforms
+        // derived from it broke the sound system (FMOD invalid parameters)
+        // before the game crashed (22 Oct 2026).
+        public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", false);
         // A neck cut fast enough hides the head (meshless head armour). Off:
         // rebuilding the visuals without the head crashed the game when the
         // corpse went ragdoll (19 Oct 2026, docs/physical-enemies.md).
