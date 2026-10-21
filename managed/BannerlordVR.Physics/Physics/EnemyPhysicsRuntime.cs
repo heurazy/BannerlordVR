@@ -32,7 +32,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly EnemyBody[] Records = CreateRecords();
         private static readonly Hand[] Hands = { new Hand(0), new Hand(1) };
         private static readonly AdaptivePhysicsBudget Budget = new AdaptivePhysicsBudget(
-            EnemyPhysicsSettings.Capacity, EnemyPhysicsSettings.BudgetMilliseconds);
+            EnemyPhysicsSettings.Capacity, EnemyPhysicsSettings.BudgetMilliseconds, 4);
         private static long _workStarted;
         private static Mission _mission;
         private static LivingRagdollMissionLogic _living;

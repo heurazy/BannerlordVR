@@ -38,6 +38,7 @@ namespace BannerlordVR.VR.Physics
         // means pushing the stick towards a close enemy while barely moving.
         private const float LeanSpeed = 1.5f, BlockRange = .8f, BlockedSpeed = .35f;
         private static bool _loggedLean;
+        private static float _nextTrace;
         public static void StickLean(Agent player, float dt)
         {
             try
@@ -48,9 +49,16 @@ namespace BannerlordVR.VR.Physics
                 if (input.LengthSquared < .04f) return;
                 Vec2 at = player.Position.AsVec2;
                 float gap = EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy);
-                if (gap > BlockRange) return;
                 Vec3 velocity = player.Velocity;
-                if (new Vec2(velocity.x, velocity.y).Length > BlockedSpeed) return;
+                float speed = new Vec2(velocity.x, velocity.y).Length;
+                if (EnemyPhysicsSettings.Trace && gap < 1.5f && Mission.Current.CurrentTime >= _nextTrace)
+                {
+                    _nextTrace = Mission.Current.CurrentTime + 1;
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "CLOSE_REACH stick input=({0:F2},{1:F2}) gap={2:F2} speed={3:F2} lead={4:F2}",
+                        input.x, input.y, gap, speed, new Vec2(VrCameraDriver.RoomOffset.x, VrCameraDriver.RoomOffset.y).Length));
+                }
+                if (gap > BlockRange || speed > BlockedSpeed) return;
                 Vec3 look = player.LookDirection;
                 Vec2 forward = new Vec2(look.x, look.y);
                 Vec2 toEnemy = enemy - at;

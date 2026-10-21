@@ -68,6 +68,9 @@ internal static class Program
             Check(budget.BodyLimit == 1, "Capacity recovery requires sustained headroom");
             for (int i = 0; i < 1000; i++) budget.Record(.1);
             Check(budget.BodyLimit == 6 && Math.Abs(budget.Percentile(.95) - .1) < .00001, "Capacity recovers with hysteresis and bounded timing ring");
+            var floored = new AdaptivePhysicsBudget(6, 1.5, 4);
+            for (int i = 0; i < 200; i++) floored.Record(4);
+            Check(floored.BodyLimit == 4, "Overload never sheds below the tracked minimum");
             var ordered = new AdaptivePhysicsBudget(2, 5);
             for (int i = 1; i <= 100; i++) ordered.Record(i * .01);
             Check(Math.Abs(ordered.Percentile(.95) - .95) < .00001 && Math.Abs(ordered.Percentile(.99) - .99) < .00001, "Reported p95/p99 reflect recorded samples");

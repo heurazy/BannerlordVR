@@ -41,7 +41,8 @@ namespace BannerlordVR.VR.Physics
                 if (EnemyPhysicsSettings.ActiveRagdoll)
                 {
                     bool ready = Active.Capture(Agent, Skeleton, StartDestabilized);
-                    PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + ready + " pose=" + Active.CaptureSource + " " + Actions(Agent));
+                    PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + ready + " pose=" + Active.CaptureSource + " " + Actions(Agent) +
+                        " frozen=" + Skeleton.IsFrozen());
                 }
                 else if (EnemyPhysicsSettings.ActiveBalance)
                     PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
@@ -408,22 +409,39 @@ namespace BannerlordVR.VR.Physics
         // Animation restart after a release. An AI agent starts walking or
         // fighting and its skeleton is re-animated; one without a controller
         // (a sandbox dummy) starts nothing and kept the last physical pose.
-        private readonly Dictionary<Agent, int> _reanimate = new Dictionary<Agent, int>();
+        private readonly Dictionary<Agent, float> _reanimate = new Dictionary<Agent, float>();
         private readonly List<Agent> _reanimateDone = new List<Agent>();
+        private readonly HashSet<Agent> _reanimateLogged = new HashSet<Agent>();
+        private const float ReanimateSeconds = 3;
         private void Reanimate()
         {
             if (_reanimate.Count == 0) return;
             _reanimateDone.Clear();
-            foreach (KeyValuePair<Agent, int> pair in _reanimate) _reanimateDone.Add(pair.Key);
+            foreach (KeyValuePair<Agent, float> pair in _reanimate) _reanimateDone.Add(pair.Key);
+            float now = Mission.CurrentTime;
             foreach (Agent agent in _reanimateDone)
             {
-                int left = _reanimate[agent] - 1;
-                if (left <= 0) _reanimate.Remove(agent); else _reanimate[agent] = left;
-                if (!agent.IsActive() || HasLease(agent)) { _reanimate.Remove(agent); continue; }
+                bool last = now - _reanimate[agent] > ReanimateSeconds;
+                if (!agent.IsActive() || HasLease(agent)) { _reanimate.Remove(agent); _reanimateLogged.Remove(agent); continue; }
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
-                if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled) continue;
-                if (skeleton.IsFrozen()) skeleton.Freeze(false);
-                skeleton.TickAnimationsAndForceUpdate(.001f, agent.AgentVisuals.GetGlobalFrame(), false);
+                if (skeleton == null) { _reanimate.Remove(agent); continue; }
+                if (skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
+                {
+                    bool frozen = skeleton.IsFrozen();
+                    // The corpse ragdoll freezes the skeleton once the body
+                    // settles; a living agent handed back must animate again.
+                    if (frozen) skeleton.Freeze(false);
+                    skeleton.TickAnimationsAndForceUpdate(.001f, agent.AgentVisuals.GetGlobalFrame(), false);
+                    if (_reanimateLogged.Add(agent))
+                        PhysicsLog.Info("ACTIVE_RAGDOLL reanimate agent=" + agent.Index + " frozen_before=" + frozen +
+                            " frozen_after=" + skeleton.IsFrozen());
+                }
+                if (last)
+                {
+                    PhysicsLog.Info("ACTIVE_RAGDOLL reanimate done agent=" + agent.Index + " frozen=" + skeleton.IsFrozen() +
+                        " ragdoll=" + skeleton.GetCurrentRagdollState());
+                    _reanimate.Remove(agent); _reanimateLogged.Remove(agent);
+                }
             }
         }
         public override void OnMissionTick(float dt)
@@ -592,7 +610,7 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info("ACTIVE_RAGDOLL release cleared an airborne action.");
             }
             _released[entry.Agent] = Mission.CurrentTime;
-            _reanimate[entry.Agent] = 30;
+            _reanimate[entry.Agent] = Mission.CurrentTime;
             if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
             _releasesThisTick++;
             SafeRelease(entry);
