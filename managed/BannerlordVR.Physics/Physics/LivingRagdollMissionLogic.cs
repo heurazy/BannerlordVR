@@ -150,6 +150,10 @@ namespace BannerlordVR.VR.Physics
             {
                 WatchCapsule();
                 if (!_held) { _held = true; _holdPosition = Agent.Position.AsVec2; }
+                // Held still (its own movement step is closed), the agent only
+                // moves when the physics teleports it under its body; its spot
+                // goes with it, or it walked back to where it was grabbed.
+                else if ((Agent.Position.AsVec2 - _holdPosition).Length > .3f) _holdPosition = Agent.Position.AsVec2;
                 Agent.MovementFlags = 0;
                 Agent.MovementInputVector = Vec2.Zero;
                 Agent.EventControlFlags = 0;
@@ -163,6 +167,10 @@ namespace BannerlordVR.VR.Physics
                 _held = false;
                 // Same reset Bannerlord applies when control changes hands.
                 Agent.SetMaximumSpeedLimit(-1, false);
+                // The spot it was held at is no goal any more: an AI picks its
+                // own, an agent without one stays where its body got up.
+                if (Agent.Controller == AgentControllerType.AI) Agent.ClearTargetFrame();
+                else Agent.SetTargetPosition(Agent.Position.AsVec2);
                 Agent.ForceAiBehaviorSelection();
             }
             public void Clear() { OpenCapsule("clear"); _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
@@ -708,7 +716,10 @@ namespace BannerlordVR.VR.Physics
                     Vec3 shift = rise.Pelvis - pelvis; shift.z = 0;
                     Vec3 target = agent.Position + shift;
                     if (shift.Length > .05f && shift.Length < 2 && OnNavmesh(target))
+                    {
                         agent.TeleportToPosition(new WorldPosition(Mission.Scene, target).GetGroundVec3());
+                        if (agent.Controller != AgentControllerType.AI) agent.SetTargetPosition(agent.Position.AsVec2);
+                    }
                     PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "ACTIVE_RAGDOLL animated_rise aligned agent={0} shift_m={1:F2} action={2}",
                         agent.Index, shift.Length, Entry.Actions(agent)));
