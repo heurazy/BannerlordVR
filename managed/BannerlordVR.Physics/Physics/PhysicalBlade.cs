@@ -30,6 +30,9 @@ namespace BannerlordVR.VR.Physics
             public bool Pierced;
             public Vec3 Anchor, PartAxis, GripLocal, TipLocal;
             public long AnchorAt;
+            // A cut (slash joint): the edge's direction into the part and the
+            // deepest the blade line may sit past the entry along it.
+            public Vec3 CutN; public float CutMax;
             public float AngleLimit, AlongMin;
             // Offset still shown after the blade came out, glided away.
             public Vec3 Residual; public long ResidualAt;
@@ -48,6 +51,7 @@ namespace BannerlordVR.VR.Physics
         {
             State s = States[(int)role];
             if (Stopwatch.GetTimestamp() - s.At > Fresh) { s.Pierced = false; return; }
+            s.CutN = Vec3.Zero;
             s.GripLocal = s.Raw.TransformToLocalNonOrthogonal(rawGrip);
             s.TipLocal = s.Raw.TransformToLocalNonOrthogonal(rawTip);
             // The shown weapon follows the part through a short low-pass: the
@@ -60,6 +64,15 @@ namespace BannerlordVR.VR.Physics
                 anchor = s.Anchor + (anchor - s.Anchor) * (1 - (float)Math.Exp(-since / AnchorSmoothing));
             s.Anchor = anchor; s.PartAxis = partAxis; s.AngleLimit = angleLimit; s.AlongMin = alongMin;
             s.Pierced = InteractionMath.IsFinite(anchor) && (s.TipLocal - s.GripLocal).Length > .05f;
+        }
+        // Damager slash joint: x (the flat) locked, y (along the blade) free to
+        // slide, z (the edge) limited to the material's velocity depth.
+        public static void SetCut(HandRole role, Vec3 anchor, Vec3 edge, float maxDepth, Vec3 rawGrip, Vec3 rawTip)
+        {
+            SetPierce(role, anchor, Vec3.Zero, 0, float.NegativeInfinity, rawGrip, rawTip);
+            State s = States[(int)role];
+            if (!s.Pierced || !InteractionMath.IsFinite(edge) || edge.Length < .5f) { s.Pierced = false; return; }
+            s.CutN = edge.NormalizedCopy(); s.CutMax = maxDepth;
         }
         public static void SetGrip(HandRole role, Vec3 offset)
         {
@@ -109,6 +122,25 @@ namespace BannerlordVR.VR.Physics
         private static MatrixFrame Constrain(State s, MatrixFrame raw)
         {
             MatrixFrame w = raw;
+            if (s.CutN.LengthSquared > .5f)
+            {
+                Vec3 g = w.TransformToParent(s.GripLocal), t = w.TransformToParent(s.TipLocal);
+                Vec3 a = t - g;
+                if (a.Length < .05f) return raw;
+                a.Normalize();
+                Vec3 n = s.CutN - a * InteractionMath.Dot(s.CutN, a);
+                if (n.Length < 1e-3f) return raw;
+                n.Normalize();
+                Vec3 f = Cross(a, n);
+                Vec3 d = g + a * InteractionMath.Dot(s.Anchor - g, a) - s.Anchor;
+                Vec3 move = -f * InteractionMath.Dot(d, f);
+                float depth = InteractionMath.Dot(d, n);
+                if (depth > s.CutMax) move -= n * (depth - s.CutMax);
+                w.origin += move;
+                Vec3 off = w.origin - raw.origin;
+                if (off.Length > MaxSeparation) w.origin = raw.origin + off * (MaxSeparation / off.Length);
+                return w;
+            }
             // Angular limit about the entry point.
             Vec3 dir = w.rotation.TransformToParent(s.TipLocal - s.GripLocal);
             if (dir.Length > 1e-4f && s.PartAxis.LengthSquared > .5f)

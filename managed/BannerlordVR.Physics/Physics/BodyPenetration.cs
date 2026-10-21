@@ -61,8 +61,9 @@ namespace BannerlordVR.VR.Physics
                 case WeaponClass.Bolt: profile = PenetrationProfile.Arrow; return true;
                 default:
                     if (thrust) { profile = PenetrationProfile.SwordPierce; return usage.ThrustDamageType == DamageTypes.Pierce || usage.ThrustDamageType == DamageTypes.Cut; }
+                    // Damager_SwordSlash1H has SaberSlash's joint and damage.
                     profile = PenetrationProfile.SaberSlash;
-                    return false;
+                    return EnemyPhysicsSettings.SlashCuts && usage.SwingDamage > 0 && usage.SwingDamageType == DamageTypes.Cut;
             }
         }
 
@@ -93,7 +94,7 @@ namespace BannerlordVR.VR.Physics
         // pressure: Damager.TryHitByPressure, a slow push along the blade that
         // enters without impact damage and without the minimum speed.
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, float speed,
-            Agent source = null, bool pressure = false, int tier = 2)
+            Agent source = null, bool pressure = false, int tier = 2, Vec3 velocity = default(Vec3))
         {
             PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : MaterialFor(body.Agent, point.Part);
             PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
@@ -115,6 +116,7 @@ namespace BannerlordVR.VR.Physics
             // speed and stops at the curve's start.
             _depthLimit = row.DepthLimit(pressure ? row.MinVelocity : speed);
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
+            _cut = !PenetrationJoint.Get(profile).Pierce; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _maxSeparation = 0; _lockedLogged = false;
@@ -134,7 +136,7 @@ namespace BannerlordVR.VR.Physics
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
-            _hasLocalAxis = false;
+            _hasLocalAxis = false; _cut = false;
             if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
         // Damage that would kill while the blade is still inside is held back
@@ -143,6 +145,78 @@ namespace BannerlordVR.VR.Physics
         private bool _lockedLogged;
         private float _maxSeparation;
         private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300;
+        // Slash joint (Damager_SwordSlash1H, DamageModifier_Slash): the edge
+        // bites penetrationVelocityMaxDepth (3 mm per m/s over the material's
+        // minimum, held to 3 mm) and the blade slides along its length with
+        // penetrationSlideDamper 100; drawn back out or slid off the edge it
+        // lets go (UpdatePenetration: depth <= 0, or past the edge's ends).
+        private bool _cut, _hasCutNormal, _cutBased;
+        private Vec3 _entryVelocity, _cutLocal;
+        private float _lastAlong;
+        private const float SlideDamper = 100, CutExit = .015f, CutMaxDepth = .003f;
+
+        private bool TickCut(BodyPoint p, MatrixFrame bone, Vec3 anchor, Vec3 axis, Vec3 bladeBase, Vec3 bladeTip,
+            float bladeLength, float along, Vec3 bladePoint, float dt)
+        {
+            if (!_hasCutNormal)
+            {
+                Vec3 n0 = _entryVelocity - axis * InteractionMath.Dot(_entryVelocity, axis);
+                if (n0.Length < 1e-3f) { End("no_cut_direction"); return false; }
+                n0.Normalize();
+                _cutLocal = bone.rotation.TransformToLocal(n0); _hasCutNormal = true;
+            }
+            Vec3 n = bone.rotation.TransformToParent(_cutLocal);
+            n -= axis * InteractionMath.Dot(n, axis);
+            if (n.Length < 1e-3f) { End("edge_turned"); return false; }
+            n.Normalize();
+            Vec3 f = new Vec3(axis.y * n.z - axis.z * n.y, axis.z * n.x - axis.x * n.z, axis.x * n.y - axis.y * n.x);
+            // Slid off either end of the edge: the cut is drawn through.
+            if (along < -.02f || along > bladeLength + .02f) { End("slid_off", along); return false; }
+            float depth = InteractionMath.Dot(bladePoint - anchor, n);
+            if (!_cutBased) { _depthBase = depth; _cutBased = true; }
+            depth -= _depthBase;
+            if (depth < -CutExit) { End("withdrawn", -depth); return false; }
+            float limit = Math.Min(CutMaxDepth, float.IsInfinity(_depthLimit) ? CutMaxDepth : _depthLimit);
+            bool atLimit = depth > limit;
+            // The part is held to the blade's flat and pushed ahead of the
+            // edge past the limit; along the blade it is free.
+            Vec3 bladeTarget = anchor + f * InteractionMath.Dot(bladePoint - anchor, f) +
+                (atLimit ? n * Math.Min(depth - limit, MaxShove) : Vec3.Zero);
+            _lastAnchor = anchor;
+            PhysicalBlade.SetCut(Role, anchor, n, _depthBase + limit, bladeBase, bladeTip);
+            _maxDepth = Math.Max(_maxDepth, depth);
+            _maxSeparation = Math.Max(_maxSeparation, PhysicalBlade.Separation(Role));
+            if (!Body.IsCorpse && depth > 0)
+            {
+                DeepDamage(anchor, depth);
+                if (Body == null) return false;
+            }
+            Vec3 targetVelocity = _sampled ? InteractionMath.ClampMagnitude((bladePoint - _lastBladePoint) * (1 / dt), 8) : Vec3.Zero;
+            _lastBladePoint = bladePoint; _sampled = true;
+            Vec3 relative = p.Velocity - targetVelocity;
+            Locked = !Body.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
+                EnemyPhysicsRuntime.PierceActive(Body, HandIndex, p.Bone, bladeTarget, axis, false, Vec3.Zero, 0, bone, anchor);
+            Vec3 force = Vec3.Zero;
+            if (!Locked)
+            {
+                Vec3 lateral = relative - axis * InteractionMath.Dot(relative, axis);
+                force = InteractionMath.SpringForce(bladeTarget - anchor, lateral,
+                    EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce * .5f);
+            }
+            // penetrationSlideDamper: the blade drawn along the cut drags the part.
+            Vec3 slide = -axis * (InteractionMath.Dot(relative, axis) * SlideDamper * PenetrationModifiers.Get(_profile, _material, _tier).DamperMultiplier);
+            force += InteractionMath.ClampMagnitude(slide, WithdrawDrag);
+            LastResistance = slide.Length;
+            if (!Body.IsCorpse && !float.IsNaN(_lastAlong) && Math.Abs(along - _lastAlong) > .01f)
+                BloodFx.Burst(BloodFx.Kind.Inside, anchor, n);
+            _lastAlong = along;
+            _lastDepth = depth;
+            long steps = EnemyPhysicsRuntime.PhysicsSteps;
+            if (steps >= 0 && !_gate.CanApply(steps)) return true;
+            Body.Agent.ApplyForceOnRagdoll(p.Bone, in force);
+            if (steps >= 0) _gate.Applied(EnemyPhysicsRuntime.PhysicsSteps);
+            return true;
+        }
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
         // angular limits are relative to it.
@@ -264,6 +338,7 @@ namespace BannerlordVR.VR.Physics
             // cannot). Only a hand teleported away (2.5 m) lets go.
             if ((bladePoint - anchor).Length > LateralLoss)
             { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
+            if (_cut) return TickCut(p, bone, anchor, axis, bladeBase, bladeTip, bladeLength, along, bladePoint, dt);
             if (!_hasLocalAxis)
             {
                 Vec3 local = bone.rotation.TransformToLocal(axis);

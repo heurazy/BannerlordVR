@@ -62,6 +62,9 @@ namespace BannerlordVR.VR.Physics
         // Hits are tested on the drawn capsules the blade collides with, not
         // the engine's limb colliders.
         public static readonly bool DrawnHits = VrConfig.Bool("enemy_physics_drawn_hits", true);
+        // A sword's swing bites into the part and slides along the cut (B&S
+        // slash joint) instead of only striking.
+        public static readonly bool SlashCuts = VrConfig.Bool("enemy_physics_slash_cuts", true);
         // A helmet gives the head its thickness in the blade collisions.
         public static readonly bool HelmetVolume = VrConfig.Bool("enemy_physics_helmet_volume", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
