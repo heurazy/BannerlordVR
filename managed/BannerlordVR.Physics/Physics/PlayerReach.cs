@@ -17,7 +17,10 @@ namespace BannerlordVR.VR.Physics
     // leans past its locomotion capsule.
     internal static class PlayerReach
     {
-        private const float Near = .5f;
+        // Gap at which the engine last stopped the player against an enemy:
+        // its agent separation keeps more room than the body capsules.
+        private static float _stopGap;
+        private static float Near => Math.Max(.5f, _stopGap + .3f);
 
         // Lead the head may take over the body near an enemy.
         public static float Recentre(float configured)
@@ -29,10 +32,12 @@ namespace BannerlordVR.VR.Physics
             return EnemyPhysicsRuntime.Clearance(player.Position.AsVec2, Radius(player)) < Near ? reach : configured;
         }
 
-        // Stick locomotion stops at the capsules' contact; the stick then
-        // walks the view on into reach (at walking speed, up to CloseReach),
-        // the body staying where the engine stopped it.
-        private const float LeanSpeed = 1.5f, Contact = .08f;
+        // Stick locomotion is stopped by the engine short of the enemy; the
+        // stick then walks the view on into reach (at walking speed, up to
+        // CloseReach), the body staying where the engine stopped it. Blocked
+        // means pushing the stick towards a close enemy while barely moving.
+        private const float LeanSpeed = 1.5f, BlockRange = .8f, BlockedSpeed = .35f;
+        private static bool _loggedLean;
         public static void StickLean(Agent player, float dt)
         {
             try
@@ -42,7 +47,10 @@ namespace BannerlordVR.VR.Physics
                 Vec2 input = player.MovementInputVector;
                 if (input.LengthSquared < .04f) return;
                 Vec2 at = player.Position.AsVec2;
-                if (EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy) > Contact) return;
+                float gap = EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy);
+                if (gap > BlockRange) return;
+                Vec3 velocity = player.Velocity;
+                if (new Vec2(velocity.x, velocity.y).Length > BlockedSpeed) return;
                 Vec3 look = player.LookDirection;
                 Vec2 forward = new Vec2(look.x, look.y);
                 Vec2 toEnemy = enemy - at;
@@ -52,6 +60,13 @@ namespace BannerlordVR.VR.Physics
                 Vec2 move = right * input.x + forward * input.y;
                 float amount = Math.Min(1, move.Length);
                 if (amount < 1e-3f || Vec2.DotProduct(move.Normalized(), toEnemy) < .3f) return;
+                _stopGap = Math.Max(0, gap);
+                if (!_loggedLean)
+                {
+                    _loggedLean = true;
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "CLOSE_REACH stick blocked at capsule gap {0:F2} m; the view leans on", gap));
+                }
                 Vec3 offset = VrCameraDriver.RoomOffset;
                 float lead = new Vec2(offset.x, offset.y).Length;
                 if (lead >= reach) return;
@@ -96,7 +111,7 @@ namespace BannerlordVR.VR.Physics
                     if ((after - __state.Position).AsVec2.LengthSquared < 1e-8f) return;
                     float radius = Radius(agent);
                     float clearance = EnemyPhysicsRuntime.Clearance(after.AsVec2, radius);
-                    if (clearance >= 0 || clearance >= EnemyPhysicsRuntime.Clearance(__state.Position.AsVec2, radius)) return;
+                    if (clearance >= _stopGap || clearance >= EnemyPhysicsRuntime.Clearance(__state.Position.AsVec2, radius)) return;
                     // Into an enemy: the body stays at the contact, the
                     // headset keeps the lead it would have consumed.
                     agent.TeleportToPosition(__state.Position);
