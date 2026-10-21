@@ -178,6 +178,25 @@ namespace BannerlordVR.VR.Physics
             return v * c + Cross(k, v) * sn + k * (InteractionMath.Dot(k, v) * (1 - c));
         }
 
+        // VrMelee.Fire(agent, controller, ...): no engine attack from a hand
+        // whose blade is held in a body (see EnemyPhysicsRuntime.HandHolds).
+        [HarmonyPatch]
+        internal static class EngineSwingPatch
+        {
+            private static int _skipped;
+            public static bool Prepare() => AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrMelee"), "Fire") != null;
+            public static MethodBase TargetMethod() => AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrMelee"), "Fire");
+
+            [HarmonyPrefix]
+            public static bool Prefix(VrHand controller)
+            {
+                if (!EnemyPhysicsSettings.Enabled || !EnemyPhysicsRuntime.HandHolds((int)controller)) return true;
+                if (EnemyPhysicsSettings.Trace && _skipped++ % 20 == 0)
+                    PhysicsLog.Info("ENGINE_ATTACK skipped " + _skipped + " time(s): the " + controller + " hand holds a body");
+                return false;
+            }
+        }
+
         // VrCollide.Resolve(HandRole role, ref MatrixFrame world): the last
         // step before the arm IK places the hand and weapon.
         [HarmonyPatch]

@@ -582,6 +582,7 @@ namespace BannerlordVR.VR.Physics
                     "PRESSURE reached pressure={0:F2} threshold={1:F2} overshoot={2:F3} relative_speed={3:F2} material={4}",
                     pressure, threshold, overshoot, relativeSpeed, material));
             hand.Penetration.Begin(body, point, contact, profile, relativeSpeed, player, true, tier);
+            if (hand.Penetration.Body != null) StopEngineAttack(player);
             if (hand.Penetration.Body != null) PhysicsInterop.Haptic(index, .3f, .03f);
         }
 
@@ -725,6 +726,33 @@ namespace BannerlordVR.VR.Physics
         }
 
         private const float ReleaseHitDelay = .35f;
+
+        // BannerlordVR's VrMelee starts an engine attack from every hand
+        // motion over swing_speed (2 m/s, one per 250 ms). A blade held in a
+        // body moved that fast while pushed or drawn out: each engine attack
+        // struck the held enemy (its blow refused, its hit sound, blood and
+        // reaction still played), a string of hits on every stab. The hand
+        // that holds a body, or just let go of one, starts none.
+        public static bool HandHolds(int index)
+        {
+            if (index < 0 || index >= Hands.Length) return false;
+            Hand hand = Hands[index];
+            float now = Mission.Current != null ? Mission.Current.CurrentTime : 0;
+            return hand.Penetration.Body != null || hand.Grab.Held || now - hand.ReleasedAt < .5f;
+        }
+        // The engine attack the stabbing swing started is stopped as the
+        // blade enters: the physics deals that blow.
+        private static void StopEngineAttack(Agent player)
+        {
+            try
+            {
+                Agent.ActionCodeType type = player.GetCurrentActionType(1);
+                if (type != Agent.ActionCodeType.ReadyMelee && type != Agent.ActionCodeType.ReleaseMelee) return;
+                player.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
+                if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("ENGINE_ATTACK stopped: the blade entered a body (" + type + ")");
+            }
+            catch (Exception) { }
+        }
         private static void Reject(Hand hand, string reason) { hand.DiagRejected++; hand.DiagReject = reason; }
 
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
@@ -849,7 +877,10 @@ namespace BannerlordVR.VR.Physics
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)), usage == null);
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
+            {
                 hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
+                if (hand.Penetration.Body != null) StopEngineAttack(player);
+            }
             if (usage == null)
             {
                 // Damager_Punch intensity (2 to 9 m/s) drives the effect.
