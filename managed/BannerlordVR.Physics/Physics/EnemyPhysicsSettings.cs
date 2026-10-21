@@ -47,6 +47,10 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool CloseHeldCapsule = VrConfig.Bool("enemy_physics_close_held_capsule", true);
         // A sword thrown point first plants in the enemy it meets.
         public static readonly bool ThrownBladesStick = VrConfig.Bool("enemy_physics_thrown_blades_stick", true);
+        // Restart a nearby corpse's death timer so the engine keeps it physical.
+        public static readonly bool KeepNearCorpses = VrConfig.Bool("enemy_physics_keep_near_corpses", true);
+        // Turn a thrown blade point first in flight (B&S flyRotationSpeed).
+        public static readonly bool ThrownAlign = VrConfig.Bool("enemy_physics_thrown_align", false);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

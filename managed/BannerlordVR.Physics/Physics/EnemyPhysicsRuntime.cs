@@ -182,7 +182,12 @@ namespace BannerlordVR.VR.Physics
                     if (!EnemyBody.Eligible(body.Agent, player, leased) ||
                         (!leased && (body.Agent.Position - player.Position).Length > EnemyPhysicsSettings.ExitRadius) || !body.Sample(dt))
                         Remove(i);
-                    else ActiveBodies++;
+                    else
+                    {
+                        ActiveBodies++;
+                        // Within reach a corpse stays physical (not filed).
+                        if (body.IsCorpse) CorpseKeeper.Keep(body.Agent);
+                    }
                 }
                 ShedUnheldBodies(player);
                 Scan(mission, player, dt);
@@ -726,7 +731,11 @@ namespace BannerlordVR.VR.Physics
                 damages = velocity.Length >= damageRow.DamageMinVelocity;
             }
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
-            if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
+            // A blade under the material's first push speed only touches: B&S
+            // resolves it as a plain contact. Its impulses lifted a body
+            // over a blade drawn slowly across the head.
+            bool pushes = usage == null || velocity.Length > PushReaction.Thresholds(PhysicalHit.Material(usage, thrust))[0];
+            if (!hit.IsCorpse && pushes) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)), usage == null);
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))

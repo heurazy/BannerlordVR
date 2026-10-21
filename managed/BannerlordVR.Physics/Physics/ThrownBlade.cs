@@ -83,7 +83,7 @@ namespace BannerlordVR.VR.Physics
             Vec3 velocity = (Vec3)_velocity.GetValue(f);
             float speed = velocity.Length;
             Vec3 axis = frame.rotation.u.NormalizedCopy();
-            if (speed < .5f || axis.Length < .5f) return true;
+            if (!EnemyPhysicsSettings.ThrownAlign || speed < .5f || axis.Length < .5f) return true;
             Vec3 to = velocity * (1 / speed);
             float angle = (float)Math.Acos(Math.Max(-1, Math.Min(1, InteractionMath.Dot(axis, to))));
             Vec3 k = new Vec3(axis.y * to.z - axis.z * to.y, axis.z * to.x - axis.x * to.z, axis.x * to.y - axis.y * to.x);

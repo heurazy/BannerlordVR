@@ -285,3 +285,9 @@ Les broches de rotation B&S passent par lui en mode acceleration (3).
   mais l'entité reste celle du corps et `apply_force_on_ragdoll` passe sans ce test.
 - Le mod lit +0x8b8 lui-même (`CorpseVisuals`), après l'avoir comparé au pointeur
   rendu par le jeu sur un agent vivant.
+- Le rangement est décidé par 0x18060dee0 (mise à jour d'un agent mort) : si
+  agent+0xc50 == 0 et que le minuteur de mort (départ agent+0xbd8 en unités de
+  10 µs, horloge n° agent+0xbe0 dans la table module+0xda29b0, durée agent+0xbe8)
+  a dépassé sa durée de 3 s. Il est lancé à la mort (0x60143c). Un cadavre rangé
+  reste en NeedsActivation si on réveille son ragdoll. `CorpseKeeper` relance ce
+  minuteur pour les cadavres suivis près du joueur, après contrôle des valeurs lues.

@@ -400,7 +400,7 @@ namespace BannerlordVR.VR.Physics
             // turn over a few grabs in the logs).
             if (EnemyPhysicsSettings.GrabBodyTurn) TurnBody(mission.MainAgent, now);
             ActiveRagdollPhase before = _cycle.Phase;
-            _cycle.Tick(sampleDt, _nearGround, RootSpeed);
+            _cycle.Tick(sampleDt, _nearGround, RootSpeed, Grabbed);
             if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) { ReanchorUnderHips(); RiseRequested = true; }
             if (_cycle.Phase != before)
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,

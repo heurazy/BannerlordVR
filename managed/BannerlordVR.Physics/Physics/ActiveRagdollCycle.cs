@@ -36,7 +36,10 @@ namespace BannerlordVR.VR.Physics
         }
 
         // nearGround: a ground sphere cast from the root within hips height.
-        public void Tick(float dt, bool nearGround, float rootSpeed)
+        // noStandUp: Brain.noStandupModifiers (BrainModuleGrabbed adds one
+        // while a hand holds the creature); a blade held in the body counts
+        // as well, and calls off a get-up not yet committed.
+        public void Tick(float dt, bool nearGround, float rootSpeed, bool noStandUp = false)
         {
             if (!InteractionMath.IsFinite(dt) || dt < 0 || dt > .5f || !InteractionMath.IsFinite(rootSpeed)) return;
             if (Phase == ActiveRagdollPhase.Destabilized)
@@ -45,7 +48,12 @@ namespace BannerlordVR.VR.Physics
                 if (rootSpeed >= GroundStabilizationMaxVelocity) { Fall = FallState.NearGround; _groundStable = 0; return; }
                 _groundStable += dt;
                 Fall = _groundStable > GroundStabilizationMinDuration ? FallState.StabilizedOnGround : FallState.Stabilizing;
-                if (Fall == FallState.StabilizedOnGround) { Phase = ActiveRagdollPhase.StandingUp; _rise = 0; }
+                if (Fall == FallState.StabilizedOnGround && !noStandUp) { Phase = ActiveRagdollPhase.StandingUp; _rise = 0; }
+                return;
+            }
+            if (Phase == ActiveRagdollPhase.StandingUp && noStandUp && !GetUpCommitted)
+            {
+                Phase = ActiveRagdollPhase.Destabilized; _rise = 0; Fall = FallState.StabilizedOnGround;
                 return;
             }
             if (Phase == ActiveRagdollPhase.StandingUp)
