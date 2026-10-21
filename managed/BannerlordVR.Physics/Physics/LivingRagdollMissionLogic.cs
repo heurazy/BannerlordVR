@@ -163,6 +163,8 @@ namespace BannerlordVR.VR.Physics
             public void SuppressMovement()
             {
                 WatchCapsule();
+                // The blow's knock-back would walk the hidden agent away.
+                ClearHitReaction(Agent);
                 if (!_held) { _held = true; _holdPosition = Agent.Position.AsVec2; }
                 // Held still (its own movement step is closed), the agent only
                 // moves when the physics teleports it under its body; its spot
@@ -711,11 +713,32 @@ namespace BannerlordVR.VR.Physics
             if (!InteractionMath.IsFinite(pelvis) || forward.Length < .2f || !OnNavmesh(pelvis)) return false;
             forward.Normalize();
             Agent agent = entry.Agent;
-            Vec3 ground = new WorldPosition(Mission.Scene, pelvis).GetGroundVec3();
+            // The rise's first frame, read from the animation itself: the agent
+            // is turned and placed so its lying body is where the ragdoll lies
+            // before the switch (two corrections after it showed as pops).
+            Vec3 place = pelvis;
+            bool aligned = false;
+            int anim = MBActionSet.GetAnimationIndexOfAction(agent.ActionSet, RiseAction);
+            if (anim >= 0)
+            {
+                Vec3 pl = agent.GetBoneEntitialFrameAtAnimationProgress(0, anim, 0).origin;
+                Vec3 hl = agent.GetBoneEntitialFrameAtAnimationProgress(agent.Monster.HeadLookDirectionBoneIndex, anim, 0).origin;
+                Vec2 a = (hl - pl).AsVec2, b = bodyUp.AsVec2;
+                if (InteractionMath.IsFinite(pl) && InteractionMath.IsFinite(hl) && a.Length > .2f && b.Length > .2f)
+                {
+                    float phi = (float)(Math.Atan2(b.y, b.x) - Math.Atan2(a.y, a.x));
+                    float c = (float)Math.Cos(phi), sn = (float)Math.Sin(phi);
+                    forward = new Vec3(-sn, c, 0);
+                    place = new Vec3(pelvis.x - (pl.x * c - pl.y * sn), pelvis.y - (pl.x * sn + pl.y * c), pelvis.z);
+                    aligned = OnNavmesh(place);
+                    if (!aligned) { place = pelvis; forward = -bodyUp; forward.z = 0; forward.Normalize(); }
+                }
+            }
+            Vec3 ground = new WorldPosition(Mission.Scene, place).GetGroundVec3();
             if (!InteractionMath.IsFinite(ground)) return false;
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "ACTIVE_RAGDOLL animated_rise agent={0} action={1} body_up=({2:F2},{3:F2},{4:F2})",
-                agent.Index, "act_strike_fall_back_back_rise_continue", bodyUp.x, bodyUp.y, bodyUp.z));
+                "ACTIVE_RAGDOLL animated_rise agent={0} action={1} body_up=({2:F2},{3:F2},{4:F2}) placed_from_animation={5}",
+                agent.Index, "act_strike_fall_back_back_rise_continue", bodyUp.x, bodyUp.y, bodyUp.z, aligned));
             _released[agent] = Mission.CurrentTime;
             _releasesThisTick++;
             SafeRelease(entry);
@@ -723,7 +746,8 @@ namespace BannerlordVR.VR.Physics
             agent.LookDirection = forward;
             agent.SetMovementDirection(forward.AsVec2);
             agent.SetActionChannel(0, RiseAction, ignorePriority: true);
-            _rises[agent] = new Rise { Started = Mission.CurrentTime, Pelvis = pelvis, BodyUp = bodyUp };
+            // Placed from the animation, no correction follows.
+            _rises[agent] = new Rise { Started = Mission.CurrentTime, Pelvis = pelvis, BodyUp = bodyUp, Step = aligned ? 100 : 0 };
             _reanimate[agent] = Mission.CurrentTime;
             return true;
         }
@@ -774,6 +798,15 @@ namespace BannerlordVR.VR.Physics
             }
             foreach (Agent agent in _risesDone) _rises.Remove(agent);
         }
+        public static void ClearHitReaction(Agent agent)
+        {
+            for (int channel = 0; channel < 2; channel++)
+            {
+                Agent.ActionCodeType type = agent.GetCurrentActionType(channel);
+                if (type >= Agent.ActionCodeType.StrikeLight && type <= Agent.ActionCodeType.StrikeKnockBack)
+                    agent.SetActionChannel(channel, ActionIndexCache.act_none, ignorePriority: true);
+            }
+        }
         private void ReleaseRecovered(Entry entry)
         {
             bool moved = entry.Active.Moved;
@@ -785,7 +818,12 @@ namespace BannerlordVR.VR.Physics
             // SetPosition itself is valid for a dismounted agent in battle.
             // Only onto a walkable navmesh face, so a body that slid down a
             // slope is never placed inside geometry.
-            if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
+            // A hit reaction the blow started under the physical body plays from
+            // its middle at the switch: back to the idle instead.
+            ClearHitReaction(entry.Agent);
+            // Not only a body the grab moved: the reaction's root motion walked
+            // the hidden agent up to 0.9 m off its body, and the switch jumped.
+            if ((moved || distance > .15f) && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
                 distance < 30 && navmesh)
             {
                 entry.Agent.TeleportToPosition(position); teleported = true;
