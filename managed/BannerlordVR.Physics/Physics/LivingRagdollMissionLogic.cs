@@ -181,9 +181,9 @@ namespace BannerlordVR.VR.Physics
             foreach (Entry entry in _entries)
                 if (entry.Agent == agent && entry.Lease.Occupied) SafeRelease(entry);
         }
-        public void Impact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push = PushEffect.None, float hitMass = 2)
+        public void Impact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push = PushEffect.None, float hitMass = 2, bool fist = false)
         {
-            if (EnemyPhysicsSettings.ActiveRagdoll) { ActiveImpact(body, point, velocity, push, hitMass); return; }
+            if (EnemyPhysicsSettings.ActiveRagdoll) { ActiveImpact(body, point, velocity, push, hitMass, fist); return; }
             if (!KeepHeld(body, true)) return;
             foreach (Entry entry in _entries)
             {
@@ -200,20 +200,24 @@ namespace BannerlordVR.VR.Physics
         // contact over one simulation step. A destabilizing push hands the
         // living enemy to the physical body; lesser pushes only nudge a body
         // that is already simulated.
-        private void ActiveImpact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push, float hitMass)
+        private void ActiveImpact(EnemyBody body, BodyPoint point, Vec3 velocity, PushEffect push, float hitMass, bool fist)
         {
             if (!Available || body.IsCorpse || !InteractionMath.IsFinite(velocity)) return;
-            Vec3 force = velocity * (Math.Max(.5f, Math.Min(8, hitMass)) * 90);
             Entry entry = Find(body.Agent);
             if (entry == null)
             {
-                if (push != PushEffect.Destabilize || !KeepHeld(body, true, true)) return;
+                // B&S keeps every creature near the player physical
+                // (PhysicToggle): any hit moves the struck part, pinned back
+                // to its pose; the head snaps, the torso rocks.
+                bool destabilize = push == PushEffect.Destabilize;
+                if (!destabilize && !EnemyPhysicsSettings.HitPhysics) return;
+                if (!KeepHeld(body, true, destabilize)) return;
                 entry = Find(body.Agent);
                 if (entry == null) return;
             }
             else if (push == PushEffect.Destabilize) entry.Active.Destabilize();
             if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
-            entry.Active.QueuePush(point.Bone, force);
+            entry.Active.QueueHit(point.Bone, velocity, hitMass, fist, push);
             entry.Active.LastPusher = Mission.MainAgent;
         }
         public bool HandleActive(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
@@ -221,7 +225,18 @@ namespace BannerlordVR.VR.Physics
             Entry entry = Find(body.Agent);
             if (entry == null || !entry.Lease.OwnsPhysics) return false;
             entry.Lease.KeepHeld(Mission.CurrentTime);
-            return entry.Active.Handle(hand, point.Bone, Classify(body, point), handWorld, boneWorld, contact);
+            GrabHandle kind = Classify(body, point);
+            if (entry.Active.Configured && entry.Active.Phase == ActiveRagdollPhase.Standing)
+            {
+                PushContext context = ContextOf(body.Agent, Mission.CurrentTime);
+                if (RagdollGrabRules.ForcesLift(kind, context))
+                {
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "ACTIVE_RAGDOLL grab force_lift handle={0} context={1} time={2:F3}", kind, context, Mission.CurrentTime));
+                    entry.Active.Destabilize();
+                }
+            }
+            return entry.Active.Handle(hand, point.Bone, kind, handWorld, boneWorld, contact);
         }
         public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
         public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
@@ -291,22 +306,13 @@ namespace BannerlordVR.VR.Physics
             Entry held = Find(agent);
             if (held != null && held.Active.Phase == ActiveRagdollPhase.Destabilized) return PushEffect.None;
             float now = Mission.CurrentTime;
-            PushContext context;
-            if (_staggers.TryGetValue(agent, out Stagger stagger) && stagger.Until > now)
-                context = stagger.Effect == PushEffect.StaggerFull ? PushContext.StaggerFull : PushContext.Stagger;
-            else
-            {
-                Agent.ActionStage stage = agent.GetCurrentActionStage(1);
-                bool attacking = stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady ||
-                    stage == Agent.ActionStage.AttackRelease;
-                if (attacking) context = agent.Velocity.z > 1.5f ? PushContext.AttackJump : PushContext.Attack;
-                // A paused AI (a sandbox dummy, a held enemy) is not fighting,
-                // whatever target it still remembers.
-                else context = agent.IsPaused || agent.GetTargetAgent() == null ? PushContext.Idle : PushContext.Combat;
-            }
+            PushContext context = ContextOf(agent, now);
             PushBodyZone zone = point.Part == BoneBodyPartType.Head || point.Part == BoneBodyPartType.Neck ||
                 point.Part == BoneBodyPartType.Legs ? PushBodyZone.HeadOrLeg : PushBodyZone.Torso;
-            int level = PushReaction.Level(material, velocity.Length);
+            // DamageModifier_Punch has its own push speeds per armour.
+            int level = material == PushMaterial.Punch
+                ? PunchImpact.PushLevel(velocity.Length, PunchImpact.For(BodyPenetration.MaterialFor(agent, point.Part)))
+                : PushReaction.Level(material, velocity.Length);
             PushEffect effect = PushReaction.HitEffect(level, zone, context);
             // DamageModifier knockout: a hard blunt blow to the head floors the
             // creature whatever its stance (knockoutDuration 0 in the brains).
@@ -321,6 +327,19 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PUSH material={0} speed={1:F2} level={2} zone={3} context={4} effect={5}",
                     material, velocity.Length, level, zone, context, effect));
             return effect;
+        }
+        public PushContext ContextOf(Agent agent, float now)
+        {
+            if (_staggers.TryGetValue(agent, out Stagger stagger) && stagger.Until > now)
+                return stagger.Effect == PushEffect.StaggerFull ? PushContext.StaggerFull : PushContext.Stagger;
+            Agent.ActionStage stage = agent.GetCurrentActionStage(1);
+            bool attacking = stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady ||
+                stage == Agent.ActionStage.AttackRelease;
+            if (attacking) return agent.Velocity.z > 1.5f ? PushContext.AttackJump : PushContext.Attack;
+            // Brain.State Idle/Patrol: no controlling AI (a sandbox dummy) or
+            // no target. A body the physics holds is paused, not idle: the
+            // pause is the physics', its AI still has its target.
+            return agent.Controller != AgentControllerType.AI || agent.GetTargetAgent() == null ? PushContext.Idle : PushContext.Combat;
         }
         public void ReleaseAll()
         {

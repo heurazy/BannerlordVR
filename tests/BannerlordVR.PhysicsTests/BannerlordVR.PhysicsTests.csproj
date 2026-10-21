@@ -29,5 +29,6 @@
     <Compile Include="../../managed/BannerlordVR.Physics/Physics/PushReaction.cs" Link="PushReaction.cs" />
     <Compile Include="../../managed/BannerlordVR.Physics/Physics/RagdollPinDrive.cs" Link="RagdollPinDrive.cs" />
     <Compile Include="../../managed/BannerlordVR.Physics/Physics/RotationPin.cs" Link="RotationPin.cs" />
+    <Compile Include="../../managed/BannerlordVR.Physics/Physics/PunchImpact.cs" Link="PunchImpact.cs" />
   </ItemGroup>
 </Project>

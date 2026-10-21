@@ -76,8 +76,8 @@ namespace BannerlordVR.VR.Physics
             => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, axialLock, localAxis, angleLimit, boneWorld, contact);
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
-            PushEffect push = PushEffect.None, float hitMass = 2)
-        { if (!body.IsCorpse) _living?.Impact(body, point, velocity, push, hitMass); }
+            PushEffect push = PushEffect.None, float hitMass = 2, bool fist = false)
+        { if (!body.IsCorpse) _living?.Impact(body, point, velocity, push, hitMass, fist); }
         public static void RecordWound(Agent source, EnemyBody body, BodyPoint point, Vec3 contact,
             DamageTypes type, float healthLost, bool drawCut)
         { _bleeding?.Record(source, body, point, contact, type, healthLost, drawCut); }
@@ -287,6 +287,7 @@ namespace BannerlordVR.VR.Physics
         {
             Hand hand = Hands[index];
             hand.Penetration.Role = slot.Role;
+            hand.Grab.Role = slot.Role;
             if (input.IsActive == 0 || !slot.Valid) { hand.Reset(); return; }
             MatrixFrame pose = VrCameraDriver.StageToHand(input.GripOrientation, input.GripPosition);
             Vec3 stage = new Vec3(input.GripPosition.X, input.GripPosition.Y, input.GripPosition.Z);
@@ -658,11 +659,17 @@ namespace BannerlordVR.VR.Physics
             }
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (!hit.IsCorpse) ApplyLivingImpact(hit, hitPoint, velocity, push,
-                2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
+                2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)), usage == null);
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
                 hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item));
-            PhysicsInterop.Haptic(index, .45f, .035f);
+            if (usage == null)
+            {
+                // Damager_Punch intensity (2 to 9 m/s) drives the effect.
+                float intensity = PunchImpact.Intensity(velocity.Length);
+                PhysicsInterop.Haptic(index, .2f + .8f * intensity, .02f + .04f * intensity);
+            }
+            else PhysicsInterop.Haptic(index, .45f, .035f);
         }
 
         private static bool EquipmentBlocks(EnemyBody body, Vec3 start, Vec3 end, float bodyFraction, float radius)

@@ -20,21 +20,43 @@ namespace BannerlordVR.VR.Physics
             Vec3 direction = velocity.NormalizedCopy();
             float speed = velocity.Length;
             if (speed < .01f) return;
+            WeaponComponentData usage = weapon.IsEmpty ? null : weapon.CurrentUsageItem;
             if (body.IsCorpse)
             {
                 if (body.HasNativePhysics)
                 {
-                    Vec3 force = InteractionMath.ClampMagnitude(velocity * 25, EnemyPhysicsSettings.MaxForce);
+                    // A fist on a dead body: the contact brings the part to
+                    // the fist's speed, then Damager_Punch's AddForceCoroutine
+                    // (dead creatures only) adds its 0.15 s, in one step.
+                    Vec3 force = usage != null ? InteractionMath.ClampMagnitude(velocity * 25, EnemyPhysicsSettings.MaxForce) :
+                        InteractionMath.ClampMagnitude((PunchImpact.ContactImpulse(CorpsePartMass, velocity) + velocity * (CorpsePartMass *
+                            PunchImpact.AddForce * PunchImpact.AddForcePart * PunchImpact.AddForceDuration / PunchImpact.StepRate)) * PunchImpact.StepRate,
+                            PunchImpact.MaxImpulse * PunchImpact.StepRate);
                     body.Agent.ApplyForceOnRagdoll(point.Bone, in force);
                 }
                 return;
             }
-            WeaponComponentData usage = weapon.IsEmpty ? null : weapon.CurrentUsageItem;
-            DamageTypes damageType = usage == null ? DamageTypes.Blunt : thrust ? usage.ThrustDamageType : usage.SwingDamageType;
-            float raw = usage == null ? Math.Min(30, speed * speed * 1.5f) :
-                (thrust ? usage.ThrustDamage : usage.SwingDamage) * Math.Min(1.5f, speed / (thrust ? 2.5f : 5));
+            if (usage == null)
+            {
+                // Damager_Punch: velocityDamageCurve x the armour row's
+                // damageMultiplier, nothing under its minVelocity. The row
+                // already stands for the armour.
+                Agent victim = body.Agent;
+                float punch = PunchImpact.Damage(speed, PunchImpact.For(BodyPenetration.MaterialFor(victim, point.Part)), victim.HealthLimit);
+                if (punch < .5f) return;
+                float lost = Deliver(player, victim, point, contact, direction, weapon, slot, null, DamageTypes.Blunt,
+                    punch, Math.Max(1, (int)Math.Round(punch)), 0, false, false, push);
+                if (lost > 0 && body.Agent == victim)
+                    EnemyPhysicsRuntime.RecordWound(player, body, point, contact, DamageTypes.Blunt, lost, false);
+                return;
+            }
+            DamageTypes damageType = thrust ? usage.ThrustDamageType : usage.SwingDamageType;
+            float raw = (thrust ? usage.ThrustDamage : usage.SwingDamage) * Math.Min(1.5f, speed / (thrust ? 2.5f : 5));
             Register(player, body, point, contact, direction, weapon, slot, usage, damageType, raw, thrust, false, push);
         }
+
+        // Mean part of a 89.7 kg ragdoll of 16 bodies.
+        private const float CorpsePartMass = 5.6f;
 
         // Blade & Sorcery material of a VR hit, for its push level table.
         public static PushMaterial Material(WeaponComponentData usage, bool thrust)

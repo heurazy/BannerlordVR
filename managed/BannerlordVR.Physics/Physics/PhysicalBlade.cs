@@ -32,6 +32,9 @@ namespace BannerlordVR.VR.Physics
             public float AngleLimit, AlongMin;
             // Offset still shown after the blade came out, glided away.
             public Vec3 Residual; public long ResidualAt;
+            // A grabbing hand: offset from the controller hand to the
+            // grabbed point, set by the physics each tick.
+            public Vec3 Grip; public long GripAt;
         }
         private static readonly State[] States = { new State(), new State() };
         private const float MaxSeparation = .6f, GlideSeconds = .12f;
@@ -46,6 +49,19 @@ namespace BannerlordVR.VR.Physics
             s.TipLocal = s.Raw.TransformToLocalNonOrthogonal(rawTip);
             s.Anchor = anchor; s.PartAxis = partAxis; s.AngleLimit = angleLimit; s.AlongMin = alongMin;
             s.Pierced = InteractionMath.IsFinite(anchor) && (s.TipLocal - s.GripLocal).Length > .05f;
+        }
+        public static void SetGrip(HandRole role, Vec3 offset)
+        {
+            State s = States[(int)role];
+            if (!InteractionMath.IsFinite(offset)) return;
+            s.Grip = InteractionMath.ClampMagnitude(offset, MaxSeparation); s.GripAt = Stopwatch.GetTimestamp();
+        }
+        public static void ClearGrip(HandRole role)
+        {
+            State s = States[(int)role];
+            if (s.GripAt == 0) return;
+            if (Stopwatch.GetTimestamp() - s.GripAt <= Fresh) { s.Residual = s.Grip; s.ResidualAt = Stopwatch.GetTimestamp(); }
+            s.GripAt = 0; s.Grip = Vec3.Zero;
         }
         public static void Clear(HandRole role)
         {
@@ -134,6 +150,14 @@ namespace BannerlordVR.VR.Physics
                         // VrCollide would push the blade out of the body it is
                         // jointed into; the joint decides instead.
                         world = Constrain(s, __state);
+                        __result = true;
+                    }
+                    else if (EnemyPhysicsSettings.Enabled && s.GripAt != 0 && now - s.GripAt <= Fresh)
+                    {
+                        // The hand holds the grabbed part; VrCollide would
+                        // keep it out of the body it is holding.
+                        world = __state;
+                        world.origin += s.Grip;
                         __result = true;
                     }
                     else if (s.ResidualAt != 0)

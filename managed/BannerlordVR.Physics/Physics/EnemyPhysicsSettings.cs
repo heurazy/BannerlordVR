@@ -33,6 +33,8 @@ namespace BannerlordVR.VR.Physics
         // B&S rotation pins through the native torque bridge (enemy_physics_rotation_pins=0 turns them off).
         public static readonly bool RotationPins = VrConfig.Bool("enemy_physics_rotation_pins", true);
         public static readonly bool GrabBodyTurn = VrConfig.Bool("enemy_physics_grab_turn", false);
+        // Every hit on a living enemy makes its body physical for the sway.
+        public static readonly bool HitPhysics = VrConfig.Bool("enemy_physics_hit_physics", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);
         public static readonly bool NeckCuts = VrConfig.Bool("enemy_physics_neck_cut", false);

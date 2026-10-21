@@ -2,6 +2,8 @@ namespace BannerlordVR.VR.Physics
 {
     public enum GrabHandle { Hand, Wrist, Shoulder, Torso, Head, Neck, Legs }
     public enum GrabOutcome { Hold, Destabilize, Ungrab }
+    [System.Flags]
+    public enum ForceLiftCondition { None = 0, IdleOrPatrol = 1, Attack = 2, Combat = 4, Stagger = 8, StaggerFull = 16 }
 
     // Blade & Sorcery HandleRagdoll.ManagedUpdate with the human handle data
     // (Interactable_Human*.json): lifting the reference part above its
@@ -10,6 +12,41 @@ namespace BannerlordVR.VR.Physics
     // destabilizes.
     public static class RagdollGrabRules
     {
+        // HandleRagdollData.forceLiftGrabCondition: while the grabbed
+        // creature is in one of these states, HandleRagdoll.ManagedUpdate
+        // destabilizes it at once, so an unaware or reeling enemy grabbed by
+        // the neck, the torso or the legs goes limp in the hand and can be
+        // lifted (Interactable_HumanHeadNeck / Torso: IdleOrPatrol,
+        // StaggerFull; Legs: also Attack and Stagger; Wrist only when
+        // electrocuted; head, shoulder and hand never).
+        public static ForceLiftCondition ForceLift(GrabHandle handle)
+        {
+            switch (handle)
+            {
+                case GrabHandle.Neck:
+                case GrabHandle.Torso: return ForceLiftCondition.IdleOrPatrol | ForceLiftCondition.StaggerFull;
+                case GrabHandle.Legs:
+                    return ForceLiftCondition.IdleOrPatrol | ForceLiftCondition.Attack | ForceLiftCondition.Stagger | ForceLiftCondition.StaggerFull;
+                default: return ForceLiftCondition.None;
+            }
+        }
+        // CheckForceLiftCondition, from the B&S push context: an attacking
+        // creature is also in combat.
+        public static bool ForcesLift(GrabHandle handle, PushContext context)
+        {
+            ForceLiftCondition flags = ForceLift(handle);
+            switch (context)
+            {
+                case PushContext.Idle: return (flags & ForceLiftCondition.IdleOrPatrol) != 0;
+                case PushContext.Combat: return (flags & ForceLiftCondition.Combat) != 0;
+                case PushContext.Attack:
+                case PushContext.AttackJump: return (flags & (ForceLiftCondition.Attack | ForceLiftCondition.Combat)) != 0;
+                case PushContext.Stagger: return (flags & ForceLiftCondition.Stagger) != 0;
+                case PushContext.StaggerFull: return (flags & ForceLiftCondition.StaggerFull) != 0;
+                default: return false;
+            }
+        }
+
         // Self: the grabbed part itself; otherwise the root (hips).
         public static bool LiftsSelf(GrabHandle handle) => handle == GrabHandle.Legs;
         public static float LiftOffset(GrabHandle handle) => handle == GrabHandle.Legs ? .1f : .05f;

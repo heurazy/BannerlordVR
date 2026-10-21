@@ -11,6 +11,7 @@ namespace BannerlordVR.VR.Physics
         private Vec3 _lastTarget;
         public bool Held => Body != null;
         public int HandIndex;
+        public BannerlordVR.VR.HandRole Role;
 
         public void Begin(EnemyBody body, int point, Vec3 hand)
         {
@@ -32,6 +33,7 @@ namespace BannerlordVR.VR.Physics
         public void Release()
         {
             if (Body != null && EnemyPhysicsSettings.ActiveRagdoll) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
+            if (Body != null) PhysicalBlade.ClearGrip(Role);
             Body = null; _localOffset = Vec3.Zero; _lastTarget = Vec3.Zero;
         }
 
@@ -44,6 +46,9 @@ namespace BannerlordVR.VR.Physics
             Vec3 anchor = boneWorld.TransformToParent(_localOffset);
             Vec3 error = hand.origin - anchor;
             if (error.Length > EnemyPhysicsSettings.BreakDistance) { Release(); return; }
+            // B&S: the hand is jointed to the handle, so the shown hand stays
+            // on the grabbed point while the controller pulls on.
+            PhysicalBlade.SetGrip(Role, anchor - hand.origin);
             Vec3 targetVelocity = InteractionMath.ClampMagnitude((hand.origin - _lastTarget) * (1 / dt), 8);
             _lastTarget = hand.origin;
             // Blade & Sorcery: the grip is a joint inside the whole-body drive.

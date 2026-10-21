@@ -38,6 +38,13 @@ namespace BannerlordVR.VR.Physics
         private bool _nearGround;
         private Vec3 _lastPelvis, _groundPoint;
         private Vec3 _pendingImpulse; private sbyte _pendingBone = -1;
+        // A hit waiting for the next PhysX step, and the AddForceCoroutine of
+        // the last hit on a destabilized body.
+        private sbyte _hitBone = -1; private Vec3 _hitVelocity; private float _hitMass; private bool _hitFist;
+        private int _addForceBody = -1; private Vec3 _addForceVelocity; private float _addForceUntil;
+        // Only hit since it went physical (never grabbed nor pierced), and
+        // how long its hit reaction lasts.
+        private bool _touched; private float _hitHold;
         // Ragdoll.physicEnabledDuration: a standing body untouched for 2 s
         // returns to animation.
         public const float PhysicEnabledDuration = 2;
@@ -108,6 +115,7 @@ namespace BannerlordVR.VR.Physics
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
             AppliedSteps = SkippedTicks = 0; MaxStandingError = LastPoseError = RootSpeed = 0;
             _pendingBone = -1; _pendingImpulse = Vec3.Zero; _rotationSampled = false;
+            _hitBone = -1; _addForceBody = -1; _addForceUntil = 0; _touched = false; _hitHold = 0;
             _lastInteraction = 0; _headBody = -1; LastGrabOutcome = GrabOutcome.Hold; _lastTurn = -1; _turned = 0;
             _velocitySampled = false; LastPusher = null; ImpactBone = -1; ImpactSpeed = 0; Impacts = 0;
             for (int i = 0; i < MaxBodies; i++) _impactUntil[i] = 0;
@@ -250,6 +258,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (hand < 0 || hand >= _grabs.Length || !InteractionMath.IsFinite(handWorld)) return false;
             if (_ungrab[hand]) return false;
+            _touched = true;
             if (!_grabs[hand].Active || _grabs[hand].Bone != bone)
                 _grabs[hand] = new GrabSlot { Active = true, Bone = bone, Kind = kind,
                     Local = boneWorld.TransformToLocalNonOrthogonal(contactWorld) };
@@ -263,6 +272,7 @@ namespace BannerlordVR.VR.Physics
             MatrixFrame boneWorld, Vec3 contactWorld)
         {
             if (hand < 0 || hand >= _grabs.Length || !_configured || !InteractionMath.IsFinite(bladePoint) || !InteractionMath.IsFinite(axis)) return false;
+            _touched = true;
             if (!_grabs[hand].Active || !_grabs[hand].Blade || _grabs[hand].Bone != bone)
                 _grabs[hand] = new GrabSlot { Active = true, Bone = bone, Kind = GrabHandle.Torso, Blade = true,
                     Local = boneWorld.TransformToLocalNonOrthogonal(contactWorld) };
@@ -288,6 +298,44 @@ namespace BannerlordVR.VR.Physics
             if (!InteractionMath.IsFinite(force)) return;
             _pendingBone = bone; _pendingImpulse = InteractionMath.ClampMagnitude(force, 4000);
             _lastInteraction = Math.Max(_lastInteraction, _lastRootSample);
+        }
+
+        // A strike on a part. A fist is the B&S hand contact (the part is
+        // brought to the fist's speed within the arm joint's force); an item
+        // gives its momentum. On a body that is no longer standing the
+        // damager's AddForceCoroutine follows for 0.15 s.
+        public void QueueHit(sbyte bone, Vec3 velocity, float hitMass, bool fist, PushEffect push)
+        {
+            if (!InteractionMath.IsFinite(velocity) || bone < 0) return;
+            _hitBone = bone; _hitVelocity = velocity; _hitMass = hitMass; _hitFist = fist;
+            _hitHold = Math.Max(_hitHold, HitReaction + PushReaction.Recoil(push));
+            _lastInteraction = Math.Max(_lastInteraction, _lastRootSample);
+        }
+        // A body only hit goes back to its animation once it has swayed back
+        // to its pose, after the push's recoil (B&S plays the stagger on the
+        // still-physical body; here the pose is held while physical).
+        public const float HitReaction = .5f, HitReleaseError = .15f;
+
+        private void ApplyHit(float now, float dt)
+        {
+            if (_hitBone >= 0)
+            {
+                int b = _hitBone < _bodyOfBone.Length ? _bodyOfBone[_hitBone] : -1;
+                if (b >= 0 && b < _drive.Count)
+                {
+                    Vec3 impulse = _hitFist ? PunchImpact.ContactImpulse(_drive.Mass(b), _hitVelocity)
+                        : InteractionMath.ClampMagnitude(_hitVelocity * Math.Max(.5f, Math.Min(8, _hitMass)), PunchImpact.MaxImpulse);
+                    _force[b] += impulse * PunchImpact.StepRate;
+                    if (_cycle.Phase == ActiveRagdollPhase.Destabilized)
+                    {
+                        _addForceBody = b; _addForceVelocity = _hitVelocity; _addForceUntil = now + PunchImpact.AddForceDuration;
+                    }
+                }
+                _hitBone = -1;
+            }
+            if (_addForceBody < 0 || now > _addForceUntil || _cycle.Phase != ActiveRagdollPhase.Destabilized) return;
+            for (int i = 0; i < _drive.Count; i++)
+                _force[i] += PunchImpact.AddForceAcceleration(_addForceVelocity, i == _addForceBody, dt) * _drive.Mass(i);
         }
 
         // At most one activation per mission tick (native mass read included).
@@ -352,6 +400,7 @@ namespace BannerlordVR.VR.Physics
             _drive.Grounded = _nearGround;
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
+            ApplyHit(now, Math.Min(dt, .1f));
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (_pendingBone == _bone[i]) { _force[i] += _pendingImpulse; _pendingBone = -1; }
@@ -635,7 +684,9 @@ namespace BannerlordVR.VR.Physics
         // Ready to hand the body back to animation without a visible snap.
         public bool ReadyToRelease => _configured && LastPoseError < .25f && !Grabbed &&
             (_cycle.Phase == ActiveRagdollPhase.Recovered ||
-             (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > PhysicEnabledDuration));
+             (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > PhysicEnabledDuration) ||
+             (_cycle.Phase == ActiveRagdollPhase.Standing && !_touched && _hitHold > 0 && _hitBone < 0 &&
+              _lastRootSample - _lastInteraction > _hitHold && LastPoseError < HitReleaseError));
         // Untouched long after physicEnabledDuration yet still off its pose
         // (an arm caught in the body, a turned pose the pins could not reach):
         // B&S returns parts to animation after the duration regardless. Close
