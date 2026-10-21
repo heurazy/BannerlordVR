@@ -389,10 +389,12 @@ namespace BannerlordVR.VR.Physics
                     usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
                 // A shield bashes (a blunt B&S item); a fist hits when closed.
                 bool shield = usage != null && usage.IsShield;
-                if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
+                // A blade a shield holds back strikes nothing behind it.
+                bool held = blade && ShieldBlock.Blocked(slot.Role);
+                if (!held && !embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
                     (blade || shield || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
-                else if (!embedded && !drawing && blade && EnemyPhysicsSettings.ActiveRagdoll)
+                else if (!held && !embedded && !drawing && blade && EnemyPhysicsSettings.ActiveRagdoll)
                     TryPressure(index, hand, basePoint, tip, usage, player, dt);
                 if (hand.Grab.Held) hand.Grab.Tick(pose, dt);
             }

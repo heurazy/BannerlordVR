@@ -18,7 +18,13 @@ namespace BannerlordVR.VR.Physics
     // side the blade was on, by at most MaxLag.
     internal static class ShieldBlock
     {
-        public const float MaxLag = .6f, Pad = .012f;
+        public const float MaxLag = 1.2f, Pad = .012f;
+        // While a shield holds a blade back, the physics does not strike with
+        // it (the controller's blade is behind the shield): per hand role.
+        private static readonly long[] BlockedAt = new long[2];
+        private static readonly long Fresh = System.Diagnostics.Stopwatch.Frequency / 8;
+        public static bool Blocked(HandRole role) =>
+            BlockedAt[(int)role] != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - BlockedAt[(int)role] < Fresh;
         private const int Samples = 10;
         private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
         private static bool _broken, _logged;
@@ -34,17 +40,23 @@ namespace BannerlordVR.VR.Physics
                 if (player == null || (tipLocal - gripLocal).Length < .1f) return false;
                 Vec3 total = Vec3.Zero;
                 bool moved = false;
+                Vec3 eye = player.GetEyeGlobalPosition();
                 foreach (Agent agent in EnemyPhysicsRuntime.TrackedLiving())
                 {
                     if (!VrBlade.TryGetEnemyPlate(agent, out VrBlade.Plate plate) || !plate.Valid) continue;
-                    moved |= Push(ref world, previous, gripLocal, tipLocal, plate, ref total, agent.Index);
+                    // An enemy's shield is struck from the player's side (as
+                    // VrCollide sides it): a fast blade already past its middle
+                    // last frame was pushed out the far side.
+                    float side = InteractionMath.Dot(eye - plate.Centre, plate.N.NormalizedCopy()) >= 0 ? 1 : -1;
+                    moved |= Push(ref world, previous, gripLocal, tipLocal, plate, ref total, agent.Index, side);
                 }
                 if (role == HandRole.Main && OwnPlate != null)
                 {
                     object[] args = { player, null };
                     if ((bool)OwnPlate.Invoke(null, args) && args[1] is VrBlade.Plate own && own.Valid)
-                        moved |= Push(ref world, previous, gripLocal, tipLocal, own, ref total, -1);
+                        moved |= Push(ref world, previous, gripLocal, tipLocal, own, ref total, -1, 0);
                 }
+                if (moved) BlockedAt[(int)role] = System.Diagnostics.Stopwatch.GetTimestamp();
                 return moved;
             }
             catch (Exception ex)
@@ -56,13 +68,16 @@ namespace BannerlordVR.VR.Physics
         }
 
         private static bool Push(ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal,
-            VrBlade.Plate plate, ref Vec3 total, int owner)
+            VrBlade.Plate plate, ref Vec3 total, int owner, float side)
         {
             Vec3 n = plate.N.NormalizedCopy();
             if (n.Length < .5f) return false;
-            // The side the blade was on last frame (its grip, else its middle).
-            Vec3 before = previous.TransformToParent((gripLocal + tipLocal) * .5f);
-            float side = InteractionMath.Dot(before - plate.Centre, n) >= 0 ? 1 : -1;
+            // The own shield: the side the blade was on last frame.
+            if (side == 0)
+            {
+                Vec3 before = previous.TransformToParent((gripLocal + tipLocal) * .5f);
+                side = InteractionMath.Dot(before - plate.Centre, n) >= 0 ? 1 : -1;
+            }
             float need = 0;
             for (int i = 0; i <= Samples; i++)
             {
