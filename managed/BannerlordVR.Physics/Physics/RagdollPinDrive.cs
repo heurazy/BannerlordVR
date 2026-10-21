@@ -28,7 +28,7 @@ namespace BannerlordVR.VR.Physics
         public const float DestabilizedGroundSpringRotation = .2f;
         public const float Gravity = 9.81f;
         // Share of the rotation damper a released (limp) part keeps.
-        public const float LimpJointDamping = 1;
+        public const float LimpJointDamping = .3f;
         // PhysX integrates Unity's drives implicitly. Here forces are explicit
         // and arrive one PhysX step late, so very light bodies would oscillate
         // under the raw spring. Cap each body's natural frequency instead.
@@ -116,7 +116,21 @@ namespace BannerlordVR.VR.Physics
             _handleAxis[h] = InteractionMath.IsFinite(freeAxis) && freeAxis.Length > .5f ? freeAxis.NormalizedCopy() : Vec3.Zero;
             return true;
         }
-        public void ClearHandle(int h) { if (h >= 0 && h < MaxHandles) { _handleBody[h] = -1; _handleSampled[h] = false; } }
+        public void ClearHandle(int h) { if (h >= 0 && h < MaxHandles) { _handleBody[h] = -1; _handleSampled[h] = false; ClearSpread(h); } }
+        // Damager.Penetrate's joint is locked: PhysX moves the item and the
+        // pierced limb as one, and the player's grip (2500 N/m, 2000 N) pulls
+        // that whole. A limp arm is pulled here as one too: the grip is sized
+        // on the arm's mass and shared over its bodies by weight. On the
+        // pierced part alone (1.5 kg, capped at 20 rad/s) the arm trailed far
+        // behind the blade and the player had no hold of it.
+        private readonly float[][] _spread = new float[MaxHandles][];
+        public void SetSpread(int h, int body, float weight)
+        {
+            if (h < 0 || h >= MaxHandles || body < 0 || body >= Count) return;
+            if (_spread[h] == null || _spread[h].Length < Count) _spread[h] = new float[Count];
+            _spread[h][body] = Math.Max(0, weight);
+        }
+        public void ClearSpread(int h) { if (h >= 0 && h < MaxHandles && _spread[h] != null) Array.Clear(_spread[h], 0, _spread[h].Length); }
         public bool Handled(int body) => body >= 0 && (_handleBody[0] == body || _handleBody[1] == body);
         public bool AnyHandle => _handleBody[0] >= 0 || _handleBody[1] >= 0;
 
@@ -189,13 +203,24 @@ namespace BannerlordVR.VR.Physics
                 if (i < 0 || i >= Count) continue;
                 Vec3 velocity = sampled ? (position[i] - _lastPosition[i]) * (1 / dt) : Vec3.Zero;
                 Vec3 handVelocity = _handleSampled[h] ? (_handleTarget[h] - _lastHandleTarget[h]) * (1 / dt) : Vec3.Zero;
-                float k = Math.Min(HandSpring, _mass[i] * HandNaturalFrequency * HandNaturalFrequency);
-                float c = Math.Min(HandDamper * 4, _mass[i] * HandDampingRate);
+                float[] spread = _spread[h];
+                float moved = _mass[i], weighted = 0;
+                if (spread != null && spread.Length >= Count)
+                {
+                    moved = 0;
+                    for (int j = 0; j < Count; j++) { moved += _mass[j] * Math.Min(1, spread[j]); weighted += _mass[j] * spread[j]; }
+                    if (weighted <= 0) { spread = null; moved = _mass[i]; }
+                }
+                else spread = null;
+                float k = Math.Min(HandSpring, moved * HandNaturalFrequency * HandNaturalFrequency);
+                float c = Math.Min(HandDamper * 4, moved * HandDampingRate);
                 Vec3 grip = (_handleTarget[h] - position[i]) * k -
                     (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c;
                 Vec3 axis = _handleAxis[h];
                 if (axis.LengthSquared > 0) grip -= axis * InteractionMath.Dot(grip, axis);
-                force[i] += InteractionMath.ClampMagnitude(grip, HandMaxForce);
+                grip = InteractionMath.ClampMagnitude(grip, HandMaxForce);
+                if (spread == null) force[i] += grip;
+                else for (int j = 0; j < Count; j++) if (spread[j] > 0) force[j] += grip * (_mass[j] * spread[j] / weighted);
                 _lastHandleTarget[h] = _handleTarget[h]; _handleSampled[h] = true;
             }
             for (int i = 0; i < Count; i++) { _lastPosition[i] = position[i]; _lastTarget[i] = target[i]; }

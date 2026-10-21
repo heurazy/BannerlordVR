@@ -645,13 +645,21 @@ namespace BannerlordVR.VR.Physics
             for (int h = 0; h < _grabs.Length; h++)
             {
                 _limpHandle[h] = false;
+                _drive.ClearSpread(h);
                 int grabbed = _grabBody[h];
                 if (!_grabs[h].Active || grabbed < 0 || grabbed >= _armBody.Length || !_armBody[grabbed]) continue;
                 if (!_grabs[h].Blade && _grabs[h].Kind != GrabHandle.Wrist && _grabs[h].Kind != GrabHandle.Hand) continue;
                 int top = grabbed;
                 while (_drive.Parent(top) >= 0 && _armBody[_drive.Parent(top)]) top = _drive.Parent(top);
                 for (int i = 0; i < _drive.Count; i++)
-                    if (_armBody[i] && _drive.InSubtree(i, top)) _drive.SetPartScale(i, 0);
+                    if (_armBody[i] && _drive.InSubtree(i, top))
+                    {
+                        _drive.SetPartScale(i, 0);
+                        // The pierced part and what hangs from it go with the
+                        // blade; the arm above it turns about the shoulder,
+                        // moving half as far.
+                        _drive.SetSpread(h, i, _drive.InSubtree(i, grabbed) ? 1 : .5f);
+                    }
                 _limpHandle[h] = true; _limpTop[h] = top;
             }
         }
