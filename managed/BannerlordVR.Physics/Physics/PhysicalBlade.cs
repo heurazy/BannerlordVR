@@ -186,8 +186,19 @@ namespace BannerlordVR.VR.Physics
             public static MethodBase TargetMethod() =>
                 AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrCollide"), "Resolve");
 
+            // A blade held in a body skips VrCollide: it found the blade inside
+            // the body's capsules every frame, a new contact bone after bone,
+            // each with its contact haptic pulse (0.25-1): a held stab buzzed
+            // like a string of blows. The joint places the blade instead.
             [HarmonyPrefix]
-            public static void Prefix(HandRole role, ref MatrixFrame world, out MatrixFrame __state) => __state = world;
+            public static bool Prefix(HandRole role, ref MatrixFrame world, out MatrixFrame __state, ref bool __result)
+            {
+                __state = world;
+                State s = States[(int)role];
+                if (!EnemyPhysicsSettings.Enabled || !s.Pierced || Stopwatch.GetTimestamp() - s.At > Fresh) return true;
+                __result = true;
+                return false;
+            }
 
             [HarmonyPostfix]
             public static void Postfix(HandRole role, ref MatrixFrame world, MatrixFrame __state, ref bool __result)

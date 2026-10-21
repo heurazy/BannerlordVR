@@ -387,8 +387,8 @@ namespace BannerlordVR.VR.Physics
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
                 if (EnemyPhysicsSettings.Trace) Diagnose(index, hand, pose, slot, player, usage, blade, input, gestureSpeed, now);
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
-                if (embedded && hand.Penetration.LastResistance > 40)
-                    PhysicsInterop.Haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
+                if (embedded && hand.Penetration.RumbleDue())
+                    PhysicsInterop.Haptic(index, BodyPenetration.RumbleIntensity, .01f);
                 bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
                     usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
                 // A shield bashes (a blunt B&S item); a fist hits when closed.

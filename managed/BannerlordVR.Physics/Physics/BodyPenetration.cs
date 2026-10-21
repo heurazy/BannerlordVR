@@ -44,6 +44,16 @@ namespace BannerlordVR.VR.Physics
         }
         // Magnitude of the axial braking force, for the controller haptics.
         public float LastResistance { get; private set; }
+        // UpdatePenetration haptics: a short pulse each time the depth moves
+        // by gameData.haptics.penetrationPeriod (1 cm), at penetrationIntensity.
+        public const float RumblePeriod = .01f, RumbleIntensity = .9f;
+        private float _rumbleDepth;
+        public bool RumbleDue()
+        {
+            if (Body == null || Math.Abs(_lastDepth - _rumbleDepth) <= RumblePeriod) return false;
+            _rumbleDepth = _lastDepth;
+            return true;
+        }
 
         // Blade & Sorcery damager profile closest to the Bannerlord weapon.
         public static bool ProfileFor(WeaponComponentData usage, bool thrust, out PenetrationProfile profile)
@@ -132,7 +142,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; LastResistance = 0; _gate.Reset();
+            Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
