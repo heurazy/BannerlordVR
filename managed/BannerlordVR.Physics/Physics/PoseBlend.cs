@@ -14,6 +14,7 @@ namespace BannerlordVR.VR.Physics
         private MatrixFrame[] _world = new MatrixFrame[0];
         private MatrixFrame[] _blended = new MatrixFrame[0];
         private bool[] _head = new bool[0];
+        private MatrixFrame[] _anim = new MatrixFrame[0];
         private int _count;
         private float _started = -1;
         private bool _applied;
@@ -26,7 +27,7 @@ namespace BannerlordVR.VR.Physics
             if (skeleton == null) return false;
             _count = skeleton.GetBoneCount();
             if (_count <= 0 || _count > 256) return false;
-            if (_world.Length < _count) { _world = new MatrixFrame[_count]; _blended = new MatrixFrame[_count]; _head = new bool[_count]; }
+            if (_world.Length < _count) { _world = new MatrixFrame[_count]; _blended = new MatrixFrame[_count]; _head = new bool[_count]; _anim = new MatrixFrame[_count]; }
             for (sbyte b = 0; b < _count; b++)
             {
                 sbyte parent = skeleton.GetParentBoneIndex(b);
@@ -57,9 +58,16 @@ namespace BannerlordVR.VR.Physics
             for (sbyte b = 0; b < _count; b++)
             {
                 MatrixFrame anim = skeleton.GetBoneEntitialFrameWithIndex(b);
-                // The helmet and hair follow the animated head (they are
-                // placed before this runs): the head goes straight to it.
-                if (_head[b]) { _blended[b] = anim; continue; }
+                _anim[b] = anim;
+                // The head keeps its animated pose on the blended neck,
+                // rigidly: blended itself the face went through the helmet,
+                // left at the animated pose the neck twisted every way.
+                sbyte up = skeleton.GetParentBoneIndex(b);
+                if (_head[b] && up >= 0 && up < b)
+                {
+                    _blended[b] = _blended[up].TransformToParent(_anim[up].TransformToLocalNonOrthogonal(anim));
+                    continue;
+                }
                 MatrixFrame rag = entity.TransformToLocalNonOrthogonal(_world[b]);
                 _blended[b] = PoseMath.Blend(anim, rag, w);
             }

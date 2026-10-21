@@ -23,7 +23,7 @@ namespace BannerlordVR.VR.Physics
         private sealed class Stuck { public Agent Agent; public sbyte Bone; public MatrixFrame Local; public float At; }
         private static readonly Dictionary<object, Stuck> StuckFlights = new Dictionary<object, Stuck>();
         private static Type _flightType;
-        private static FieldInfo _frame, _velocity, _phase, _phaseAt, _itemId, _entity, _flights;
+        private static FieldInfo _frame, _velocity, _phase, _phaseAt, _itemId, _entity, _flights, _omega;
         private static bool _ready, _broken, _logged;
         // Blade axis of the flown copy (the weapon mesh frame): +u from the
         // grip, as for the game's weapon entities.
@@ -39,6 +39,7 @@ namespace BannerlordVR.VR.Physics
             _phase = AccessTools.Field(_flightType, "Phase"); _phaseAt = AccessTools.Field(_flightType, "PhaseAt");
             _itemId = AccessTools.Field(_flightType, "ItemId"); _entity = AccessTools.Field(_flightType, "Entity");
             _flights = AccessTools.Field(throwType, "_flights");
+            _omega = AccessTools.Field(_flightType, "Omega");
             _ready = _frame != null && _velocity != null && _phase != null && _phaseAt != null && _itemId != null && _entity != null && _flights != null;
             if (!_ready) { _broken = true; PhysicsLog.Info("Thrown blades: VrThrow's flight is not where it was; thrown swords fly as before."); }
             return _ready;
@@ -61,9 +62,49 @@ namespace BannerlordVR.VR.Physics
             public static void Postfix(object f, float now, float dt, MatrixFrame __state)
             {
                 if (!_ready || !EnemyPhysicsSettings.Enabled || !EnemyPhysicsSettings.ThrownBladesStick || dt <= 0) return;
-                try { Sweep(f, __state, now); }
+                try { if (Align(f, dt)) Sweep(f, __state, now); }
                 catch (Exception ex) { _broken = _ready = false; PhysicsLog.Error("Thrown blade sweep failed; thrown swords fly as before.", ex); }
             }
+        }
+
+        // Item.FixedUpdate while isFlying: the blade turns towards its
+        // velocity by flyRotationSpeed (3 for every B&S sword) x speed x dt of
+        // the angle each step; the spin the hand gave it is absorbed alike.
+        // False for a flight that is not a pointed melee blade.
+        private const float FlyRotationSpeed = 3;
+        private static bool Align(object f, float dt)
+        {
+            if ((int)_phase.GetValue(f) != 0) return false; // landed this step
+            string id = (string)_itemId.GetValue(f);
+            ItemObject item = id == null ? null : Game.Current?.ObjectManager?.GetObject<ItemObject>(id);
+            WeaponComponentData usage = item?.PrimaryWeapon;
+            if (usage == null || !usage.IsMeleeWeapon || usage.ThrustDamage <= 0) return false;
+            MatrixFrame frame = (MatrixFrame)_frame.GetValue(f);
+            Vec3 velocity = (Vec3)_velocity.GetValue(f);
+            float speed = velocity.Length;
+            Vec3 axis = frame.rotation.u.NormalizedCopy();
+            if (speed < .5f || axis.Length < .5f) return true;
+            Vec3 to = velocity * (1 / speed);
+            float angle = (float)Math.Acos(Math.Max(-1, Math.Min(1, InteractionMath.Dot(axis, to))));
+            Vec3 k = new Vec3(axis.y * to.z - axis.z * to.y, axis.z * to.x - axis.x * to.z, axis.x * to.y - axis.y * to.x);
+            float fraction = Math.Min(1, FlyRotationSpeed * speed * dt);
+            if (angle > 1e-3f && k.Length > 1e-5f)
+            {
+                k.Normalize();
+                float turn = angle * fraction;
+                frame.rotation.s = Turn(frame.rotation.s, k, turn);
+                frame.rotation.f = Turn(frame.rotation.f, k, turn);
+                frame.rotation.u = Turn(frame.rotation.u, k, turn);
+                _frame.SetValue(f, frame);
+            }
+            if (_omega != null) _omega.SetValue(f, (Vec3)_omega.GetValue(f) * (1 - fraction));
+            return true;
+        }
+        private static Vec3 Turn(Vec3 v, Vec3 k, float a)
+        {
+            float c = (float)Math.Cos(a), sn = (float)Math.Sin(a);
+            Vec3 cross = new Vec3(k.y * v.z - k.z * v.y, k.z * v.x - k.x * v.z, k.x * v.y - k.y * v.x);
+            return v * c + cross * sn + k * (InteractionMath.Dot(k, v) * (1 - c));
         }
 
         private static void Sweep(object f, MatrixFrame before, float now)
@@ -92,7 +133,8 @@ namespace BannerlordVR.VR.Physics
             {
                 Vec3 midBefore = before.origin + before.rotation.u.NormalizedCopy() * (length * .5f), midAfter = after.origin + axisAfter * (length * .5f);
                 if (!EnemyPhysicsRuntime.CastTracked(midBefore, midAfter, player, .02f, out body, out point, out fraction)) return;
-                Log("glance", id, body, velocity, 0); return; // flat or edge first: B&S bounces it
+                // Flat or edge first: B&S bounces it.
+                Log("glance", id, body, velocity, velocity.Length > .01f ? InteractionMath.Dot(velocity.NormalizedCopy(), axisAfter) : 0); return;
             }
             float speed = velocity.Length;
             float dot = speed > .01f ? InteractionMath.Dot(velocity * (1 / speed), axisAfter) : 0;
