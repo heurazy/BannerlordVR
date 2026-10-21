@@ -134,13 +134,26 @@ namespace BannerlordVR.VR.Physics
         // pierced part alone (1.5 kg, capped at 20 rad/s) the arm trailed far
         // behind the blade and the player had no hold of it.
         private readonly float[][] _spread = new float[MaxHandles][];
+        // A blade carrying a dying body: the player holds it up. B&S makes a
+        // killed body heavy (ragdolledMass 227.5 kg) and its 2000 N grip lets
+        // it drag the weapon down; here, by choice, the arm is stronger: at
+        // 2500 N/m a 100-115 kg body sagged 45 cm, pulled the shown sword
+        // down with it and threw the stab into chaos.
+        public const float CarrySpring = 6000, CarryMaxForce = 4000;
+        private readonly bool[] _carry = new bool[MaxHandles];
+        public void SetCarry(int h, bool carry) { if (h >= 0 && h < MaxHandles) _carry[h] = carry; }
         public void SetSpread(int h, int body, float weight)
         {
             if (h < 0 || h >= MaxHandles || body < 0 || body >= Count) return;
             if (_spread[h] == null || _spread[h].Length < Count) _spread[h] = new float[Count];
             _spread[h][body] = Math.Max(0, weight);
         }
-        public void ClearSpread(int h) { if (h >= 0 && h < MaxHandles && _spread[h] != null) Array.Clear(_spread[h], 0, _spread[h].Length); }
+        public void ClearSpread(int h)
+        {
+            if (h < 0 || h >= MaxHandles) return;
+            _carry[h] = false;
+            if (_spread[h] != null) Array.Clear(_spread[h], 0, _spread[h].Length);
+        }
         public bool Handled(int body) => body >= 0 && (_handleBody[0] == body || _handleBody[1] == body);
         public bool AnyHandle => _handleBody[0] >= 0 || _handleBody[1] >= 0;
 
@@ -222,7 +235,8 @@ namespace BannerlordVR.VR.Physics
                     if (weighted <= 0) { spread = null; moved = _mass[i]; }
                 }
                 else spread = null;
-                float k = Math.Min(HandSpring, moved * HandNaturalFrequency * HandNaturalFrequency);
+                bool carry = _carry[h] && spread != null;
+                float k = Math.Min(carry ? CarrySpring : HandSpring, moved * HandNaturalFrequency * HandNaturalFrequency);
                 // At least 0.7 of critical damping on what the grip moves: at
                 // HandDamper x 4 (80 N.s/m) a 15 kg part was at 0.2 and a body
                 // carried whole at 0.09, and they bounced on the blade.
@@ -233,7 +247,7 @@ namespace BannerlordVR.VR.Physics
                 if (axis.LengthSquared > 0) grip -= axis * InteractionMath.Dot(grip, axis);
                 Vec3 pushOnly = _pushOnlyAxis[h];
                 if (pushOnly.LengthSquared > 0 && InteractionMath.Dot(grip, pushOnly) < 0) grip -= pushOnly * InteractionMath.Dot(grip, pushOnly);
-                grip = InteractionMath.ClampMagnitude(grip, HandMaxForce);
+                grip = InteractionMath.ClampMagnitude(grip, carry ? CarryMaxForce : HandMaxForce);
                 if (spread == null) force[i] += grip;
                 else for (int j = 0; j < Count; j++) if (spread[j] > 0) force[j] += grip * (_mass[j] * spread[j] / weighted);
                 _lastHandleTarget[h] = _handleTarget[h]; _handleSampled[h] = true;

@@ -733,6 +733,7 @@ namespace BannerlordVR.VR.Physics
                 {
                     for (int i = 0; i < _drive.Count; i++)
                         _drive.SetSpread(h, i, _drive.InSubtree(i, grabbed) || _drive.InSubtree(grabbed, i) ? 1 : .5f);
+                    _drive.SetCarry(h, true);
                     continue;
                 }
                 if (!_grabs[h].Active || grabbed < 0 || grabbed >= _armBody.Length || !_armBody[grabbed]) continue;
