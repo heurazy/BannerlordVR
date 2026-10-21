@@ -102,6 +102,12 @@ namespace BannerlordVR.VR.Physics
                 // The corpse ragdoll leaves the skeleton frozen (captured
                 // unfrozen, frozen after every release): no animation shows.
                 if (Skeleton.IsFrozen()) Skeleton.Freeze(false);
+                // The animation takes over at once, not when the lease has
+                // finished letting go: meanwhile the body stood frozen in its
+                // last physical pose, then snapped.
+                if (Skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
+                    Skeleton.TickAnimationsAndForceUpdate(.001f, Agent.AgentVisuals.GetGlobalFrame(), false);
+                ReleaseWatch.Start(Agent, Active.Configured ? Active.PelvisPosition : Agent.Position);
             }
             // Agent.IsPaused only stops AI decisions: the engine kept walking a
             // paused agent towards its last target, 15-28 m away from its body
@@ -575,9 +581,8 @@ namespace BannerlordVR.VR.Physics
             foreach (Agent agent in _reanimateDone)
             {
                 if (!agent.IsActive()) { _reanimate.Remove(agent); _reanimateLogged.Remove(agent); continue; }
-                // The lease stays occupied while the engine finishes the
-                // release; the 3 s start once it has let go.
-                if (HasLease(agent)) { _reanimate[agent] = now; continue; }
+                // Not waiting for the lease to finish letting go: the skeleton
+                // is animated as soon as its ragdoll is off.
                 bool last = now - _reanimate[agent] > ReanimateSeconds;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null) { _reanimate.Remove(agent); continue; }
@@ -606,6 +611,7 @@ namespace BannerlordVR.VR.Physics
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
             try { AlignRises(); } catch (Exception ex) { _rises.Clear(); PhysicsLog.Error("Aligning an animated rise failed.", ex); }
             try { ApplyBlends(); } catch (Exception ex) { _blends.Clear(); PhysicsLog.Error("Blending a released pose failed.", ex); }
+            try { ReleaseWatch.Tick(); } catch (Exception ex) { PhysicsLog.Error("Release watch failed.", ex); }
             int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
             try { TraceReleased(); } catch (Exception) { _released.Clear(); }
