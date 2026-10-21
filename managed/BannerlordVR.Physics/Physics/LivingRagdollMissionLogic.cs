@@ -58,8 +58,14 @@ namespace BannerlordVR.VR.Physics
                 {
                     if (!EnemyPhysicsSettings.ActiveRagdoll || !Active.Configured || Agent.MountAgent != null) return;
                     Vec3 pelvis = Active.PelvisPosition;
-                    if (!InteractionMath.IsFinite(pelvis) || (pelvis - Agent.Position).AsVec2.Length < .5f ||
-                        (pelvis - Agent.Position).Length > 30) return;
+                    if (!InteractionMath.IsFinite(pelvis) || (pelvis - Agent.Position).Length > 30) return;
+                    // Off its ground (it sank while held) it is set back on it.
+                    bool off = Math.Abs(Agent.Position.z - Mission.Scene.GetGroundHeightAtPosition(Agent.Position)) > .2f;
+                    if ((pelvis - Agent.Position).AsVec2.Length < .5f)
+                    {
+                        if (!off) return;
+                        pelvis = Agent.Position;
+                    }
                     var face = new PathFaceRecord(-1, -1, -1);
                     Mission.Scene.GetNavMeshFaceIndex(ref face, pelvis, true);
                     if (!face.IsValid()) return;
@@ -115,6 +121,9 @@ namespace BannerlordVR.VR.Physics
                     // skip a neighbour whose movement flags carry bit 0x100,
                     // which is AIScriptedFrameFlags.InConversation.
                     Agent.SetIsPhysicsForceClosed(true);
+                    // Closed, its step no longer stands it on the ground and it
+                    // sank 0.5 m in 2 s: keep gravity off it too.
+                    Agent.SetExcludedFromGravity(true, false);
                     _savedScripted = Agent.GetScriptedFlags();
                     Agent.SetScriptedFlags(_savedScripted | Agent.AIScriptedFrameFlags.InConversation);
                     _capsuleClosed = true;
@@ -132,6 +141,7 @@ namespace BannerlordVR.VR.Physics
                     if (Agent != null && Agent.State != AgentState.Deleted)
                     {
                         Agent.SetIsPhysicsForceClosed(false);
+                        Agent.SetExcludedFromGravity(false, false);
                         Agent.SetScriptedFlags(_savedScripted);
                     }
                     if (reason != "release") PhysicsLog.Info("ACTIVE_RAGDOLL capsule reopened reason=" + reason);
@@ -143,8 +153,9 @@ namespace BannerlordVR.VR.Physics
                 if (!_capsuleClosed) return;
                 Vec3 position = Agent.Position;
                 if (InteractionMath.IsFinite(position) && position.z > _capsuleZ - .5f) return;
+                // No teleport while the body is physical: it moved the ragdoll
+                // with it (the body hopped 0.5 m); the release places it.
                 OpenCapsule("sank_" + (_capsuleZ - position.z).ToString("F2", CultureInfo.InvariantCulture));
-                Agent.TeleportToPosition(new Vec3(position.x, position.y, _capsuleZ));
             }
             public void SuppressMovement()
             {
