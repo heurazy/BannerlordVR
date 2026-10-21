@@ -252,7 +252,7 @@ namespace BannerlordVR.VR.Physics
             if (Body != null && !Body.IsCorpse && _pending < .5f && _maxDepth > .02f) BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
             Release();
         }
-        private EnemyBody _woundBody;
+        private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
         public float PendingDamage => _pending;
@@ -262,6 +262,7 @@ namespace BannerlordVR.VR.Physics
             Agent victim = _pendingVictim;
             float pending = _pending, woundLost = _woundLost;
             EnemyBody woundBody = _woundBody;
+            _lastWoundBody = Body;
             _pending = 0; _pendingVictim = null; _woundLost = 0; _woundBody = null;
             Agent source = _source;
             DamageTypes woundType = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
@@ -275,6 +276,9 @@ namespace BannerlordVR.VR.Physics
             DamageTypes type = PenetrationJoint.Get(_profile).Pierce ? DamageTypes.Pierce : DamageTypes.Cut;
             float lost = PhysicalHit.ApplyPenetration(source, victim, _bone, _part, _lastAnchor, pending, type);
             BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
+            // The survivor bleeds from the wound the blow left.
+            if (lost > 0 && victim.IsActive() && woundBody == null && _lastWoundBody != null && _lastWoundBody.Agent == victim)
+                EnemyPhysicsRuntime.RecordWound(source, _lastWoundBody, _lastWoundBody.ReadContact(_bone), _lastAnchor, woundType, lost, false);
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION withdrawn profile={0} zone={1} held_damage={2:F1} health_lost={3:F1} alive={4}",
@@ -305,12 +309,16 @@ namespace BannerlordVR.VR.Physics
             // for Release.
             // Bannerlord deals whole points: the cap is too, or 88.6 rounds
             // to 89 and leaves the victim under one point.
-            float now = Math.Max(0, Math.Min((float)Math.Floor(damage), (float)Math.Floor(victim.Health - 1)));
-            if (damage - now > 0)
+            // A stab is one blow: the deep and skewer damage are counted as the
+            // blade reaches them and dealt together as it leaves. Each dealt on
+            // the spot was a blow of its own (hurt voice, blood), so pushing a
+            // stab deeper read as two more hits.
+            float now = 0;
+            if (damage > 0)
             {
-                _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor;
-                // Only a blow held back by the last point is mortal, not its fraction.
-                if (damage >= victim.Health - .5f && _pending >= .5f && Body != null && Body.Agent == victim) EnemyPhysicsRuntime.MarkDying(Body);
+                _pending += damage; _pendingVictim = victim; _lastAnchor = anchor;
+                // A stab that will kill leaves the body inert on the blade now.
+                if (_pending >= victim.Health - .5f && Body != null && Body.Agent == victim) EnemyPhysicsRuntime.MarkDying(Body);
             }
             float lost = now >= .5f ? PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, now, type) : 0;
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);
