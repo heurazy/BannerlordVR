@@ -153,7 +153,7 @@ namespace BannerlordVR.VR.Physics
         private bool _cut, _hasCutNormal, _cutBased;
         private Vec3 _entryVelocity, _cutLocal;
         private float _lastAlong;
-        private const float SlideDamper = 100, CutExit = .015f, CutMaxDepth = .003f;
+        private const float SlideDamper = 100, CutExit = .015f, CutMaxDepth = .003f, CutThrough = .05f;
 
         private bool TickCut(BodyPoint p, MatrixFrame bone, Vec3 anchor, Vec3 axis, Vec3 bladeBase, Vec3 bladeTip,
             float bladeLength, float along, Vec3 bladePoint, float dt)
@@ -177,11 +177,14 @@ namespace BannerlordVR.VR.Physics
             depth -= _depthBase;
             if (depth < -CutExit) { End("withdrawn", -depth); return false; }
             float limit = Math.Min(CutMaxDepth, float.IsInfinity(_depthLimit) ? CutMaxDepth : _depthLimit);
-            bool atLimit = depth > limit;
-            // The part is held to the blade's flat and pushed ahead of the
-            // edge past the limit; along the blade it is free.
-            Vec3 bladeTarget = anchor + f * InteractionMath.Dot(bladePoint - anchor, f) +
-                (atLimit ? n * Math.Min(depth - limit, MaxShove) : Vec3.Zero);
+            // A swing carried on through the body ends the cut: the B&S weapon
+            // (a rigidbody) is stopped there or slices; the controller is not.
+            if (depth - limit > CutThrough) { End("cut_through", depth - limit); return false; }
+            // The part is held to the blade's flat; along the blade and the
+            // edge it is free. The swing's momentum went into the hit's push:
+            // shoving the part ahead of a controller 30-58 cm past the edge
+            // threw the body (0.5 m off its pose, back up 2 m away).
+            Vec3 bladeTarget = anchor + f * InteractionMath.Dot(bladePoint - anchor, f);
             _lastAnchor = anchor;
             PhysicalBlade.SetCut(Role, anchor, n, _depthBase + limit, bladeBase, bladeTip);
             _maxDepth = Math.Max(_maxDepth, depth);
