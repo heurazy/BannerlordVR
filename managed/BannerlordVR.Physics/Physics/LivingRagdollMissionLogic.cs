@@ -103,13 +103,20 @@ namespace BannerlordVR.VR.Physics
             // Watched: an agent sinking under its hold spot gets it back.
             private bool _capsuleClosed, _capsuleLogged;
             private float _capsuleZ;
+            private Agent.AIScriptedFrameFlags _savedScripted;
             private void CloseCapsule()
             {
                 if (!EnemyPhysicsSettings.CloseHeldCapsule || _capsuleClosed) return;
                 try
                 {
                     _capsuleZ = Agent.Position.z;
+                    // TaleWorlds.Native (REA/Ghidra): set_is_physics_force_closed
+                    // only skips the agent's own movement step; other agents
+                    // skip a neighbour whose movement flags carry bit 0x100,
+                    // which is AIScriptedFrameFlags.InConversation.
                     Agent.SetIsPhysicsForceClosed(true);
+                    _savedScripted = Agent.GetScriptedFlags();
+                    Agent.SetScriptedFlags(_savedScripted | Agent.AIScriptedFrameFlags.InConversation);
                     _capsuleClosed = true;
                     if (!_capsuleLogged) { _capsuleLogged = true; PhysicsLog.Info("ACTIVE_RAGDOLL capsule closed agent=" + Agent.Index); }
                 }
@@ -122,7 +129,11 @@ namespace BannerlordVR.VR.Physics
                 _capsuleClosed = false;
                 try
                 {
-                    if (Agent != null && Agent.State != AgentState.Deleted) Agent.SetIsPhysicsForceClosed(false);
+                    if (Agent != null && Agent.State != AgentState.Deleted)
+                    {
+                        Agent.SetIsPhysicsForceClosed(false);
+                        Agent.SetScriptedFlags(_savedScripted);
+                    }
                     if (reason != "release") PhysicsLog.Info("ACTIVE_RAGDOLL capsule reopened reason=" + reason);
                 }
                 catch (Exception ex) { PhysicsLog.Error("Reopening an agent's capsule failed.", ex); }

@@ -115,7 +115,10 @@ namespace BannerlordVR.VR.Physics
             // without one (a sandbox dummy) has none to respect.
             if (agent.Controller == AgentControllerType.AI)
             {
-                if (agent.GetScriptedFlags() != Agent.AIScriptedFrameFlags.None) return "scripted_" + agent.GetScriptedFlags();
+                // A held body carries InConversation, set by the physics.
+                Agent.AIScriptedFrameFlags scripted = agent.GetScriptedFlags();
+                if (ownedPhysicalFall) scripted &= ~Agent.AIScriptedFrameFlags.InConversation;
+                if (scripted != Agent.AIScriptedFrameFlags.None) return "scripted_" + scripted;
                 if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return "scripted_combat";
             }
             if (agent.State != AgentState.Active) return null;
