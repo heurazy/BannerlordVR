@@ -57,7 +57,7 @@ namespace BannerlordVR.VR.Physics
                         "CLOSE_REACH stick input=({0:F2},{1:F2}) gap={2:F2} speed={3:F2} lead={4:F2}",
                         input.x, input.y, gap, speed, new Vec2(VrCameraDriver.RoomOffset.x, VrCameraDriver.RoomOffset.y).Length));
                 }
-                if (input.LengthSquared < .04f || gap > BlockRange || speed > BlockedSpeed) return;
+                if (input.LengthSquared < .04f || gap > BlockRange) return;
                 Vec3 look = player.LookDirection;
                 Vec2 forward = new Vec2(look.x, look.y);
                 Vec2 toEnemy = enemy - at;
@@ -67,6 +67,10 @@ namespace BannerlordVR.VR.Physics
                 Vec2 move = right * input.x + forward * input.y;
                 float amount = Math.Min(1, move.Length);
                 if (amount < 1e-3f || Vec2.DotProduct(move.Normalized(), toEnemy) < .3f) return;
+                // Blocked: the speed towards the enemy, not the total speed.
+                // At full stick the engine slides the player round the enemy
+                // at walking speed, which never counted as stopped.
+                if (Vec2.DotProduct(new Vec2(velocity.x, velocity.y), toEnemy) > BlockedSpeed) return;
                 _stopGap = Math.Max(0, gap);
                 if (!_loggedLean)
                 {

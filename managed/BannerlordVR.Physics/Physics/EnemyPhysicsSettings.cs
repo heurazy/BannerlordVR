@@ -42,6 +42,8 @@ namespace BannerlordVR.VR.Physics
         // While its body is physical an agent's own capsule stays at the spot
         // it was held at; close it so it does not block the player there.
         public static readonly bool CloseHeldCapsule = VrConfig.Bool("enemy_physics_close_held_capsule", true);
+        // A sword thrown point first plants in the enemy it meets.
+        public static readonly bool ThrownBladesStick = VrConfig.Bool("enemy_physics_thrown_blades_stick", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

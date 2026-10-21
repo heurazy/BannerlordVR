@@ -573,6 +573,24 @@ namespace BannerlordVR.VR.Physics
         // the tracked bodies are also asked one by one, then tested against
         // their sampled bone spheres.
         public static string LastCastMethod { get; private set; } = "-";
+        // A thrown blade's sweep: the tracked body and limb it meets first.
+        public static bool CastTracked(Vec3 from, Vec3 to, Agent player, float thickness, out EnemyBody body, out BodyPoint point, out float fraction)
+        {
+            body = null; point = default; fraction = 1;
+            if (_mission == null || player == null) return false;
+            float length = (to - from).Length;
+            if (length < 1e-5f) return false;
+            Agent agent = CastLimbs(from, to, player.Index, thickness, out float distance, out sbyte bone);
+            if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance > length) return false;
+            foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
+            if (body == null || bone >= body.Skeleton.GetBoneCount()) return false;
+            point = body.ReadContact(bone);
+            fraction = distance / length;
+            return point.Part != BoneBodyPartType.None;
+        }
+        public static PushEffect EvaluateThrownPush(EnemyBody body, BodyPoint point, Vec3 velocity) =>
+            body.IsCorpse || _living == null ? PushEffect.None : _living.EvaluatePush(body, point, velocity, PushMaterial.Pierce);
+
         private static Agent CastLimbs(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
         {
             Agent agent = _mission.RayCastForClosestAgentsLimbs(from, to, excluded, thickness, out distance, out bone);
