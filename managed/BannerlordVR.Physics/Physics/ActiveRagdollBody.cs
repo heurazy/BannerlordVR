@@ -492,6 +492,7 @@ namespace BannerlordVR.VR.Physics
             _velocitySampled = true;
         }
 
+        private const float GroundClearance = .12f;
         private void ReachTargets()
         {
             for (int h = 0; h < _grabBody.Length; h++)
@@ -567,6 +568,10 @@ namespace BannerlordVR.VR.Physics
                 Vec3 contact = boneWorld.TransformToParent(_grabs[h].Local);
                 _grabBody[h] = body;
                 _grabTarget[h] = _position[body] + (_hand[h] - contact);
+                // The B&S weapon collides with the ground; the controller's
+                // blade does not, and dragged a pierced body into the terrain.
+                if (_grabs[h].Blade && _nearGround && _grabTarget[h].z < _groundPoint.z + GroundClearance)
+                    _grabTarget[h] = new Vec3(_grabTarget[h].x, _grabTarget[h].y, _groundPoint.z + GroundClearance);
                 _drive.SetHandle(h, body, _grabTarget[h], _grabs[h].Blade && !_grabs[h].AxialLock ? _grabs[h].Axis : Vec3.Zero);
                 _lastInteraction = now;
                 if (EnemyPhysicsSettings.Trace && !_grabs[h].Blade && now >= _nextGrabTrace)

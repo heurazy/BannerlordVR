@@ -34,7 +34,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly AdaptivePhysicsBudget Budget = new AdaptivePhysicsBudget(
             EnemyPhysicsSettings.Capacity, EnemyPhysicsSettings.BudgetMilliseconds, 4);
         private static long _workStarted;
-        private static Mission _mission;
+        private static Mission _mission, _lastMission;
         private static LivingRagdollMissionLogic _living;
         private static BleedingMissionLogic _bleeding;
         private static Agent _player;
@@ -155,8 +155,9 @@ namespace BannerlordVR.VR.Physics
                 if (blocked != null) { Reset(); return; }
                 if (_mission != mission || _player != player)
                 {
-                    // A new mission: the kept body handles belong to the old one.
-                    if (_mission != mission) CorpseVisuals.Forget();
+                    // A new mission: the kept body handles belong to the old one
+                    // (Reset clears _mission on every pause, so track it apart).
+                    if (_lastMission != mission) { CorpseVisuals.Forget(); _lastMission = mission; }
                     Reset(); _mission = mission; _player = player;
                     _living = mission.GetMissionBehavior<LivingRagdollMissionLogic>();
                     _bleeding = mission.GetMissionBehavior<BleedingMissionLogic>();
@@ -478,7 +479,13 @@ namespace BannerlordVR.VR.Physics
             if (best.IsCorpse && !best.HasNativePhysics && best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
             {
                 if (best.Skeleton.IsFrozen()) best.Skeleton.Freeze(false);
-                best.Skeleton.ActivateRagdoll();
+                // The agent path (start_ragdoll_as_corpse) is what the engine
+                // ticks for a dead agent; Skeleton.ActivateRagdoll alone stayed
+                // NeedsActivation forever on a corpse.
+                // Only while its visuals still answer (not filed): the start
+                // goes through the mission's ragdoll routine (0x1805d34e0).
+                if (best.Agent.AgentVisuals != null && best.Agent.AgentVisuals.IsValid()) best.Agent.StartRagdollAsCorpse();
+                if (best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled) best.Skeleton.ActivateRagdoll();
                 if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("GRAB corpse agent=" + best.Agent.Index + " ragdoll woken");
             }
             if (!best.IsCorpse || best.HasNativePhysics || best.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled)

@@ -34,7 +34,12 @@ namespace BannerlordVR.VR.Physics
         private const float MinLever = .05f;
         // Ragdoll.playerArmPositionSpring / Damper / MaxPositionForce: the joint
         // between the player's grip and a grabbed part is the player's arm.
-        public const float HandSpring = 5000, HandDamper = 40, HandMaxForce = 3000;
+        // A hand that holds something switches to the creature's grip force
+        // (Creature_PlayerDefault*.json: gripForcePositionSpringDamperMult
+        // 0.5, gripForceMaxPosition 2000 N, PlayerLink.SetJointConfig): a held
+        // body or a planted blade pulls with that, not the free hand's 3000 N.
+        public const float GripMultiplier = .5f;
+        public const float HandSpring = 5000 * GripMultiplier, HandDamper = 40 * GripMultiplier, HandMaxForce = 2000;
         public const int MaxHandles = 2;
         // The grip joint acts alone on its body once the pins follow the hand
         // (see ActiveRagdollBody.ReachTargets): omega*h = 0.31, c*h = 0.5.

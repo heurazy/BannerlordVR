@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private float _maxSeparation;
-        private const float MaxShove = .1f, LateralLoss = .9f;
+        private const float MaxShove = .1f, LateralLoss = 2.5f;
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
         // angular limits are relative to it.
@@ -254,8 +254,9 @@ namespace BannerlordVR.VR.Physics
             // the blade leaving along its axis ends the joint. The VR blade
             // cannot be slowed by the body, so a fast hand leaves the part
             // behind; 16 cm released every stab within 0.2-0.36 s, and 50 cm
-            // every stab into a body lying on the ground (it drags, the blade
-            // does not). Only a part 90 cm off the blade (as far as the shown hand follows it) is let go.
+            // to 1.1 m every stab into a body lying on the ground (the
+            // controller's blade goes through the ground, the B&S weapon
+            // cannot). Only a hand teleported away (2.5 m) lets go.
             if ((bladePoint - anchor).Length > LateralLoss)
             { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
             if (!_hasLocalAxis)
