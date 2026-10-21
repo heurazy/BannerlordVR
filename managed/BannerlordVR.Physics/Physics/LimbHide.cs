@@ -29,7 +29,7 @@ namespace BannerlordVR.VR.Physics
         private sealed class Cut
         {
             public Agent Agent; public Skeleton Skeleton; public sbyte Joint; public sbyte[] Bones;
-            public float Until, Started; public int Kept, Overwritten, Writes; public bool Reported;
+            public float Until, Started; public int Kept, Overwritten, PositionKept, PositionOverwritten, Writes; public bool Reported;
         }
         private static readonly List<Cut> Cuts = new List<Cut>();
         // Offset of the drawn frame (a 4x4 MatrixFrame, s f u origin) in a
@@ -37,7 +37,6 @@ namespace BannerlordVR.VR.Physics
         private static int _frameOffset = -1;
         private static bool _broken;
         private static readonly byte[] Buffer = new byte[RecordBytes];
-        private static readonly float[] Frame = new float[16];
 
         public static void Begin(Agent agent, sbyte bone)
         {
@@ -82,36 +81,26 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
-        // The joint bone's record holds the drawn frame: the 16 floats equal
-        // to its entity-space frame, rows s f u then origin, 16 bytes each.
+        // Bone record layout, read in game on 22 Oct 2026 (a head record):
+        // 0x04 drawn frame rotation (quaternion x y z w), 0x14 its position
+        // (entity space, matched against GetBoneEntitialFrameWithIndex), 0x20
+        // a float at FLT_MAX; 0x30 local rotation, 0x40 local position (w 1),
+        // 0x50 a 1 then zeros, likely the local scale; 0x60 a 4x4 matrix
+        // (the rest frame). The drawn frame has no scale, so the limb is
+        // shrunk through the local scale and its drawn position put at the
+        // joint; each field read back next tick says whether the engine kept it.
+        private const int DrawnPosition = 0x14, LocalScale = 0x50;
         private static void Discover(Cut cut)
         {
             int read = bvr_skeleton_bone_record(cut.Skeleton.Pointer, cut.Joint, Buffer, RecordBytes);
             MatrixFrame e = cut.Skeleton.GetBoneEntitialFrameWithIndex(cut.Joint);
-            var sb = new StringBuilder();
-            for (int o = 0; o + 4 <= RecordBytes && read > 0; o += 4)
-                sb.Append(o % 64 == 0 ? (o == 0 ? "" : " |") + " " + o.ToString("x2") + ":" : " ").Append(BitConverter.ToSingle(Buffer, o).ToString("G4", CultureInfo.InvariantCulture));
+            bool position = read == RecordBytes && Near(DrawnPosition, e.origin);
+            bool scale = read == RecordBytes && Math.Abs(BitConverter.ToSingle(Buffer, LocalScale) - 1) < .05f;
+            _frameOffset = position && scale ? DrawnPosition : -2;
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "LIMB_HIDE record read={0} entitial s=({1:F3},{2:F3},{3:F3}) f=({4:F3},{5:F3},{6:F3}) u=({7:F3},{8:F3},{9:F3}) o=({10:F3},{11:F3},{12:F3}) bytes{13}",
-                read, e.rotation.s.x, e.rotation.s.y, e.rotation.s.z, e.rotation.f.x, e.rotation.f.y, e.rotation.f.z,
-                e.rotation.u.x, e.rotation.u.y, e.rotation.u.z, e.origin.x, e.origin.y, e.origin.z, sb));
-            if (read < RecordBytes) { _frameOffset = -2; PhysicsLog.Info("LIMB_HIDE record unreadable (" + read + ")"); return; }
-            var found = new StringBuilder();
-            for (int o = 4; o + 64 <= RecordBytes; o += 4)
-            {
-                if (!Near(o, e.rotation.s) || !Near(o + 16, e.rotation.f) || !Near(o + 32, e.rotation.u) || !Near(o + 48, e.origin)) continue;
-                found.Append(' ').Append(o.ToString("x2"));
-                if (_frameOffset < 0) _frameOffset = o;
-            }
-            if (_frameOffset < 0)
-            {
-                _frameOffset = -2;
-                // Positions alone, to place the frame by hand from the log.
-                var origins = new StringBuilder();
-                for (int o = 4; o + 12 <= RecordBytes; o += 4) if (Near(o, e.origin)) origins.Append(' ').Append(o.ToString("x2"));
-                PhysicsLog.Info("LIMB_HIDE no matrix frame in the record; origin found at" + (origins.Length > 0 ? origins.ToString() : " none"));
-            }
-            else PhysicsLog.Info("LIMB_HIDE drawn frame at offset" + found + " (using " + _frameOffset.ToString("x2") + ")");
+                "LIMB_HIDE layout check: drawn position at 0x14 {0}, local scale at 0x50 = {1:G4} {2}",
+                position ? "matches" : "does not match", read == RecordBytes ? BitConverter.ToSingle(Buffer, LocalScale) : float.NaN,
+                _frameOffset > 0 ? "- hiding on" : "- hiding off"));
         }
 
         private static bool Near(int offset, Vec3 v) =>
@@ -119,33 +108,39 @@ namespace BannerlordVR.VR.Physics
             Math.Abs(BitConverter.ToSingle(Buffer, offset + 4) - v.y) < Tolerance &&
             Math.Abs(BitConverter.ToSingle(Buffer, offset + 8) - v.z) < Tolerance;
 
-        // Every bone of the limb: rows shrunk, origin at the joint. A row still
-        // shrunk when read back is a frame the engine kept from our last write.
+        private static readonly float[] One = new float[1], Three = new float[3];
         private static void Hide(Cut cut)
         {
             if (bvr_skeleton_bone_record(cut.Skeleton.Pointer, cut.Joint, Buffer, RecordBytes) < RecordBytes) return;
-            float jx = BitConverter.ToSingle(Buffer, _frameOffset + 48), jy = BitConverter.ToSingle(Buffer, _frameOffset + 52),
-                jz = BitConverter.ToSingle(Buffer, _frameOffset + 56);
+            float jx = BitConverter.ToSingle(Buffer, DrawnPosition), jy = BitConverter.ToSingle(Buffer, DrawnPosition + 4),
+                jz = BitConverter.ToSingle(Buffer, DrawnPosition + 8);
             foreach (sbyte bone in cut.Bones)
             {
                 if (bvr_skeleton_bone_record(cut.Skeleton.Pointer, bone, Buffer, RecordBytes) < RecordBytes) continue;
-                float rowLength = (float)Math.Sqrt(Sq(_frameOffset) + Sq(_frameOffset + 4) + Sq(_frameOffset + 8));
-                if (cut.Writes > 0) { if (rowLength < Shrink * 3) cut.Kept++; else cut.Overwritten++; }
-                for (int k = 0; k < 16; k++) Frame[k] = BitConverter.ToSingle(Buffer, _frameOffset + k * 4);
-                for (int k = 0; k < 12; k++) if (k % 4 != 3) Frame[k] = rowLength < Shrink * 3 ? Frame[k] : Frame[k] * Shrink;
-                Frame[12] = jx; Frame[13] = jy; Frame[14] = jz;
-                bvr_skeleton_write_record(cut.Skeleton.Pointer, bone, _frameOffset, Frame, 16);
+                if (cut.Writes > 0)
+                {
+                    if (BitConverter.ToSingle(Buffer, LocalScale) < Shrink * 3) cut.Kept++; else cut.Overwritten++;
+                    float dx = BitConverter.ToSingle(Buffer, DrawnPosition) - jx, dy = BitConverter.ToSingle(Buffer, DrawnPosition + 4) - jy,
+                        dz = BitConverter.ToSingle(Buffer, DrawnPosition + 8) - jz;
+                    if (bone != cut.Joint) { if (dx * dx + dy * dy + dz * dz < 1e-6f) cut.PositionKept++; else cut.PositionOverwritten++; }
+                }
+                One[0] = Shrink;
+                bvr_skeleton_write_record(cut.Skeleton.Pointer, bone, LocalScale, One, 1);
+                if (bone != cut.Joint)
+                {
+                    Three[0] = jx; Three[1] = jy; Three[2] = jz;
+                    bvr_skeleton_write_record(cut.Skeleton.Pointer, bone, DrawnPosition, Three, 3);
+                }
             }
             cut.Writes++;
         }
-        private static float Sq(int offset) { float v = BitConverter.ToSingle(Buffer, offset); return v * v; }
 
         private static void Report(Cut cut, string when)
         {
             cut.Reported = true;
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "LIMB_HIDE {0} agent={1} writes={2} kept={3} overwritten={4} (kept: the engine left our shrunk frame until the next tick)",
-                when, cut.Agent.Index, cut.Writes, cut.Kept, cut.Overwritten));
+                "LIMB_HIDE {0} agent={1} bones={2} writes={3} scale kept={4} overwritten={5}; position kept={6} overwritten={7} (kept: the engine left our value until the next tick)",
+                when, cut.Agent.Index, cut.Bones.Length, cut.Writes, cut.Kept, cut.Overwritten, cut.PositionKept, cut.PositionOverwritten));
         }
 
         private static void Fail(string where, Exception ex)
