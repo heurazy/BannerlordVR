@@ -120,6 +120,18 @@ namespace BannerlordVR.VR.Physics
                         if (!_logged) names.Append(' ').Append(name);
                         if (name.StartsWith(helmet, StringComparison.OrdinalIgnoreCase)) { mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++; }
                     }
+                // The equipment's meshes hang on the agent's entity (the
+                // skeleton itself only held boots and vambraces in game).
+                GameEntity entity = victim.AgentVisuals.GetEntity();
+                int onEntity = entity?.MultiMeshComponentCount ?? 0;
+                for (int i = 0; i < onEntity; i++)
+                {
+                    MetaMesh mesh = entity.GetMetaMesh(i);
+                    if (mesh == null) continue;
+                    string name = mesh.GetName() ?? "";
+                    if (!_logged) names.Append(" [entity] ").Append(name);
+                    if (name.StartsWith(helmet, StringComparison.OrdinalIgnoreCase)) { mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++; }
+                }
                 int onBone = skeleton.GetBoneComponentCount(head);
                 for (int i = 0; i < onBone; i++)
                     if (skeleton.GetBoneComponentAtIndex(head, i) is MetaMesh mesh)
