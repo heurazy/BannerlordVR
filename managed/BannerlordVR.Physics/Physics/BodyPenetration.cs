@@ -278,6 +278,9 @@ namespace BannerlordVR.VR.Physics
         private Vec3 _lastAnchor;
         public float PendingDamage => _pending;
 
+        // Out of the body with nothing dealt (the victim is killed elsewhere).
+        public void Abandon() { _pending = 0; _pendingVictim = null; _woundLost = 0; _woundBody = null; Release(); }
+
         public void Release()
         {
             Agent victim = _pendingVictim;

@@ -78,7 +78,32 @@ namespace BannerlordVR.VR.Physics
             // rebuilding the visuals without the head crashed the game when
             // the corpse went ragdoll. The cut keeps what B&S does besides the
             // separation: the stump bleeds and sliceForceKill kills.
-            if (kind == SliceJoint.Neck) HideHead(victim);
+            if (kind == SliceJoint.Neck && EnemyPhysicsSettings.Decapitation && HideHead(victim))
+            {
+                // The refreshed visuals get a tick to build their skeleton
+                // before the kill ragdolls them.
+                Pending.Add(new Cut { Player = player, Victim = victim, Bone = bone, Parent = parent, At = at, Kind = kind, Speed = speed, Ticks = 2 });
+                return;
+            }
+            Kill(player, victim, bone, parent, at, kind, speed);
+        }
+
+        private struct Cut { public Agent Player, Victim; public sbyte Bone, Parent; public Vec3 At; public SliceJoint Kind; public float Speed; public int Ticks; }
+        private static readonly List<Cut> Pending = new List<Cut>();
+        public static void Tick()
+        {
+            for (int i = Pending.Count - 1; i >= 0; i--)
+            {
+                Cut cut = Pending[i];
+                if (--cut.Ticks > 0) { Pending[i] = cut; continue; }
+                Pending.RemoveAt(i);
+                try { if (cut.Victim != null && cut.Victim.IsActive()) Kill(cut.Player, cut.Victim, cut.Bone, cut.Parent, cut.At, cut.Kind, cut.Speed); }
+                catch (Exception ex) { PhysicsLog.Error("Beheading kill failed.", ex); }
+            }
+        }
+
+        private static void Kill(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed)
+        {
             MBAgentVisuals visuals = victim.AgentVisuals;
             try
             {
@@ -97,17 +122,22 @@ namespace BannerlordVR.VR.Physics
         // Official equipment refresh with a meshless head item that covers the
         // head (ModuleData/bvr_items.xml). Untested in game; skipped when the
         // item is not registered.
-        private static void HideHead(Agent agent)
+        // The body is let go first (blades, grips, its living ragdoll): the
+        // refresh replaces the skeleton they hold.
+        private static bool HideHead(Agent agent)
         {
             try
             {
                 ItemObject severed = TaleWorlds.ObjectSystem.MBObjectManager.Instance?.GetObject<ItemObject>("bvr_severed_head");
-                if (severed == null) return;
+                if (severed == null) { PhysicsLog.Info("DISMEMBER head kept: bvr_severed_head is not registered."); return false; }
+                EnemyPhysicsRuntime.LetGo(agent);
                 var equipment = new Equipment(agent.SpawnEquipment);
                 equipment[EquipmentIndex.Head] = new EquipmentElement(severed);
                 agent.UpdateSpawnEquipmentAndRefreshVisuals(equipment);
+                PhysicsLog.Info("DISMEMBER head hidden agent=" + agent.Index);
+                return true;
             }
-            catch (Exception ex) { PhysicsLog.Error("Head removal by equipment refresh failed.", ex); }
+            catch (Exception ex) { PhysicsLog.Error("Head removal by equipment refresh failed.", ex); return false; }
         }
 
         // Scale read back from the skinned skeleton, for the in-game probe.

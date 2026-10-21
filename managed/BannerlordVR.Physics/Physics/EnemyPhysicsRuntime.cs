@@ -173,6 +173,7 @@ namespace BannerlordVR.VR.Physics
                     _bleeding = mission.GetMissionBehavior<BleedingMissionLogic>();
                 }
                 float now = mission.CurrentTime;
+                DismemberFx.Tick();
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
                 _time = now;
@@ -735,6 +736,17 @@ namespace BannerlordVR.VR.Physics
         // struck the held enemy (its blow refused, its hit sound, blood and
         // reaction still played), a string of hits on every stab. The hand
         // that holds a body, or just let go of one, starts none.
+        // Lets go of a body without dealing what its blades held back: the
+        // beheading rebuilds its visuals, then kills it.
+        public static void LetGo(Agent agent)
+        {
+            foreach (Hand hand in Hands)
+            {
+                if (hand.Penetration.Body?.Agent == agent) hand.Penetration.Abandon();
+                if (hand.Grab.Body?.Agent == agent) hand.Grab.Release();
+            }
+            _living?.Release(agent);
+        }
         public static bool HandHolds(int index)
         {
             if (index < 0 || index >= Hands.Length) return false;
@@ -763,6 +775,7 @@ namespace BannerlordVR.VR.Physics
         {
             hand.DiagCasts++;
             EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0; bool hitCooled = false;
+            Vec3 rawVelocity = Vec3.Zero;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
             // A shield's face is about 0.22 m round its grip, a fist 6.5 cm.
@@ -821,7 +834,8 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
                 earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
-                velocity = InteractionMath.ClampMagnitude((current - previous) * (1 / dt) - point.Velocity, 12);
+                rawVelocity = (current - previous) * (1 / dt) - point.Velocity;
+                velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
             if (hit == null) return;
             hand.DiagHits++;
@@ -832,7 +846,9 @@ namespace BannerlordVR.VR.Physics
             {
                 BodyPenetration.ProfileFor(usage, false, out PenetrationProfile sliceProfile);
                 bool twoHanded = usage.WeaponFlags.HasAnyFlag(WeaponFlags.NotUsableWithOneHand);
-                if (DismemberFx.TrySlice(player, hit, contact, start, tip, velocity, sliceProfile, twoHanded, false))
+                // Damager dismembermentMinVelocity is 12 m/s for a one-handed
+                // sword: measured on the 12 m/s-capped hit speed it never sliced.
+                if (DismemberFx.TrySlice(player, hit, contact, start, tip, InteractionMath.ClampMagnitude(rawVelocity, 30), sliceProfile, twoHanded, false))
                 {
                     PhysicsInterop.Haptic(index, .8f, .06f);
                     return;

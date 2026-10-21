@@ -139,7 +139,7 @@ namespace BannerlordVR.VR.Physics
         // it drag the weapon down; here, by choice, the arm is stronger: at
         // 2500 N/m a 100-115 kg body sagged 45 cm, pulled the shown sword
         // down with it and threw the stab into chaos.
-        public const float CarrySpring = 6000, CarryMaxForce = 4000;
+        public const float CarrySpring = 4000, CarryMaxForce = 2500;
         private readonly bool[] _carry = new bool[MaxHandles];
         public void SetCarry(int h, bool carry) { if (h >= 0 && h < MaxHandles) _carry[h] = carry; }
         public void SetSpread(int h, int body, float weight)
