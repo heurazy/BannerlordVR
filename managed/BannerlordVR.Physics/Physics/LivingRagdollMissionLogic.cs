@@ -511,6 +511,33 @@ namespace BannerlordVR.VR.Physics
             }
             return true;
         }
+        // B&S: a creature's shield is an item its physical hand holds, so a
+        // blade driven into it pushes the shield and the arm back or aside,
+        // and the arm's pins bring the guard back. The drive depth becomes the
+        // grip's force (spring 2500 N/m, at most 2000 N) on the shield hand.
+        public void ShieldPress(EnemyBody body, Vec3 depth)
+        {
+            if (body == null || body.IsCorpse || !Available || !EnemyPhysicsSettings.ActiveRagdoll || !EnemyPhysicsSettings.ShieldDeflect) return;
+            Entry entry = Find(body.Agent);
+            if (entry == null)
+            {
+                if (!KeepHeld(body, true)) return;
+                entry = Find(body.Agent);
+                if (entry == null) return;
+            }
+            if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
+            entry.Lease.KeepHeld(Mission.CurrentTime, .3f);
+            sbyte hand = -1;
+            for (int i = 0; i < body.Count; i++)
+                if ((body.Skeleton.GetBoneName(body.Points[i].Bone) ?? "") == "l_hand") { hand = body.Points[i].Bone; break; }
+            if (hand < 0) return;
+            // The hand is a ~1 kg body: the grip's stiffness is held to the
+            // drive's natural-frequency cap for its mass, or 2000 N threw it.
+            float mass = Math.Max(.5f, entry.Active.PartMass(hand));
+            float k = Math.Min(RagdollPinDrive.HandSpring, mass * RagdollPinDrive.HandNaturalFrequency * RagdollPinDrive.HandNaturalFrequency);
+            Vec3 force = InteractionMath.ClampMagnitude(depth * k, Math.Min(RagdollPinDrive.HandMaxForce, mass * 60));
+            entry.Active.Press(hand, force, Mission.CurrentTime);
+        }
         public PushContext ContextOf(Agent agent, float now)
         {
             if (_staggers.TryGetValue(agent, out Stagger stagger) && stagger.Until > now)

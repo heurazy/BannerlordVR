@@ -26,6 +26,17 @@ namespace BannerlordVR.VR.Physics
         public static bool Blocked(HandRole role) =>
             BlockedAt[(int)role] != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - BlockedAt[(int)role] < Fresh;
         private const int Samples = 10;
+        // Per enemy agent index: the blade's drive into its shield (world,
+        // away from the player), from the last frame the shield held it.
+        private static readonly System.Collections.Generic.Dictionary<int, Vec3> PressDepth = new System.Collections.Generic.Dictionary<int, Vec3>();
+        private static readonly System.Collections.Generic.Dictionary<int, long> PressAt = new System.Collections.Generic.Dictionary<int, long>();
+        public static bool Pressing(int agent, out Vec3 depth)
+        {
+            depth = Vec3.Zero;
+            if (!PressAt.TryGetValue(agent, out long at) || System.Diagnostics.Stopwatch.GetTimestamp() - at > Fresh) return false;
+            depth = PressDepth[agent];
+            return InteractionMath.IsFinite(depth) && depth.Length > 1e-4f;
+        }
         private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
         private static bool _broken;
         private static int _logs;
@@ -110,6 +121,9 @@ namespace BannerlordVR.VR.Physics
             if ((total + shift).Length > MaxLag) return false; // past the hand's reach: it goes through
             total += shift;
             world.origin += shift;
+            // How far the controller drives the blade into this shield: the
+            // B&S weapon pushes the shield (and the arm holding it) with that.
+            if (owner >= 0) { PressDepth[owner] = -shift; PressAt[owner] = System.Diagnostics.Stopwatch.GetTimestamp(); }
             if (_logs < 6)
             {
                 _logs++;

@@ -193,6 +193,9 @@ namespace BannerlordVR.VR.Physics
                         ActiveBodies++;
                         // Within reach a corpse stays physical (not filed).
                         if (body.IsCorpse && CorpseKeeper.Keep(body.Agent)) CorpseKeeper.KeepAwake(body, _time);
+                        // A blade held against its shield pushes it aside.
+                        else if (!body.IsCorpse && _living != null && ShieldBlock.Pressing(body.Agent.Index, out Vec3 press))
+                            _living.ShieldPress(body, press);
                     }
                 }
                 ShedUnheldBodies(player);

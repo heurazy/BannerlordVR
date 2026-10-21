@@ -324,6 +324,17 @@ namespace BannerlordVR.VR.Physics
         // brought to the fist's speed within the arm joint's force); an item
         // gives its momentum. On a body that is no longer standing the
         // damager's AddForceCoroutine follows for 0.15 s.
+        // A force held on one part for this tick (a blade pressing the shield
+        // the hand holds): applied with the drive, at most once per step.
+        private sbyte _pressBone = -1; private Vec3 _pressForce; private float _pressUntil;
+        public void Press(sbyte bone, Vec3 force, float now)
+        {
+            if (bone < 0 || !InteractionMath.IsFinite(force)) return;
+            _pressBone = bone; _pressForce = force; _pressUntil = now + .05f;
+            _hitHold = Math.Max(_hitHold, HitReaction);
+            _lastInteraction = Math.Max(_lastInteraction, _lastRootSample);
+        }
+
         public void QueueHit(sbyte bone, Vec3 velocity, float hitMass, bool fist, PushEffect push)
         {
             if (!InteractionMath.IsFinite(velocity) || bone < 0) return;
@@ -436,6 +447,11 @@ namespace BannerlordVR.VR.Physics
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
             ApplyHit(now, Math.Min(dt, .1f));
+            if (_pressBone >= 0 && now <= _pressUntil && _pressBone < _bodyOfBone.Length)
+            {
+                int pb = _bodyOfBone[_pressBone];
+                if (pb >= 0 && pb < _drive.Count) _force[pb] += _pressForce;
+            }
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (_pendingBone == _bone[i]) { _force[i] += _pendingImpulse; _pendingBone = -1; }
