@@ -87,6 +87,9 @@ namespace BannerlordVR.VR.Physics
                 if (state == RagdollState.NeedsActivation) { ReleasePending = true; return; }
                 NativeRagdollBridge.Release(Agent, Mission, Skeleton);
                 ReleasePending = false;
+                // The corpse ragdoll leaves the skeleton frozen (captured
+                // unfrozen, frozen after every release): no animation shows.
+                if (Skeleton.IsFrozen()) Skeleton.Freeze(false);
             }
             // Agent.IsPaused only stops AI decisions: the engine kept walking a
             // paused agent towards its last target, 15-28 m away from its body
@@ -421,8 +424,11 @@ namespace BannerlordVR.VR.Physics
             float now = Mission.CurrentTime;
             foreach (Agent agent in _reanimateDone)
             {
+                if (!agent.IsActive()) { _reanimate.Remove(agent); _reanimateLogged.Remove(agent); continue; }
+                // The lease stays occupied while the engine finishes the
+                // release; the 3 s start once it has let go.
+                if (HasLease(agent)) { _reanimate[agent] = now; continue; }
                 bool last = now - _reanimate[agent] > ReanimateSeconds;
-                if (!agent.IsActive() || HasLease(agent)) { _reanimate.Remove(agent); _reanimateLogged.Remove(agent); continue; }
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null) { _reanimate.Remove(agent); continue; }
                 if (skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
@@ -621,7 +627,8 @@ namespace BannerlordVR.VR.Physics
             foreach (KeyValuePair<Agent, Rise> pair in _rises)
             {
                 Agent agent = pair.Key; Rise rise = pair.Value;
-                if (!agent.IsActive() || HasLease(agent) || Mission.CurrentTime - rise.Started > 4) { _risesDone.Add(agent); continue; }
+                if (!agent.IsActive() || Mission.CurrentTime - rise.Started > 4) { _risesDone.Add(agent); continue; }
+                if (HasLease(agent)) continue;
                 Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled) continue;
                 rise.Step++;

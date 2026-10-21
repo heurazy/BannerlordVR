@@ -124,7 +124,13 @@ namespace BannerlordVR.VR.Physics
                 var action = agent.GetCurrentActionType(channel);
                 if (action == Agent.ActionCodeType.Mount || action == Agent.ActionCodeType.Dismount ||
                     (action == Agent.ActionCodeType.Fall && !ownedPhysicalFall) || (action >= Agent.ActionCodeType.JumpStart && action <= Agent.ActionCodeType.JumpEndHard) ||
-                    (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear)) return "action_" + action;
+                    (action >= Agent.ActionCodeType.Sit && action <= Agent.ActionCodeType.Rear))
+                {
+                    // Getting up from a knockdown is a body the physics may
+                    // take again, as B&S grabs a creature standing up.
+                    if (agent.GetCurrentAction(channel).GetName().StartsWith("act_strike_fall")) continue;
+                    return "action_" + action;
+                }
             }
             return null;
         }
