@@ -77,6 +77,11 @@ namespace BannerlordVR.VR.Physics
         // Horizontal gap between a capsule of this radius at a point and the
         // nearest tracked living enemy's capsule (negative when overlapping).
         public static float Clearance(Vec2 at, float radius) => Nearest(at, radius, out _);
+        public static System.Collections.Generic.IEnumerable<Agent> TrackedLiving()
+        {
+            foreach (EnemyBody body in Bodies)
+                if (body?.Agent != null && !body.IsCorpse && body.Agent.IsActive()) yield return body.Agent;
+        }
         public static float Nearest(Vec2 at, float radius, out Vec2 position)
         {
             float best = float.MaxValue; position = at;
@@ -349,6 +354,7 @@ namespace BannerlordVR.VR.Physics
                     tip = segment.TipWorld;
                     // The shown blade may be held back by a joint or by
                     // VrCollide; the physics works from the controller's.
+                    PhysicalBlade.LearnBlade(slot.Role, basePoint, tip);
                     PhysicalBlade.ToRaw(slot.Role, ref basePoint, ref tip);
                 }
                 else

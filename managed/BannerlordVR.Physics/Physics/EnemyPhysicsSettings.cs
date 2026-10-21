@@ -51,6 +51,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool KeepNearCorpses = VrConfig.Bool("enemy_physics_keep_near_corpses", true);
         // Turn a thrown blade point first in flight (B&S flyRotationSpeed).
         public static readonly bool ThrownAlign = VrConfig.Bool("enemy_physics_thrown_align", false);
+        // Shields stop the shown weapon and hand, not only turn the weapon.
+        public static readonly bool SolidShields = VrConfig.Bool("enemy_physics_solid_shields", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

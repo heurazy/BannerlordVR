@@ -35,6 +35,8 @@ namespace BannerlordVR.VR.Physics
             // A grabbing hand: offset from the controller hand to the
             // grabbed point, set by the physics each tick.
             public Vec3 Grip; public long GripAt;
+            // The held blade in the hand frame, from the last physics tick.
+            public Vec3 BladeGrip, BladeTip; public long BladeAt;
         }
         private static readonly State[] States = { new State(), new State() };
         private const float MaxSeparation = .9f, GlideSeconds = .12f;
@@ -79,6 +81,15 @@ namespace BannerlordVR.VR.Physics
             Vec3 g = s.Shown.TransformToLocalNonOrthogonal(grip), t = s.Shown.TransformToLocalNonOrthogonal(tip);
             Vec3 rg = s.Raw.TransformToParent(g), rt = s.Raw.TransformToParent(t);
             if (InteractionMath.IsFinite(rg) && InteractionMath.IsFinite(rt)) { grip = rg; tip = rt; }
+        }
+        // The shown blade (world) mapped into the hand frame shown this frame.
+        public static void LearnBlade(HandRole role, Vec3 grip, Vec3 tip)
+        {
+            State s = States[(int)role];
+            if (Stopwatch.GetTimestamp() - s.At > Fresh) return;
+            Vec3 g = s.Shown.TransformToLocalNonOrthogonal(grip), t = s.Shown.TransformToLocalNonOrthogonal(tip);
+            if (!InteractionMath.IsFinite(g) || !InteractionMath.IsFinite(t)) return;
+            s.BladeGrip = g; s.BladeTip = t; s.BladeAt = Stopwatch.GetTimestamp();
         }
         public static float Separation(HandRole role)
         {
@@ -166,6 +177,11 @@ namespace BannerlordVR.VR.Physics
                         if (t >= 1) s.ResidualAt = 0;
                         else world.origin += s.Residual * (1 - t);
                     }
+                    // A shield stops the weapon and the hand (B&S), where
+                    // VrCollide only turned the weapon about the grip.
+                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
+                        ShieldBlock.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
+                        __result = true;
                     s.Shown = world;
                 }
                 catch (Exception ex)
