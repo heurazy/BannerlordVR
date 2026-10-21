@@ -40,6 +40,8 @@ namespace BannerlordVR.VR.Physics
             public Agent Agent; public Skeleton Skeleton; public SliceJoint Kind; public sbyte Root, Parent, Grandparent;
             public sbyte[] Bones; public float Until, Started; public Vec3 Written; public bool HasWritten, Reported;
             public int Writes, Skipped, Survived, Lost;
+            // Watch: the record a tick before and how far each 16-byte block moved.
+            public byte[] Prev; public float[] Moved = new float[16], Total = new float[16]; public float NextLog; public int Samples;
         }
         private static readonly List<Cut> Cuts = new List<Cut>();
         private static bool _broken, _layoutChecked, _layoutOk;
@@ -101,6 +103,7 @@ namespace BannerlordVR.VR.Physics
                         Report(cut, "ended");
                         Cuts.RemoveAt(i); continue;
                     }
+                    if (EnemyPhysicsSettings.LimbWatch) { Watch(cut, now); continue; }
                     if (!_layoutChecked) CheckLayout(cut);
                     if (!_layoutOk) { Cuts.RemoveAt(i); continue; }
                     Fold(cut);
@@ -108,6 +111,38 @@ namespace BannerlordVR.VR.Physics
                 }
                 catch (Exception ex) { Fail("tick", ex); return; }
             }
+        }
+
+        // Which fields of the cut bone's record the engine updates as the body
+        // falls: the fold written at 0x04 / 0x14 held every frame yet nothing
+        // changed on screen, so the ragdoll is drawn from elsewhere. Logged
+        // every 0.3 s with the bone's world position for comparison.
+        private static void Watch(Cut cut, float now)
+        {
+            if (bvr_skeleton_bone_record(cut.Skeleton.Pointer, cut.Root, Buffer, RecordBytes) < RecordBytes) return;
+            if (cut.Prev != null)
+                for (int b = 0; b < 16; b++)
+                    for (int k = 0; k < 4; k++)
+                    {
+                        float d = Math.Abs(BitConverter.ToSingle(Buffer, b * 16 + k * 4) - BitConverter.ToSingle(cut.Prev, b * 16 + k * 4));
+                        if (float.IsNaN(d) || float.IsInfinity(d)) continue;
+                        cut.Moved[b] += d; cut.Total[b] += d;
+                    }
+            if (cut.Prev == null) cut.Prev = new byte[RecordBytes];
+            Array.Copy(Buffer, cut.Prev, RecordBytes);
+            cut.Samples++;
+            if (now < cut.NextLog) return;
+            cut.NextLog = now + .3f;
+            MatrixFrame e = cut.Skeleton.GetBoneEntitialFrameWithIndex(cut.Root);
+            Vec3 world = cut.Agent.AgentVisuals.GetGlobalFrame().TransformToParent(e).origin;
+            var sb = new System.Text.StringBuilder();
+            for (int b = 0; b < 16; b++) sb.Append(' ').Append((b * 16).ToString("x2")).Append(':').Append(cut.Moved[b].ToString("F3", CultureInfo.InvariantCulture));
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "LIMB_WATCH t={0:F2} agent={1} bone_world=({2:F2},{3:F2},{4:F2}) entitial_o=({5:F3},{6:F3},{7:F3}) rec14=({8:F3},{9:F3},{10:F3}) rec90=({11:F3},{12:F3},{13:F3}) moved{14}",
+                now - cut.Started, cut.Agent.Index, world.x, world.y, world.z, e.origin.x, e.origin.y, e.origin.z,
+                BitConverter.ToSingle(Buffer, 0x14), BitConverter.ToSingle(Buffer, 0x18), BitConverter.ToSingle(Buffer, 0x1c),
+                BitConverter.ToSingle(Buffer, 0x90), BitConverter.ToSingle(Buffer, 0x94), BitConverter.ToSingle(Buffer, 0x98), sb));
+            Array.Clear(cut.Moved, 0, 16);
         }
 
         // The drawn position must match the engine's entity-space bone frame.
@@ -194,6 +229,12 @@ namespace BannerlordVR.VR.Physics
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "LIMB_TUCK {0} agent={1} joint={2} writes={3} still_ours={4} next_frame survived={5} lost={6} (survived: drawn folded)",
                 when, cut.Agent.Index, cut.Kind, cut.Writes, cut.Skipped, cut.Survived, cut.Lost));
+            if (cut.Samples > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int b = 0; b < 16; b++) sb.Append(' ').Append((b * 16).ToString("x2")).Append(':').Append(cut.Total[b].ToString("F2", CultureInfo.InvariantCulture));
+                PhysicsLog.Info("LIMB_WATCH " + when + " agent=" + cut.Agent.Index + " samples=" + cut.Samples + " total movement per block" + sb);
+            }
         }
 
         private static void Fail(string where, Exception ex)
