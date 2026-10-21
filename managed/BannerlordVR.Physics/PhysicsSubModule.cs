@@ -33,6 +33,17 @@ namespace BannerlordVR.Physics
             }
         }
 
+        // A severed limb is folded again after the agents' tick, and checked at
+        // the next frame's start (LimbHide).
+        protected override void AfterAsyncTickTick(float dt)
+        {
+            try { BannerlordVR.VR.Physics.LimbHide.LateTick(); } catch (Exception) { }
+        }
+        protected override void OnApplicationTick(float dt)
+        {
+            try { BannerlordVR.VR.Physics.LimbHide.FrameStart(); } catch (Exception) { }
+        }
+
         public override void OnMissionBehaviorInitialize(Mission mission)
         {
             base.OnMissionBehaviorInitialize(mission);

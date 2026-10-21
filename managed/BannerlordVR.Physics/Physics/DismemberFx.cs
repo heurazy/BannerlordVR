@@ -127,7 +127,7 @@ namespace BannerlordVR.VR.Physics
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
             // The severed part is shrunk away in the skeleton.
-            LimbHide.Begin(victim, bone);
+            LimbHide.Begin(victim, bone, parent, kind);
         }
 
         // Official equipment refresh with a meshless head item that covers the
