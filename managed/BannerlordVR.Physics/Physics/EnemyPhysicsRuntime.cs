@@ -486,7 +486,7 @@ namespace BannerlordVR.VR.Physics
             // hand closing on it wakes it, as any B&S body is physical.
             // A corpse the engine filed is never woken: activating its ragdoll
             // crashed the engine (TaleWorlds.Native+0x1D3A10 read 0x2BE0).
-            if (best.IsCorpse && !best.HasNativePhysics && Filed(best)) return;
+            if (best.IsCorpse && !best.HasNativePhysics && (Filed(best) || !EnemyPhysicsSettings.KeepNearCorpses)) return;
             if (best.IsCorpse && !best.HasNativePhysics && best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
             {
                 if (best.Skeleton.IsFrozen()) best.Skeleton.Freeze(false);

@@ -384,6 +384,14 @@ namespace BannerlordVR.VR.Physics
             DetectImpacts(now);
             float sampleDt = _lastRootSample < 0 ? 0 : now - _lastRootSample;
             if (sampleDt > 0) RootSpeed = (pelvis - _lastPelvis).Length / sampleDt;
+            // A body thrown at more than a running speed: say what held it.
+            if (RootSpeed > LaunchSpeed && sampleDt > 0 && now - _lastLaunchLog > 1)
+            {
+                _lastLaunchLog = now;
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_RAGDOLL launched speed={0:F1} phase={1} slot0={2} slot1={3} hit_until={4:F2} pose_error={5:F2}",
+                    RootSpeed, _cycle.Phase, Describe(0), Describe(1), Math.Max(0, _addForceUntil - now), LastPoseError));
+            }
             _lastPelvis = pelvis; _lastRootSample = now;
             if (now >= _nextGround)
             {
@@ -492,7 +500,10 @@ namespace BannerlordVR.VR.Physics
             _velocitySampled = true;
         }
 
-        private const float GroundClearance = .12f;
+        private const float GroundClearance = .12f, LaunchSpeed = 7;
+        private float _lastLaunchLog = -10;
+        private string Describe(int h) => !_grabs[h].Active ? "-" : (_grabs[h].Blade ? "blade" : _grabs[h].Kind.ToString()) +
+            (_grabs[h].AxialLock ? "/locked" : "") + "@" + _grabs[h].Bone;
         private void ReachTargets()
         {
             for (int h = 0; h < _grabBody.Length; h++)

@@ -856,9 +856,10 @@ namespace BannerlordVR.VR.Physics
             // A hit reaction the blow started under the physical body plays from
             // its middle at the switch: back to the idle instead.
             ClearHitReaction(entry.Agent);
-            // Not only a body the grab moved: the reaction's root motion walked
-            // the hidden agent up to 0.9 m off its body, and the switch jumped.
-            if ((moved || distance > .15f) && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
+            // Only a body that was moved: the agent stands about 1 m from its
+            // visual entity's origin, so a distance test teleported every
+            // released agent by a metre.
+            if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
                 distance < 30 && navmesh)
             {
                 entry.Agent.TeleportToPosition(position); teleported = true;
