@@ -660,7 +660,8 @@ namespace BannerlordVR.VR.Physics
                 for (int i = 0; i < body.Count; i++)
                 {
                     BodyPoint point = body.Points[i];
-                    if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + thickness, out float t)) continue;
+                    float helmet = point.Part == BoneBodyPartType.Head ? HelmetVolume.HeadMargin(body.Agent) : 0;
+                    if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + helmet + thickness, out float t)) continue;
                     float d = t * length;
                     if (d < bestDistance) { best = body.Agent; bestDistance = d; bestBone = point.Bone; LastCastMethod = "bone_spheres"; }
                 }

@@ -59,6 +59,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool EntityShieldPlates = VrConfig.Bool("enemy_physics_entity_shield_plates", false);
         // A blade pressing an enemy shield pushes it aside, as in B&S.
         public static readonly bool ShieldDeflect = VrConfig.Bool("enemy_physics_shield_deflect", true);
+        // A helmet gives the head its thickness in the blade collisions.
+        public static readonly bool HelmetVolume = VrConfig.Bool("enemy_physics_helmet_volume", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);
