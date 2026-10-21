@@ -643,7 +643,10 @@ namespace BannerlordVR.VR.Physics
             bool anyDrawn = false;
             foreach (EnemyBody body in Bodies)
             {
-                if (body?.Agent == null || body.Agent.Index == excluded || Filed(body)) continue;
+                // Living agents only: BodyOf reads the agent's visuals, which a
+                // corpse may no longer have (a thrown blade among corpses
+                // crashed in native code).
+                if (body?.Agent == null || body.Agent.Index == excluded || body.IsCorpse || !body.Agent.IsActive()) continue;
                 if (!DrawnBody.Cast(body.Agent, from, to, thickness, out float d, out sbyte b, out bool hit)) continue;
                 anyDrawn = true;
                 if (hit && d < drawnDistance) { drawnBest = body.Agent; drawnDistance = d; drawnBone = b; }
@@ -689,8 +692,8 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
-        // Filed corpses have no visuals left for BannerlordVR's capsules: their
-        // kept bone spheres.
+        // Corpses (and anything not living) are tested on their kept bone
+        // spheres, never through BannerlordVR's visuals reads.
         private static Agent CastFiled(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
         {
             float length = (to - from).Length;
@@ -698,7 +701,7 @@ namespace BannerlordVR.VR.Physics
             if (length < 1e-5f) return null;
             foreach (EnemyBody body in Bodies)
             {
-                if (body?.Agent == null || body.Agent.Index == excluded || !Filed(body)) continue;
+                if (body?.Agent == null || body.Agent.Index == excluded || (!body.IsCorpse && body.Agent.IsActive())) continue;
                 for (int i = 0; i < body.Count; i++)
                 {
                     BodyPoint point = body.Points[i];

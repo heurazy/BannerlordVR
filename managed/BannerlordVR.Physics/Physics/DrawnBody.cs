@@ -44,7 +44,7 @@ namespace BannerlordVR.VR.Physics
         public static bool Cast(Agent agent, Vec3 from, Vec3 to, float thickness, out float distance, out sbyte bone, out bool hit)
         {
             distance = 0; bone = -1; hit = false;
-            if (!EnemyPhysicsSettings.DrawnHits || !Ready() || agent == null) return false;
+            if (!EnemyPhysicsSettings.DrawnHits || !Ready() || agent == null || !agent.IsActive() || agent.AgentVisuals == null) return false;
             try
             {
                 float now = Mission.Current != null ? Mission.Current.CurrentTime : -1;
