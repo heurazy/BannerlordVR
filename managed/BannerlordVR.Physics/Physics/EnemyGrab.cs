@@ -11,6 +11,7 @@ namespace BannerlordVR.VR.Physics
         private Vec3 _localOffset;
         private Vec3 _lastTarget;
         private float _waking;
+        private bool _wakeLogged;
         private readonly PhysicsStepGate _gate = new PhysicsStepGate();
         public bool Held => Body != null;
         public int HandIndex;
@@ -22,7 +23,7 @@ namespace BannerlordVR.VR.Physics
             // Anchor the contact in the bone's space, so it follows rotation.
             MatrixFrame world = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(body.Points[point].Bone));
             _localOffset = world.TransformToLocalNonOrthogonal(hand);
-            _lastTarget = hand; _waking = 0; _gate.Reset();
+            _lastTarget = hand; _waking = 0; _wakeLogged = false; _gate.Reset();
             bool native = EnemyPhysicsRuntime.BeginLivingGrab(body);
             if (!body.IsCorpse && !native)
             {
@@ -87,9 +88,21 @@ namespace BannerlordVR.VR.Physics
                 Body.Agent.ApplyForceOnRagdoll(p.Bone, in force);
                 if (steps >= 0) _gate.Applied(EnemyPhysicsRuntime.PhysicsSteps);
             }
-            else if (Body.IsCorpse && Body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled && (_waking += dt) < .5f)
+            else if (Body.IsCorpse && Body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled && (_waking += dt) < 1.5f)
             {
-                // The woken ragdoll becomes active within a few ticks.
+                // A living agent's ragdoll goes from NeedsActivation to Active
+                // in its next skeleton update; a dead agent's skeleton is no
+                // longer updated (it stayed NeedsActivation), so the update
+                // is run here until the ragdoll is up.
+                RagdollState before = Body.Skeleton.GetCurrentRagdollState();
+                Body.Skeleton.TickAnimationsAndForceUpdate(.001f, Body.Frame, false);
+                RagdollState after = Body.Skeleton.GetCurrentRagdollState();
+                if (after != before || !_wakeLogged)
+                {
+                    _wakeLogged = true;
+                    PhysicsLog.Info("GRAB corpse agent=" + Body.Agent.Index + " waking " + before + " -> " + after +
+                        " after a forced skeleton update (" + _waking.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " s)");
+                }
             }
             else if (!Body.IsCorpse)
             {

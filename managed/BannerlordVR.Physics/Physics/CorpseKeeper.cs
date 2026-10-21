@@ -65,6 +65,31 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex) { _off = true; PhysicsLog.Error("Keeping a corpse physical failed; corpses are filed as usual.", ex); return false; }
         }
 
+        // The ragdoll of a body lying still goes to sleep and the engine
+        // turns it off (Disabled; a wake from there stayed NeedsActivation on a
+        // corpse). A force of half a newton every half second keeps PhysX from
+        // putting it to sleep: addForce wakes its actor.
+        private static readonly System.Collections.Generic.Dictionary<Agent, float> Nudged = new System.Collections.Generic.Dictionary<Agent, float>();
+        private static bool _awakeLogged;
+        private static readonly System.Collections.Generic.HashSet<Agent> Awake = new System.Collections.Generic.HashSet<Agent>();
+        public static void KeepAwake(EnemyBody body, float now)
+        {
+            if (body?.Agent == null || body.Skeleton == null) return;
+            if (Nudged.TryGetValue(body.Agent, out float last) && now - last < .5f && now >= last) return;
+            Nudged[body.Agent] = now;
+            TaleWorlds.Engine.RagdollState state = body.Skeleton.GetCurrentRagdollState();
+            if (state != TaleWorlds.Engine.RagdollState.Active)
+            {
+                if (Awake.Remove(body.Agent))
+                    PhysicsLog.Info("CORPSE agent=" + body.Agent.Index + " ragdoll went " + state + " although kept awake");
+                return;
+            }
+            Awake.Add(body.Agent);
+            TaleWorlds.Library.Vec3 nudge = new TaleWorlds.Library.Vec3(0, 0, .5f);
+            body.Agent.ApplyForceOnRagdoll(0, in nudge);
+            if (!_awakeLogged) { _awakeLogged = true; PhysicsLog.Info("CORPSE kept awake agent=" + body.Agent.Index); }
+        }
+
         private static bool Stop(string why)
         {
             _off = true;

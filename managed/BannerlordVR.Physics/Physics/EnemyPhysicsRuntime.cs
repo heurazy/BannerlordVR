@@ -187,7 +187,7 @@ namespace BannerlordVR.VR.Physics
                     {
                         ActiveBodies++;
                         // Within reach a corpse stays physical (not filed).
-                        if (body.IsCorpse) CorpseKeeper.Keep(body.Agent);
+                        if (body.IsCorpse && CorpseKeeper.Keep(body.Agent)) CorpseKeeper.KeepAwake(body, _time);
                     }
                 }
                 ShedUnheldBodies(player);
@@ -484,9 +484,13 @@ namespace BannerlordVR.VR.Physics
                 // NeedsActivation forever on a corpse.
                 // Only while its visuals still answer (not filed): the start
                 // goes through the mission's ragdoll routine (0x1805d34e0).
-                if (best.Agent.AgentVisuals != null && best.Agent.AgentVisuals.IsValid()) best.Agent.StartRagdollAsCorpse();
-                if (best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled) best.Skeleton.ActivateRagdoll();
-                if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("GRAB corpse agent=" + best.Agent.Index + " ragdoll woken");
+                bool live = best.Agent.AgentVisuals != null && best.Agent.AgentVisuals.IsValid();
+                if (live) best.Agent.StartRagdollAsCorpse();
+                RagdollState started = best.Skeleton.GetCurrentRagdollState();
+                if (started == RagdollState.Disabled) best.Skeleton.ActivateRagdoll();
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info("GRAB corpse agent=" + best.Agent.Index + " ragdoll woken visuals=" + (live ? "valid" : "filed") +
+                        " after_agent_start=" + started + " now=" + best.Skeleton.GetCurrentRagdollState());
             }
             if (!best.IsCorpse || best.HasNativePhysics || best.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled)
                 hand.Grab.Begin(best, point, position);
