@@ -42,11 +42,14 @@ namespace BannerlordVR.VR.Physics
             return new BodyPoint { Bone = bone, Part = part, World = world, Velocity = velocity };
         }
 
+        public string LastFailure { get; private set; } = "-";
         public bool Bind(Agent agent)
         {
             Agent = agent;
             Skeleton = agent.AgentVisuals?.GetSkeleton();
+            LastFailure = "no_skeleton";
             if (Skeleton == null) return false;
+            LastFailure = "no_bones";
             Count = 0; _sampled = false;
             LastHitLeft = LastHitRight = -10;
             int bones = Skeleton.GetBoneCount();
@@ -74,16 +77,17 @@ namespace BannerlordVR.VR.Physics
         {
             var visuals = Agent.AgentVisuals;
             var entity = visuals?.GetEntity();
-            if (entity == null || Agent.IsFadingOut()) return false;
+            if (entity == null) { LastFailure = "no_entity"; return false; }
+            if (Agent.IsFadingOut()) { LastFailure = "fading_out"; return false; }
             // Equipment/LOD or scene rebuild may replace the skeleton; discard the cache.
             var current = visuals.GetSkeleton();
-            if (current == null || current.Pointer != Skeleton.Pointer) return false;
+            if (current == null || current.Pointer != Skeleton.Pointer) { LastFailure = "skeleton_replaced"; return false; }
             Frame = entity.GetGlobalFrame();
             for (int i = 0; i < Count; i++)
             {
                 BodyPoint point = Points[i];
                 Vec3 position = Frame.TransformToParent(Skeleton.GetBoneEntitialFrameWithIndex(point.Bone)).origin;
-                if (!InteractionMath.IsFinite(position)) return false;
+                if (!InteractionMath.IsFinite(position)) { LastFailure = "bone_not_finite"; return false; }
                 point.Velocity = _sampled ? InteractionMath.ClampMagnitude((position - point.World) * (1 / dt), 15) : Vec3.Zero;
                 point.World = position;
                 Points[i] = point;

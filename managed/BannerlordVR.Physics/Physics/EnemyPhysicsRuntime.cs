@@ -39,7 +39,13 @@ namespace BannerlordVR.VR.Physics
         private static BleedingMissionLogic _bleeding;
         private static Agent _player;
         private static int _cursor;
-        private static float _time = -1, _lastLog, _nextRefusalLog;
+        private static float _time = -1, _lastLog;
+        private static readonly System.Collections.Generic.Dictionary<int, string> _refusals = new System.Collections.Generic.Dictionary<int, string>();
+        public static bool Tracks(Agent agent)
+        {
+            foreach (EnemyBody body in Bodies) if (body?.Agent == agent) return true;
+            return false;
+        }
         private static string _blocked = "start";
         private static bool _failed;
         public static bool HandlingCombat { get; private set; }
@@ -107,6 +113,7 @@ namespace BannerlordVR.VR.Physics
         public static void Reset()
         {
             _living?.ReleaseAll();
+            _refusals.Clear();
             foreach (Hand hand in Hands) hand.Reset();
             Array.Clear(Bodies, 0, Bodies.Length);
             foreach (EnemyBody record in Records) record.Clear();
@@ -280,9 +287,12 @@ namespace BannerlordVR.VR.Physics
                 if (refused != null)
                 {
                     // Close agents only: why one within reach is ignored.
-                    if (EnemyPhysicsSettings.Trace && agent.IsHuman && distance < 25 && _time >= _nextRefusalLog && refused != "not_enemy")
+                    // Once per agent and reason: a mounted rider logged every
+                    // 2 s hid every other refusal.
+                    if (EnemyPhysicsSettings.Trace && agent.IsHuman && distance < 25 && refused != "not_enemy" &&
+                        (!_refusals.TryGetValue(agent.Index, out string last) || last != refused))
                     {
-                        _nextRefusalLog = _time + 2;
+                        _refusals[agent.Index] = refused;
                         PhysicsLog.Info("Physics ignores agent " + agent.Index + ": " + refused + " controller=" + agent.Controller);
                     }
                     continue;
@@ -295,8 +305,9 @@ namespace BannerlordVR.VR.Physics
                 { Bodies[chosen] = candidate; if (!occupied) ActiveBodies++; }
                 else
                 {
-                    if (EnemyPhysicsSettings.Trace && _time >= _nextRefusalLog)
-                    { _nextRefusalLog = _time + 2; PhysicsLog.Info("Physics could not bind agent " + agent.Index + " (skeleton or sample failed)."); }
+                    string why = "bind_" + candidate.LastFailure;
+                    if (EnemyPhysicsSettings.Trace && (!_refusals.TryGetValue(agent.Index, out string last) || last != why))
+                    { _refusals[agent.Index] = why; PhysicsLog.Info("Physics could not bind agent " + agent.Index + ": " + candidate.LastFailure); }
                     candidate.Clear(); if (occupied) ActiveBodies--;
                 }
             }

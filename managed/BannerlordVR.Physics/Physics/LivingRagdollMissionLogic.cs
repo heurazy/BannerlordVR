@@ -395,14 +395,41 @@ namespace BannerlordVR.VR.Physics
             {
                 _released.Remove(agent);
                 if (agent.IsActive())
+                {
+                    Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
                     PhysicsLog.Info("ACTIVE_RAGDOLL after_release agent=" + agent.Index + " " + Entry.Actions(agent) +
-                        string.Format(CultureInfo.InvariantCulture, " z_above_ground={0:F2}",
-                            agent.Position.z - Mission.Scene.GetGroundHeightAtPosition(agent.Position)));
+                        string.Format(CultureInfo.InvariantCulture, " z_above_ground={0:F2} ragdoll={1} frozen={2} tracked={3} eligible={4} controller={5}",
+                            agent.Position.z - Mission.Scene.GetGroundHeightAtPosition(agent.Position),
+                            skeleton?.GetCurrentRagdollState().ToString() ?? "?", skeleton?.IsFrozen().ToString() ?? "?",
+                            EnemyPhysicsRuntime.Tracks(agent), EnemyBody.EligibleReason(agent, Mission.MainAgent) ?? "yes", agent.Controller));
+                }
+            }
+        }
+        // Animation restart after a release. An AI agent starts walking or
+        // fighting and its skeleton is re-animated; one without a controller
+        // (a sandbox dummy) starts nothing and kept the last physical pose.
+        private readonly Dictionary<Agent, int> _reanimate = new Dictionary<Agent, int>();
+        private readonly List<Agent> _reanimateDone = new List<Agent>();
+        private void Reanimate()
+        {
+            if (_reanimate.Count == 0) return;
+            _reanimateDone.Clear();
+            foreach (KeyValuePair<Agent, int> pair in _reanimate) _reanimateDone.Add(pair.Key);
+            foreach (Agent agent in _reanimateDone)
+            {
+                int left = _reanimate[agent] - 1;
+                if (left <= 0) _reanimate.Remove(agent); else _reanimate[agent] = left;
+                if (!agent.IsActive() || HasLease(agent)) { _reanimate.Remove(agent); continue; }
+                Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
+                if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled) continue;
+                if (skeleton.IsFrozen()) skeleton.Freeze(false);
+                skeleton.TickAnimationsAndForceUpdate(.001f, agent.AgentVisuals.GetGlobalFrame(), false);
             }
         }
         public override void OnMissionTick(float dt)
         {
             long started = Stopwatch.GetTimestamp();
+            try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
             int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
             try { TraceReleased(); } catch (Exception) { _released.Clear(); }
@@ -565,6 +592,7 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info("ACTIVE_RAGDOLL release cleared an airborne action.");
             }
             _released[entry.Agent] = Mission.CurrentTime;
+            _reanimate[entry.Agent] = 30;
             if (entry == _probeEntry) { _probeActiveReleased = true; _probeTeleported = teleported || !moved; _probeReleaseError = entry.Active.LastPoseError; }
             _releasesThisTick++;
             SafeRelease(entry);
