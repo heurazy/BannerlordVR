@@ -139,8 +139,24 @@ namespace BannerlordVR.VR.Physics
             return worldFront.z > .5f;
         }
 
+        // Creature.Kill: ragdoll.SetState(Inert), brain stopped. A stab that
+        // will kill (its damage is held until the blade leaves, the agent at 1
+        // point) leaves the body Inert on the blade: no pins, gravity on, only
+        // the blade's joint holding it. Standing pinned at 1 point, the body
+        // fought the blade, was flung (7 m/s) or rose 2 m off its pose.
+        public bool Dying { get; private set; }
+        public void Die()
+        {
+            if (Dying || !_configured) return;
+            Dying = true;
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ACTIVE_RAGDOLL dying: inert on the blade phase={0} pose_error={1:F2}", _cycle.Phase, LastPoseError));
+            if (_cycle.Phase != ActiveRagdollPhase.Destabilized) _cycle.Destabilize();
+        }
+
         public void Clear()
         {
+            Dying = false;
             _cycle.Stop(); _gate.Reset(); _drive.ResetVelocity();
             _captureValid = _configured = _destabilizeOnStart = false;
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
@@ -482,6 +498,7 @@ namespace BannerlordVR.VR.Physics
                 _cycle.Destabilize();
                 _drive.State = _cycle.DriveState;
             }
+            if (Dying) _drive.State = PinState.Inert;
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
             ApplyHit(now, Math.Min(dt, .1f));
@@ -510,7 +527,9 @@ namespace BannerlordVR.VR.Physics
         // position pins).
         private void ApplyRotationPins(Agent agent, Skeleton skeleton, Mission mission, float dt)
         {
-            if (!EnemyPhysicsSettings.RotationPins || !NativeRagdollBridge.TorquesAvailable || _drive.State == PinState.Inert) { _rotationSampled = false; return; }
+            bool inert = _drive.State == PinState.Inert;
+            // An inert body has no pins, but the blade's joint still turns it.
+            if (!EnemyPhysicsSettings.RotationPins || !NativeRagdollBridge.TorquesAvailable || (inert && !Dying)) { _rotationSampled = false; return; }
             int needed = _boneCount * 3;
             if (_torques.Length < needed) _torques = new float[needed];
             Array.Clear(_torques, 0, needed);
@@ -518,7 +537,7 @@ namespace BannerlordVR.VR.Physics
             float spring = standing ? 1 : _nearGround ? RagdollPinDrive.DestabilizedGroundSpringRotation : RagdollPinDrive.DestabilizedSpringRotation;
             float damper = standing ? 1 : RagdollPinDrive.DestabilizedDamperRotation;
             float multiplier = Math.Max(0, Math.Min(1, _cycle.PinMultiplier));
-            for (int i = 0; i < _drive.Count; i++)
+            for (int i = 0; i < _drive.Count && !inert; i++)
             {
                 if (!standing && i == _pelvisBody) continue;
                 bool limp = _drive.PartScale(i) <= 0;

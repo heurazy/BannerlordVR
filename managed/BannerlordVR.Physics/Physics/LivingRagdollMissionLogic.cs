@@ -394,6 +394,7 @@ namespace BannerlordVR.VR.Physics
             }
             return entry.Active.Handle(hand, point.Bone, kind, handWorld, boneWorld, contact);
         }
+        public void Die(EnemyBody body) => Find(body.Agent)?.Active.Die();
         public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
         public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
             Vec3 localAxis, float angleLimit, MatrixFrame boneWorld, Vec3 contact)

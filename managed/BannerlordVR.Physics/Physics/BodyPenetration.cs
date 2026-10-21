@@ -211,7 +211,11 @@ namespace BannerlordVR.VR.Physics
             // Bannerlord deals whole points: the cap is too, or 88.6 rounds
             // to 89 and leaves the victim under one point.
             float now = Math.Max(0, Math.Min((float)Math.Floor(damage), (float)Math.Floor(victim.Health - 1)));
-            if (damage - now > 0) { _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor; }
+            if (damage - now > 0)
+            {
+                _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor;
+                if (_pending >= .5f && Body != null && Body.Agent == victim) EnemyPhysicsRuntime.MarkDying(Body);
+            }
             float lost = now >= .5f ? PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, now, type) : 0;
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);
             if (EnemyPhysicsSettings.Trace)

@@ -102,6 +102,7 @@ namespace BannerlordVR.VR.Physics
         public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
             Vec3 localAxis, float angleLimit, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.PierceActive(body, hand, bone, bladePoint, axis, axialLock, localAxis, angleLimit, boneWorld, contact);
+        public static void MarkDying(EnemyBody body) { if (body != null && !body.IsCorpse) _living?.Die(body); }
         public static void ReleaseActiveGrab(EnemyBody body, int hand) { if (body != null && !body.IsCorpse) _living?.ReleaseActive(body, hand); }
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
             PushEffect push = PushEffect.None, float hitMass = 2, bool fist = false)
