@@ -89,6 +89,9 @@ namespace BannerlordVR.VR.Physics
             public void EndNative()
             {
                 if (!SkeletonMatches || NativeDisabled) { ReleasePending = false; return; }
+                // The last physical pose, in the world, before anything moves
+                // the agent: the animation takes over from it gradually.
+                if (EnemyPhysicsSettings.ActiveRagdoll) StartBlend(Agent, Skeleton);
                 PlaceUnderBody();
                 RagdollState state = Skeleton.GetCurrentRagdollState();
                 if (state == RagdollState.NeedsActivation) { ReleasePending = true; return; }
@@ -185,6 +188,38 @@ namespace BannerlordVR.VR.Physics
                 Agent.ForceAiBehaviorSelection();
             }
             public void Clear() { OpenCapsule("clear"); _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
+        }
+        private static readonly Dictionary<Agent, PoseBlend> _blends = new Dictionary<Agent, PoseBlend>();
+        private static readonly List<Agent> _blendsDone = new List<Agent>();
+        private static void StartBlend(Agent agent, Skeleton skeleton)
+        {
+            try
+            {
+                if (!_blends.TryGetValue(agent, out PoseBlend blend)) _blends[agent] = blend = new PoseBlend();
+                var entity = agent.AgentVisuals?.GetEntity();
+                if (entity == null || !blend.Capture(skeleton, entity.GetGlobalFrame(), agent.Mission?.CurrentTime ?? 0)) _blends.Remove(agent);
+            }
+            catch (Exception ex) { _blends.Remove(agent); PhysicsLog.Error("Capturing the release pose failed.", ex); }
+        }
+        private void ApplyBlends()
+        {
+            if (_blends.Count == 0) return;
+            _blendsDone.Clear();
+            foreach (KeyValuePair<Agent, PoseBlend> pair in _blends)
+            {
+                Agent agent = pair.Key;
+                Skeleton skeleton = agent.IsActive() ? agent.AgentVisuals?.GetSkeleton() : null;
+                var entity = agent.IsActive() ? agent.AgentVisuals?.GetEntity() : null;
+                if (skeleton == null || entity == null || HasLease(agent) && skeleton.GetCurrentRagdollState() != RagdollState.Disabled)
+                {
+                    // Still being released (or taken again): wait, or drop it.
+                    if (skeleton == null || entity == null || !pair.Value.Running) _blendsDone.Add(agent);
+                    continue;
+                }
+                if (skeleton.GetCurrentRagdollState() != RagdollState.Disabled) continue;
+                if (!pair.Value.Apply(skeleton, entity.GetGlobalFrame(), Mission.CurrentTime)) _blendsDone.Add(agent);
+            }
+            foreach (Agent agent in _blendsDone) _blends.Remove(agent);
         }
         private readonly Entry[] _entries = CreateEntries();
         private readonly PhysicsStepCounter _clock = new PhysicsStepCounter();
@@ -527,6 +562,7 @@ namespace BannerlordVR.VR.Physics
             long started = Stopwatch.GetTimestamp();
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
             try { AlignRises(); } catch (Exception ex) { _rises.Clear(); PhysicsLog.Error("Aligning an animated rise failed.", ex); }
+            try { ApplyBlends(); } catch (Exception ex) { _blends.Clear(); PhysicsLog.Error("Blending a released pose failed.", ex); }
             int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
             try { TraceReleased(); } catch (Exception) { _released.Clear(); }

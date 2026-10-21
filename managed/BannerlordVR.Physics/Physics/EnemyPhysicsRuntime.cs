@@ -83,9 +83,9 @@ namespace BannerlordVR.VR.Physics
             foreach (EnemyBody body in Bodies)
             {
                 Agent agent = body?.Agent;
-                // A physical body's capsule is closed: nothing to stop at.
-                if (agent == null || body.IsCorpse || !agent.IsActive() ||
-                    (EnemyPhysicsSettings.CloseHeldCapsule && _living != null && _living.HasLease(agent))) continue;
+                // A held body counts too: dropping it from the clearance pulled
+                // the view back onto the player's body the moment it was grabbed.
+                if (agent == null || body.IsCorpse || !agent.IsActive()) continue;
                 float gap = (agent.Position.AsVec2 - at).Length - PlayerReach.Radius(agent) - radius;
                 if (gap < best) { best = gap; position = agent.Position.AsVec2; }
             }
