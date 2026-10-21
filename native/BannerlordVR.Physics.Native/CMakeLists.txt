@@ -21,7 +21,7 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "BannerlordVR.Physics.Native must be built for x64. Configure with -A x64.")
 endif()
 
-add_library(BannerlordVR.Physics.Native SHARED src/living_ragdoll.cpp)
+add_library(BannerlordVR.Physics.Native SHARED src/living_ragdoll.cpp src/skeleton_bones.cpp)
 target_include_directories(BannerlordVR.Physics.Native PRIVATE include)
 target_compile_definitions(BannerlordVR.Physics.Native PRIVATE BVR_PHYSICS_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)

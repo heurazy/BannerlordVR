@@ -31,6 +31,11 @@ typedef enum BvrStatus {
 } BvrStatus;
 
 BVR_API int32_t BVR_CALL bvr_ragdoll_prepare(void);
+/* Skeleton bone records (0x100 bytes per bone at skeleton+0x18), for hiding a
+   severed limb: read one, or write floats into one under its lock. */
+BVR_API int32_t BVR_CALL bvr_skeleton_bone_count(uintptr_t skeleton);
+BVR_API int32_t BVR_CALL bvr_skeleton_bone_record(uintptr_t skeleton, int32_t bone, uint8_t* out, int32_t bytes);
+BVR_API int32_t BVR_CALL bvr_skeleton_write_record(uintptr_t skeleton, int32_t bone, int32_t offset, const float* values, int32_t count);
 BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 /* Read-only developer evidence: module-relative implementations reached by

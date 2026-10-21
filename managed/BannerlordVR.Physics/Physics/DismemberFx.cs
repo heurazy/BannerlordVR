@@ -49,7 +49,13 @@ namespace BannerlordVR.VR.Physics
             Agent victim = body?.Agent;
             if (victim == null || body.IsCorpse || !victim.IsActive() || thrust) return false;
             float speed = velocity.Length;
-            if (speed <= Dismemberment.MinVelocity(profile, twoHanded)) return false;
+            if (speed <= Dismemberment.MinVelocity(profile, twoHanded))
+            {
+                if (EnemyPhysicsSettings.Trace && speed > 7) PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "SLICE_MISS speed={0:F1} below {1:F1} m/s", speed, Dismemberment.MinVelocity(profile, twoHanded)));
+                return false;
+            }
+            string miss = "no joint within 25 cm";
             Skeleton skeleton = body.Skeleton;
             MatrixFrame frame = victim.AgentVisuals.GetEntity().GetGlobalFrame();
             Vec3 bladeUp = bladeTip - bladeBase;
@@ -63,10 +69,12 @@ namespace BannerlordVR.VR.Physics
                 Vec3 offset = contact - at;
                 float along = Math.Abs(InteractionMath.Dot(offset, axis.NormalizedCopy()));
                 if ((offset - axis.NormalizedCopy() * InteractionMath.Dot(offset, axis.NormalizedCopy())).Length > .25f) continue;
-                if (!Dismemberment.Slices(profile, twoHanded, false, speed, axis, bladeUp, velocity, along)) continue;
+                if (!Dismemberment.Slices(profile, twoHanded, false, speed, axis, bladeUp, velocity, along))
+                { miss = joint.Kind + " angle or distance (" + along.ToString("F2", CultureInfo.InvariantCulture) + " m along the limb)"; continue; }
                 Slice(player, victim, joint.Bone, joint.Parent, at, joint.Kind, speed);
                 return true;
             }
+            if (EnemyPhysicsSettings.Trace) PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "SLICE_MISS speed={0:F1}: {1}", speed, miss));
             return false;
         }
 
@@ -92,6 +100,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly List<Cut> Pending = new List<Cut>();
         public static void Tick()
         {
+            LimbHide.Tick();
             for (int i = Pending.Count - 1; i >= 0; i--)
             {
                 Cut cut = Pending[i];
@@ -117,6 +126,8 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
+            // The severed part is shrunk away in the skeleton.
+            LimbHide.Begin(victim, bone);
         }
 
         // Official equipment refresh with a meshless head item that covers the
