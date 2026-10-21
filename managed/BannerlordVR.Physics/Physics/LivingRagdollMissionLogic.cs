@@ -90,6 +90,7 @@ namespace BannerlordVR.VR.Physics
             public void EndNative()
             {
                 if (!SkeletonMatches || NativeDisabled) { ReleasePending = false; return; }
+                if (Agent != null && Mission != null) LastRelease[Agent] = Mission.CurrentTime;
                 // The last physical pose, in the world, before anything moves
                 // the agent: the animation takes over from it gradually.
                 if (EnemyPhysicsSettings.ActiveRagdoll && EnemyPhysicsSettings.ReleaseBlend) StartBlend(Agent, Skeleton);
@@ -201,6 +202,8 @@ namespace BannerlordVR.VR.Physics
             public void Clear() { OpenCapsule("clear"); _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private static readonly Dictionary<Agent, PoseBlend> _blends = new Dictionary<Agent, PoseBlend>();
+        private static readonly Dictionary<Agent, float> LastRelease = new Dictionary<Agent, float>();
+        private const float ReleaseCooldown = .5f;
         private static readonly List<Agent> _blendsDone = new List<Agent>();
         private static void StartBlend(Agent agent, Skeleton skeleton)
         {
@@ -298,6 +301,11 @@ namespace BannerlordVR.VR.Physics
                 return true;
             }
             if (!allowBegin) return false;
+            // Not again right after a release: taken back one tick after one,
+            // the ragdoll started from a half-released skeleton and the pins
+            // catapulted the body (40 m/s, 2.8 m up in the logs).
+            if (LastRelease.TryGetValue(body.Agent, out float released) && Mission.CurrentTime - released < ReleaseCooldown &&
+                Mission.CurrentTime >= released) return false;
             foreach (Entry entry in _entries)
             {
                 if (entry.Lease.Occupied || entry.Lease.Faulted) continue;

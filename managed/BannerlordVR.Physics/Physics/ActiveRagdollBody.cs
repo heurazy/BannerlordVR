@@ -444,6 +444,15 @@ namespace BannerlordVR.VR.Physics
             _drive.Multiplier = _cycle.PinMultiplier;
             _drive.CancelGravity = _cycle.CancelGravity;
             _drive.Grounded = _nearGround;
+            // A body that starts far off its pose (a skeleton caught mid
+            // change) would be flung by its pins: it goes limp instead.
+            if (_cycle.Phase == ActiveRagdollPhase.Standing && AppliedSteps < 10 && LastPoseError > StartPoseLimit)
+            {
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "ACTIVE_RAGDOLL started {0:F2} m off its pose: destabilized instead of pinned", LastPoseError));
+                _cycle.Destabilize();
+                _drive.State = _cycle.DriveState;
+            }
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
             ApplyHit(now, Math.Min(dt, .1f));
@@ -523,7 +532,7 @@ namespace BannerlordVR.VR.Physics
             _velocitySampled = true;
         }
 
-        private const float GroundClearance = .12f, LaunchSpeed = 7;
+        private const float GroundClearance = .12f, LaunchSpeed = 7, StartPoseLimit = .4f;
         private float _lastLaunchLog = -10;
         private string Describe(int h) => !_grabs[h].Active ? "-" : (_grabs[h].Blade ? "blade" : _grabs[h].Kind.ToString()) +
             (_grabs[h].AxialLock ? "/locked" : "") + "@" + _grabs[h].Bone;
