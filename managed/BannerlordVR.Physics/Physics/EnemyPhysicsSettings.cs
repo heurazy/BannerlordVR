@@ -65,8 +65,10 @@ namespace BannerlordVR.VR.Physics
         // A sword's swing bites into the part and slides along the cut (B&S
         // slash joint) instead of only striking.
         public static readonly bool SlashCuts = VrConfig.Bool("enemy_physics_slash_cuts", true);
-        // A neck cut fast enough hides the head (meshless head armour).
-        public static readonly bool Decapitation = VrConfig.Bool("enemy_physics_decapitation", true);
+        // A neck cut fast enough hides the head (meshless head armour). Off:
+        // rebuilding the visuals without the head crashed the game when the
+        // corpse went ragdoll (19 Oct 2026, docs/physical-enemies.md).
+        public static readonly bool Decapitation = VrConfig.Bool("enemy_physics_decapitation", false);
         // A helmet gives the head its thickness in the blade collisions.
         public static readonly bool HelmetVolume = VrConfig.Bool("enemy_physics_helmet_volume", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
