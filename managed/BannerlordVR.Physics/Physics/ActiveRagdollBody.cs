@@ -479,8 +479,13 @@ namespace BannerlordVR.VR.Physics
                     _cycle.Phase, _cycle.Fall, now, RootSpeed, LastPoseError));
             for (int i = 0; i < _drive.Count; i++) _target[i] = _root.TransformToParent(_captured[_bone[i]]).origin;
             ReachTargets();
+            // A released (limp) arm is off its pose by design: counted, a
+            // pierced arm put the whole body 0.41 m off its pose, the start
+            // guard felled it, and the blade could not be drawn out of a body
+            // with nothing holding it up.
             float error = 0;
-            for (int i = 0; i < _drive.Count; i++) error = Math.Max(error, (_position[i] - _target[i]).Length);
+            for (int i = 0; i < _drive.Count; i++)
+                if (_drive.PartScale(i) > 0) error = Math.Max(error, (_position[i] - _target[i]).Length);
             LastPoseError = error;
             if (_cycle.Phase == ActiveRagdollPhase.Standing) MaxStandingError = Math.Max(MaxStandingError, error);
             if (clock == null || !clock.Running || !_gate.CanApply(clock.Steps)) { SkippedTicks++; return; }
