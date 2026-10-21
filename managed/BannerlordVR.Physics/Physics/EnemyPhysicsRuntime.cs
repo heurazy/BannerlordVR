@@ -446,7 +446,7 @@ namespace BannerlordVR.VR.Physics
             var ignored = _player.AgentVisuals.GetEntity().WeakEntity;
             if (!_mission.Scene.RayCastForClosestEntityOrTerrainIgnoreEntity(in start, in end, ignored,
                 out float distance, out GameEntity entity, .01f)) return true;
-            return distance >= length - .06f || (entity != null && entity.Pointer == body.Agent.AgentVisuals.GetEntity().Pointer);
+            return distance >= length - .06f || (entity != null && entity.Pointer == CorpseVisuals.EntityPointer(body.Agent));
         }
 
         private static void TryGrab(Hand hand, Vec3 position)
@@ -594,6 +594,8 @@ namespace BannerlordVR.VR.Physics
         public static PushEffect EvaluateThrownPush(EnemyBody body, BodyPoint point, Vec3 velocity) =>
             body.IsCorpse || _living == null ? PushEffect.None : _living.EvaluatePush(body, point, velocity, PushMaterial.Pierce);
 
+        private static bool Filed(EnemyBody body) => body.IsCorpse && (body.Agent.AgentVisuals == null || !body.Agent.AgentVisuals.IsValid());
+
         private static Agent CastLimbs(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
         {
             Agent agent = _mission.RayCastForClosestAgentsLimbs(from, to, excluded, thickness, out distance, out bone);
@@ -603,6 +605,9 @@ namespace BannerlordVR.VR.Physics
             foreach (EnemyBody body in Bodies)
             {
                 if (body?.Agent == null || body.Agent.Index == excluded) continue;
+                // A filed corpse has no limbs for the engine any more (it read
+                // through a null and crashed): its bone spheres stand in below.
+                if (Filed(body)) continue;
                 if (_mission.RayCastForGivenAgentsLimbs(from, to, body.Agent.Index, thickness, out float d, out sbyte b) &&
                     b >= 0 && InteractionMath.IsFinite(d) && d < bestDistance)
                 { best = body.Agent; bestDistance = d; bestBone = b; LastCastMethod = "given_limbs"; }

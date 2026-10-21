@@ -98,6 +98,15 @@ namespace BannerlordVR.VR.Physics
             return skeleton != null;
         }
 
+        // The body's entity pointer, live or filed (zero when unknown).
+        public static UIntPtr EntityPointer(Agent agent)
+        {
+            GameEntity live = agent?.AgentVisuals?.GetEntity();
+            if (live != null) return live.Pointer;
+            if (Cached(agent, out GameEntity entity, out _) && entity != null) return entity.Pointer;
+            return Entity(agent).Pointer;
+        }
+
         public static string Describe(Agent agent)
         {
             try
