@@ -40,7 +40,7 @@ namespace BannerlordVR.VR.Physics
             public Vec3 BladeGrip, BladeTip; public long BladeAt;
         }
         private static readonly State[] States = { new State(), new State() };
-        private const float MaxSeparation = .9f, GlideSeconds = .12f, AnchorSmoothing = .04f;
+        private const float MaxSeparation = .9f, GlideSeconds = .12f, AnchorSmoothing = .025f;
         private static readonly long Fresh = Stopwatch.Frequency / 10;
 
         // The physics, from the raw controller blade of this frame.

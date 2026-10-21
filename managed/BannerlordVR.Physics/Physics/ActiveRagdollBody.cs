@@ -56,6 +56,12 @@ namespace BannerlordVR.VR.Physics
         private bool[] _armBody = new bool[0];
         private readonly bool[] _limpHandle = new bool[2];
         private readonly int[] _limpTop = { -1, -1 };
+        // The pierced part's blade direction now (from its entry direction).
+        private readonly Vec3[] _pierceAxis = new Vec3[2];
+        // PlayerLink slerp drive on a held item: Ragdoll.playerArmRotation
+        // Spring 1000 / Damper 40, x gripForceRotationSpringDamperMult
+        // (0.5, 1), at most gripForceMaxRotation 100 N.m.
+        public const float GripRotationSpring = 500, GripRotationDamper = 40, GripMaxTorque = 100;
         private struct GrabSlot
         {
             public bool Active, HasBase; public sbyte Bone; public GrabHandle Kind; public Vec3 Local;
@@ -527,6 +533,7 @@ namespace BannerlordVR.VR.Physics
                 int b = _bone[i] * 3;
                 _torques[b] = a.x; _torques[b + 1] = a.y; _torques[b + 2] = a.z;
             }
+            ApplyPierceTorque(dt);
             for (int i = 0; i < _drive.Count; i++) { _ps[i] = _rs[i]; _pf[i] = _rf[i]; _pu[i] = _ru[i]; }
             _rotationSampled = true;
             NativeRagdollBridge.AddTorques(agent, mission, skeleton, _torques);
@@ -631,6 +638,46 @@ namespace BannerlordVR.VR.Physics
         }
         private const float MaxLever = .3f;
 
+        // Damager.Penetrate locks the joint's twist and limits its tilt to
+        // penetrationShortDepthAngle, closing to 0 at penetrationShortDepth:
+        // the pierced part turns with the weapon, and the weapon with the
+        // player's hand by the grip's slerp drive. The blade's turn past the
+        // limit drives the part round with that drive's torque. Without it
+        // the shown weapon stayed at the part's angle whatever the hand did.
+        private void ApplyPierceTorque(float dt)
+        {
+            for (int h = 0; h < _grabs.Length; h++)
+            {
+                int b = _grabBody[h];
+                if (!_grabs[h].Active || !_grabs[h].Blade || b < 0 || b >= _drive.Count) continue;
+                Vec3 now = _pierceAxis[h], want = _grabs[h].Axis;
+                if (now.LengthSquared < .5f || !InteractionMath.IsFinite(want) || want.Length < .5f) continue;
+                want = want.NormalizedCopy();
+                float cos = Math.Max(-1, Math.Min(1, InteractionMath.Dot(now, want)));
+                float excess = (float)Math.Acos(cos) - _grabs[h].AngleLimit;
+                Vec3 turn = Cross(now, want);
+                Vec3 error = excess > 0 && turn.Length > 1e-5f ? turn.NormalizedCopy() * excess : Vec3.Zero;
+                Vec3 omega = _rotationSampled && dt > 0
+                    ? RotationPin.Error(_ps[b], _pf[b], _pu[b], _rs[b], _rf[b], _ru[b]) * (1 / dt) : Vec3.Zero;
+                if (error.LengthSquared == 0 && omega.LengthSquared < 1e-6f) continue;
+                // The arm hanging limp from it turns with it: inertia of the
+                // spread bodies, as for the position grip.
+                float mass = _drive.Mass(b);
+                if (_limpHandle[h])
+                    for (int i = 0; i < _drive.Count; i++) if (_drive.PartScale(i) <= 0 && _drive.InSubtree(i, b)) mass += i == b ? 0 : _drive.Mass(i);
+                float inertia = Math.Max(1e-3f, mass * RotationPin.GyrationSquared);
+                float k = Math.Min(GripRotationSpring / inertia, RagdollPinDrive.MaxNaturalFrequency * RagdollPinDrive.MaxNaturalFrequency);
+                float c = Math.Min(GripRotationDamper / inertia, RagdollPinDrive.MaxDampingRate);
+                // Damped only while the limit is passed: inside it the joint
+                // lets the part tilt freely.
+                Vec3 a = error * k - (excess > 0 ? omega * c : Vec3.Zero);
+                a = InteractionMath.ClampMagnitude(a, GripMaxTorque / inertia);
+                if (!InteractionMath.IsFinite(a) || a.LengthSquared == 0) continue;
+                int t = _bone[b] * 3;
+                _torques[t] += a.x; _torques[t + 1] += a.y; _torques[t + 2] += a.z;
+            }
+        }
+
         // HandleRagdoll.OnGrab on a wrist or hand (Interactable_HumanWrist /
         // HumanHand: releaseArmSpring 0, releaseArmDamper 0): the held arm's
         // pins go to zero and it follows the grip through its joints; the
@@ -682,6 +729,12 @@ namespace BannerlordVR.VR.Physics
                 MatrixFrame boneWorld = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone));
                 Vec3 contact = boneWorld.TransformToParent(_grabs[h].Local);
                 _grabBody[h] = body;
+                _pierceAxis[h] = Vec3.Zero;
+                if (_grabs[h].Blade && _grabs[h].LocalAxis.LengthSquared > .5f)
+                {
+                    Vec3 axisNow = boneWorld.rotation.TransformToParent(_grabs[h].LocalAxis);
+                    if (axisNow.Length > 1e-4f) _pierceAxis[h] = axisNow.NormalizedCopy();
+                }
                 _grabTarget[h] = _position[body] + (_hand[h] - contact);
                 // The B&S weapon collides with the ground; the controller's
                 // blade does not, and dragged a pierced body into the terrain.
