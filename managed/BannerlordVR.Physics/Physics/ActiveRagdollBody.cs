@@ -108,6 +108,25 @@ namespace BannerlordVR.VR.Physics
         public bool Moved => _configured && ((_root.origin - _capturedRoot.origin).AsVec2.Length > .05f || Turned);
         public Vec3 RecoveryPosition => _root.origin;
         public Vec3 PelvisPosition => _lastPelvis;
+        // Set on the tick the body starts getting up; the mission logic may
+        // hand it to an animation instead of the stand-up pins.
+        public bool RiseRequested { get; set; }
+        public Vec3 HeadPosition => _configured && _headBody >= 0 ? _position[_headBody] : _lastPelvis;
+
+        // Lying on the back: the pelvis front (agent forward in the captured
+        // pose) points up. bodyUp is the pelvis-to-head axis in the world.
+        public bool LyingOnBack(out Vec3 bodyUp)
+        {
+            bodyUp = Vec3.Up;
+            if (!_configured || _pelvisBody < 0) return false;
+            Mat3 posed = _captured[_bone[_pelvisBody]].rotation;
+            posed.Orthonormalize();
+            Vec3 front = posed.TransformToLocal(new Vec3(0, 1, 0)), up = posed.TransformToLocal(new Vec3(0, 0, 1));
+            int b = _pelvisBody;
+            Vec3 worldFront = _rs[b] * front.x + _rf[b] * front.y + _ru[b] * front.z;
+            bodyUp = _rs[b] * up.x + _rf[b] * up.y + _ru[b] * up.z;
+            return worldFront.z > .5f;
+        }
 
         public void Clear()
         {
@@ -382,7 +401,7 @@ namespace BannerlordVR.VR.Physics
             if (EnemyPhysicsSettings.GrabBodyTurn) TurnBody(mission.MainAgent, now);
             ActiveRagdollPhase before = _cycle.Phase;
             _cycle.Tick(sampleDt, _nearGround, RootSpeed);
-            if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) ReanchorUnderHips();
+            if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) { ReanchorUnderHips(); RiseRequested = true; }
             if (_cycle.Phase != before)
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "ACTIVE_RAGDOLL phase={0} fall={1} time={2:F3} root_speed={3:F2} pose_error={4:F3}",

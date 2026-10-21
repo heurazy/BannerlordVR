@@ -448,6 +448,7 @@ namespace BannerlordVR.VR.Physics
         {
             long started = Stopwatch.GetTimestamp();
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
+            try { AlignRises(); } catch (Exception ex) { _rises.Clear(); PhysicsLog.Error("Aligning an animated rise failed.", ex); }
             int collections = GC.CollectionCount(0);
             _releasesThisTick = 0;
             try { TraceReleased(); } catch (Exception) { _released.Clear(); }
@@ -481,6 +482,11 @@ namespace BannerlordVR.VR.Physics
                     if (entry.Lease.OwnsPhysics && entry.NativeActive && EnemyPhysicsSettings.ActiveRagdoll)
                     {
                         entry.Active.Tick(entry.Agent, entry.Skeleton, Mission, _clock);
+                        if (entry.Active.RiseRequested)
+                        {
+                            entry.Active.RiseRequested = false;
+                            if (TryAnimatedRise(entry)) continue;
+                        }
                         if (entry.Active.ImpactBone >= 0) RagdollCollision(entry);
                         if (entry.Active.WantsHold) entry.Lease.KeepHeld(Mission.CurrentTime);
                         if (entry == _probeEntry && !_probeFinished) ObserveActiveProbe(entry);
@@ -573,6 +579,83 @@ namespace BannerlordVR.VR.Physics
         // B&S ends the get-up by handing the body back to the animator where it
         // stands. Bannerlord's animation restarts at the agent position, so the
         // agent is first moved under the hips when the body travelled.
+        // The pins only pulled a lying body into its standing pose, which
+        // looked forced. Bannerlord's knockdown rise (act_strike_fall_*_back_rise,
+        // the _continue part starting from the ground) gets up from the back;
+        // the agent is placed and turned so the animation's lying body lies
+        // where the ragdoll does, then the alignment is corrected from the
+        // animated pose on the next ticks.
+        private static readonly ActionIndexCache RiseAction = ActionIndexCache.Create("act_strike_fall_back_back_rise_continue");
+        private sealed class Rise { public float Started; public Vec3 Pelvis, BodyUp; public int Step; }
+        private readonly Dictionary<Agent, Rise> _rises = new Dictionary<Agent, Rise>();
+        private bool TryAnimatedRise(Entry entry)
+        {
+            if (!EnemyPhysicsSettings.AnimatedRise || entry.Agent.MountAgent != null || !entry.Active.LyingOnBack(out Vec3 bodyUp))
+                return false;
+            Vec3 pelvis = entry.Active.PelvisPosition;
+            Vec3 forward = -bodyUp; forward.z = 0;
+            if (!InteractionMath.IsFinite(pelvis) || forward.Length < .2f || !OnNavmesh(pelvis)) return false;
+            forward.Normalize();
+            Agent agent = entry.Agent;
+            Vec3 ground = new WorldPosition(Mission.Scene, pelvis).GetGroundVec3();
+            if (!InteractionMath.IsFinite(ground)) return false;
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ACTIVE_RAGDOLL animated_rise agent={0} action={1} body_up=({2:F2},{3:F2},{4:F2})",
+                agent.Index, "act_strike_fall_back_back_rise_continue", bodyUp.x, bodyUp.y, bodyUp.z));
+            _released[agent] = Mission.CurrentTime;
+            _releasesThisTick++;
+            SafeRelease(entry);
+            agent.TeleportToPosition(ground);
+            agent.LookDirection = forward;
+            agent.SetMovementDirection(forward.AsVec2);
+            agent.SetActionChannel(0, RiseAction, ignorePriority: true);
+            _rises[agent] = new Rise { Started = Mission.CurrentTime, Pelvis = pelvis, BodyUp = bodyUp };
+            _reanimate[agent] = Mission.CurrentTime;
+            return true;
+        }
+        private readonly List<Agent> _risesDone = new List<Agent>();
+        private void AlignRises()
+        {
+            if (_rises.Count == 0) return;
+            _risesDone.Clear();
+            foreach (KeyValuePair<Agent, Rise> pair in _rises)
+            {
+                Agent agent = pair.Key; Rise rise = pair.Value;
+                if (!agent.IsActive() || HasLease(agent) || Mission.CurrentTime - rise.Started > 4) { _risesDone.Add(agent); continue; }
+                Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
+                if (skeleton == null || skeleton.GetCurrentRagdollState() != RagdollState.Disabled) continue;
+                rise.Step++;
+                if (rise.Step != 2 && rise.Step != 4) continue;
+                MatrixFrame frame = agent.AgentVisuals.GetGlobalFrame();
+                Vec3 pelvis = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(0)).origin;
+                Vec3 head = frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(agent.Monster.HeadLookDirectionBoneIndex)).origin;
+                if (rise.Step == 2)
+                {
+                    // Turn: the animated body axis onto the ragdoll's.
+                    Vec2 animated = (head - pelvis).AsVec2, wanted = rise.BodyUp.AsVec2;
+                    if (animated.Length > .2f && wanted.Length > .2f)
+                    {
+                        float angle = (float)(Math.Atan2(wanted.y, wanted.x) - Math.Atan2(animated.y, animated.x));
+                        Vec3 look = agent.LookDirection; look.z = 0;
+                        float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
+                        Vec3 turned = new Vec3(look.x * c - look.y * s, look.x * s + look.y * c, 0);
+                        if (turned.Length > .1f) { turned.Normalize(); agent.LookDirection = turned; agent.SetMovementDirection(turned.AsVec2); }
+                    }
+                }
+                else
+                {
+                    // Slide: the animated pelvis onto the ragdoll's.
+                    Vec3 shift = rise.Pelvis - pelvis; shift.z = 0;
+                    Vec3 target = agent.Position + shift;
+                    if (shift.Length > .05f && shift.Length < 2 && OnNavmesh(target))
+                        agent.TeleportToPosition(new WorldPosition(Mission.Scene, target).GetGroundVec3());
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "ACTIVE_RAGDOLL animated_rise aligned agent={0} shift_m={1:F2} action={2}",
+                        agent.Index, shift.Length, Entry.Actions(agent)));
+                }
+            }
+            foreach (Agent agent in _risesDone) _rises.Remove(agent);
+        }
         private void ReleaseRecovered(Entry entry)
         {
             bool moved = entry.Active.Moved;
