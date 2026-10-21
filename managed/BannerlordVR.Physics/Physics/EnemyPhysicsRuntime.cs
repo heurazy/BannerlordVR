@@ -387,8 +387,10 @@ namespace BannerlordVR.VR.Physics
                     PhysicsInterop.Haptic(index, Math.Min(1, hand.Penetration.LastResistance / 600), .02f);
                 bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
                     usage, weapon, slot.Equipment, player, gestureSpeed * dt, dt, now);
+                // A shield bashes (a blunt B&S item); a fist hits when closed.
+                bool shield = usage != null && usage.IsShield;
                 if (!embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
-                    (blade || (usage == null && input.Trigger >= .55f)))
+                    (blade || shield || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
                 else if (!embedded && !drawing && blade && EnemyPhysicsSettings.ActiveRagdoll)
                     TryPressure(index, hand, basePoint, tip, usage, player, dt);
@@ -661,6 +663,8 @@ namespace BannerlordVR.VR.Physics
             EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0; bool hitCooled = false;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
+            // A shield's face is about 0.22 m round its grip, a fist 6.5 cm.
+            float thickness = blade ? .025f : usage != null && usage.IsShield ? .22f : .065f;
             for (int s = 0; s <= (blade ? samples : 0); s++)
             {
                 float along = blade ? (float)s / samples : 0;
@@ -672,7 +676,7 @@ namespace BannerlordVR.VR.Physics
                 // guessed spheres. Closest-agent selection also prevents hitting
                 // an admitted enemy through a nearer ally or excluded rider.
                 Agent agent = CastLimbs(previous, current, player.Index,
-                    blade ? .025f : .065f, out float distance, out sbyte bone);
+                    thickness, out float distance, out sbyte bone);
                 if (agent == null || bone < 0 || !InteractionMath.IsFinite(distance) || distance < 0 || distance > length) continue;
                 hand.DiagRayHits++; hand.DiagReject = "via_" + LastCastMethod;
                 float fraction = distance / length;
@@ -694,12 +698,16 @@ namespace BannerlordVR.VR.Physics
                 if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
                 Vec3 c = previous + (current - previous) * fraction;
                 if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
-                if (EquipmentBlocks(body, previous, current, fraction, blade ? .025f : .065f))
+                if (EquipmentBlocks(body, previous, current, fraction, thickness))
                 {
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
                     Reject(hand, "equipment");
                     bool parried = _living != null && _living.Parry(body, length / dt);
+                    // Heavy weapons push the blocker through the block.
+                    if (_living != null && !body.IsCorpse && usage != null && !usage.IsShield)
+                        parried |= _living.BlockTransfer(body, (current - previous) * (1 / dt), PhysicalHit.Material(usage, false),
+                            2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)));
                     PhysicsInterop.Haptic(index, parried ? .6f : .15f, parried ? .05f : .02f);
                     continue;
                 }

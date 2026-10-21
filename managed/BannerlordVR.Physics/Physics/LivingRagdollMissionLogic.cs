@@ -464,6 +464,41 @@ namespace BannerlordVR.VR.Physics
                     material, velocity.Length, level, zone, context, effect));
             return effect;
         }
+        // BrainModuleDefense.OnWeaponCollision: a weapon with transferPushToBlocker
+        // (maces, hammers, long axes and polearms in the catalog; never swords)
+        // passes its push to the creature blocking it, at the weapon's push
+        // level for the impact speed, kept within minTransferredPush 2 and
+        // maxBlockTransferredPushLevel 4, as a torso hit. A destabilized
+        // blocker takes the impulse and lets go of what blocked
+        // (disarmOnBlockDestabilize).
+        public bool BlockTransfer(EnemyBody body, Vec3 velocity, PushMaterial material, float hitMass)
+        {
+            Agent agent = body?.Agent;
+            if (agent == null || body.IsCorpse || !agent.IsActive()) return false;
+            if (material != PushMaterial.Blunt && material != PushMaterial.BluntLight && material != PushMaterial.SlashAxe &&
+                material != PushMaterial.SlashHeavy) return false;
+            int level = Math.Min(4, PushReaction.Level(material, velocity.Length));
+            if (level < 2) return false;
+            float now = Mission.CurrentTime;
+            PushContext context = ContextOf(agent, now);
+            PushEffect effect = PushReaction.HitEffect(level, PushBodyZone.Torso, context);
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "BLOCK_PUSH agent={0} material={1} speed={2:F2} level={3} context={4} effect={5}",
+                agent.Index, material, velocity.Length, level, context, effect));
+            if (effect == PushEffect.None) return true;
+            if (effect != PushEffect.Destabilize)
+                _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(effect), Effect = effect };
+            // The blow reaches the arm that blocked (the off hand).
+            BodyPoint arm = default; bool found = false;
+            for (int i = 0; i < body.Count; i++)
+                if ((body.Skeleton.GetBoneName(body.Points[i].Bone) ?? "") == "l_hand") { arm = body.ReadContact(body.Points[i].Bone); found = true; break; }
+            if (found && EnemyPhysicsSettings.ActiveRagdoll) ActiveImpact(body, arm, velocity, effect, hitMass, false);
+            if (effect == PushEffect.Destabilize)
+            {
+                EquipmentIndex off = agent.GetOffhandWieldedItemIndex();
+                if (off != EquipmentIndex.None && !agent.Equipment[off].IsEmpty) agent.DropItem(off);
+            }
+            return true;
+        }
         public PushContext ContextOf(Agent agent, float now)
         {
             if (_staggers.TryGetValue(agent, out Stagger stagger) && stagger.Until > now)

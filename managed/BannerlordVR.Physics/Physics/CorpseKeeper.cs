@@ -53,7 +53,13 @@ namespace BannerlordVR.VR.Physics
                 double elapsed = (now - start) * 1e-5;
                 if (elapsed < -1 || elapsed > 3600 || float.IsNaN(duration) || duration < 0 || duration > 3600)
                     return Stop(string.Format(CultureInfo.InvariantCulture, "timer elapsed={0:F1} duration={1:F1}", elapsed, duration));
-                Marshal.WriteInt64(new IntPtr(ptr + TimerStart), now);
+                // The same timer first ends the death animation: past its
+                // duration the engine starts the ragdoll and drops the weapons
+                // (0x1805d34e0), and files the corpse 3 s later. Held from the
+                // start, the weapons never dropped. It is only held back once
+                // past that step, a second after it, short of the filing.
+                if (elapsed < duration + 2) return true;
+                Marshal.WriteInt64(new IntPtr(ptr + TimerStart), now - (long)((duration + 1) * 1e5));
                 if (!_logged)
                 {
                     _logged = true;
