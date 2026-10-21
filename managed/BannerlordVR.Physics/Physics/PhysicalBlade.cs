@@ -178,6 +178,20 @@ namespace BannerlordVR.VR.Physics
             return v * c + Cross(k, v) * sn + k * (InteractionMath.Dot(k, v) * (1 - c));
         }
 
+        // VrCombatSound.Swing: BannerlordVR's swing whoosh plays on every hand
+        // motion over 3 m/s; a blade pushed or drawn in a body played it again
+        // and again, a sound of blows all through the stab.
+        [HarmonyPatch]
+        internal static class SwingSoundPatch
+        {
+            public static bool Prepare() => AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrCombatSound"), "Swing") != null;
+            public static MethodBase TargetMethod() => AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrCombatSound"), "Swing");
+
+            [HarmonyPrefix]
+            public static bool Prefix() =>
+                !EnemyPhysicsSettings.Enabled || (!EnemyPhysicsRuntime.HandHolds(0) && !EnemyPhysicsRuntime.HandHolds(1));
+        }
+
         // VrMelee.Fire(agent, controller, ...): no engine attack from a hand
         // whose blade is held in a body (see EnemyPhysicsRuntime.HandHolds).
         [HarmonyPatch]

@@ -223,7 +223,10 @@ namespace BannerlordVR.VR.Physics
                 }
                 else spread = null;
                 float k = Math.Min(HandSpring, moved * HandNaturalFrequency * HandNaturalFrequency);
-                float c = Math.Min(HandDamper * 4, moved * HandDampingRate);
+                // At least 0.7 of critical damping on what the grip moves: at
+                // HandDamper x 4 (80 N.s/m) a 15 kg part was at 0.2 and a body
+                // carried whole at 0.09, and they bounced on the blade.
+                float c = Math.Min(Math.Max(HandDamper * 4, 1.4f * (float)Math.Sqrt(k * moved)), moved * HandDampingRate);
                 Vec3 grip = (_handleTarget[h] - position[i]) * k -
                     (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c;
                 Vec3 axis = _handleAxis[h];

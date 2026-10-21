@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; LastResistance = 0; _gate.Reset();
+            Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
@@ -163,6 +163,8 @@ namespace BannerlordVR.VR.Physics
         private bool _cut, _hasCutNormal, _cutBased;
         private Vec3 _entryVelocity, _cutLocal;
         private float _lastAlong;
+        private float _effectDepth, _effectAlong;
+        private const float EffectRepeat = .06f;
         private const float SlideDamper = 100, CutExit = .015f, CutMaxDepth = .003f, CutThrough = .05f;
 
         private bool TickCut(BodyPoint p, MatrixFrame bone, Vec3 anchor, Vec3 axis, Vec3 bladeBase, Vec3 bladeTip,
@@ -220,8 +222,12 @@ namespace BannerlordVR.VR.Physics
             Vec3 slide = -axis * (InteractionMath.Dot(relative, axis) * SlideDamper * PenetrationModifiers.Get(_profile, _material, _tier).DamperMultiplier);
             force += InteractionMath.ClampMagnitude(slide, WithdrawDrag);
             LastResistance = slide.Length;
-            if (!Body.IsCorpse && !float.IsNaN(_lastAlong) && Math.Abs(along - _lastAlong) > .01f)
+            if (!Body.IsCorpse && !float.IsNaN(_lastAlong) && Math.Abs(along - _effectAlong) > EffectRepeat)
+            {
+                _effectAlong = along;
                 BloodFx.Burst(BloodFx.Kind.Inside, anchor, n);
+            }
+            if (float.IsNaN(_lastAlong)) _effectAlong = along;
             _lastAlong = along;
             _lastDepth = depth;
             long steps = EnemyPhysicsRuntime.PhysicsSteps;
@@ -242,6 +248,8 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4} shown_hand_offset={5:F3} max_offset={6:F3}",
                     reason, value, _age, _maxDepth, Locked, PhysicalBlade.Separation(Role), _maxSeparation));
+            // One spill as the blade leaves a living body (UnPenetrate).
+            if (Body != null && !Body.IsCorpse && _pending < .5f && _maxDepth > .02f) BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
             Release();
         }
         private EnemyBody _woundBody;
@@ -427,9 +435,15 @@ namespace BannerlordVR.VR.Physics
             // with the blade. The B&S weapon is held by a 2000 N grip on a
             // heavy creature; here the drag out is held to WithdrawDrag.
             if (depth < _lastDepth) axial = InteractionMath.ClampMagnitude(axial, WithdrawDrag);
-            // Sliding inside the wound bleeds; pulling out spills at the exit.
-            if (!Body.IsCorpse && Math.Abs(depth - _lastDepth) > .004f)
-                BloodFx.Burst(depth < _lastDepth ? BloodFx.Kind.Exit : BloodFx.Kind.Inside, anchor, -axis);
+            // UpdatePenetration: the penetration effect repeats once per
+            // ragdollData.penetrationEffectRepeatDistance (6 cm) of new depth,
+            // never on the way out. A burst on every 4 mm both ways (at most
+            // each 0.15 s) sprayed blood in volleys all through a stab.
+            if (!Body.IsCorpse && depth > _effectDepth + EffectRepeat)
+            {
+                _effectDepth = depth;
+                BloodFx.Burst(BloodFx.Kind.Inside, anchor, -axis);
+            }
             _lastDepth = depth;
             LastResistance = axial.Length;
             force += axial;
