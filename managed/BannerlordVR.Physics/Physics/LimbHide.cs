@@ -75,6 +75,7 @@ namespace BannerlordVR.VR.Physics
                 // The helmet flies before the head is folded away.
                 if (kind == SliceJoint.Neck && bvr_skeleton_bone_record(skeleton.Pointer, bone, Buffer, RecordBytes) == RecordBytes)
                     SeveredProp.ThrowHelmet(agent, skeleton.GetBoneEntitialFrameWithIndex(bone), RestFrame(), cutVelocity);
+                if (kind == SliceJoint.Neck) HelmetHide.Hide(agent, bone);
                 ulong mask = 0;
                 foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;
                 int sever = bvr_limb_sever(skeleton.Pointer, bone, mask);

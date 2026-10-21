@@ -92,3 +92,45 @@ namespace BannerlordVR.VR.Physics
         }
     }
 }
+
+namespace BannerlordVR.VR.Physics
+{
+    // The helmet of a beheaded body stayed drawn a second after the head was
+    // gone from the skinning palette: it is drawn another way while the death
+    // animation runs. Its own meshes are hidden instead, wherever they hang:
+    // the skeleton's meshes and the head bone's.
+    internal static class HelmetHide
+    {
+        private static bool _logged;
+        public static void Hide(Agent victim, sbyte head)
+        {
+            try
+            {
+                Skeleton skeleton = victim?.AgentVisuals?.GetSkeleton();
+                if (skeleton == null) return;
+                string helmet = victim.SpawnEquipment[EquipmentIndex.Head].Item?.MultiMeshName;
+                if (string.IsNullOrEmpty(helmet)) return;
+                var names = new System.Text.StringBuilder();
+                int hidden = 0;
+                int count = skeleton.GetComponentCount(GameEntity.ComponentType.MetaMesh);
+                for (int i = 0; i < count; i++)
+                    if (skeleton.GetComponentAtIndex(GameEntity.ComponentType.MetaMesh, i) is MetaMesh mesh)
+                    {
+                        string name = mesh.GetName() ?? "";
+                        if (!_logged) names.Append(' ').Append(name);
+                        if (name.StartsWith(helmet, StringComparison.OrdinalIgnoreCase)) { mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++; }
+                    }
+                int onBone = skeleton.GetBoneComponentCount(head);
+                for (int i = 0; i < onBone; i++)
+                    if (skeleton.GetBoneComponentAtIndex(head, i) is MetaMesh mesh)
+                    {
+                        if (!_logged) names.Append(" [head bone] ").Append(mesh.GetName());
+                        mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++;
+                    }
+                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + (_logged ? "" : "; skeleton meshes:" + names));
+                _logged = true;
+            }
+            catch (Exception ex) { PhysicsLog.Error("SEVERED helmet hide failed.", ex); }
+        }
+    }
+}
