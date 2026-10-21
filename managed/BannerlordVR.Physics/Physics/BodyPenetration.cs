@@ -129,7 +129,7 @@ namespace BannerlordVR.VR.Physics
             _cut = !PenetrationJoint.Get(profile).Pierce; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
-            _maxDepth = 0; _maxSeparation = 0; _lockedLogged = false;
+            _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false;
             // BrainModuleEquipment: a pierce into an arm or hand disarms that hand.
             if (!body.IsCorpse && (profile == PenetrationProfile.DaggerPierce || profile == PenetrationProfile.SwordPierce ||
                     profile == PenetrationProfile.WarpickPierce || profile == PenetrationProfile.Arrow))
@@ -154,7 +154,8 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private float _maxSeparation;
-        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300;
+        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300;
+        private float _maxAxial;
         // Slash joint (Damager_SwordSlash1H, DamageModifier_Slash): the edge
         // bites penetrationVelocityMaxDepth (3 mm per m/s over the material's
         // minimum, held to 3 mm) and the blade slides along its length with
@@ -246,8 +247,8 @@ namespace BannerlordVR.VR.Physics
         {
             if (EnemyPhysicsSettings.Trace && Body != null)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4} shown_hand_offset={5:F3} max_offset={6:F3}",
-                    reason, value, _age, _maxDepth, Locked, PhysicalBlade.Separation(Role), _maxSeparation));
+                    "PENETRATION end reason={0} value={1:F3} age={2:F2} max_depth={3:F3} locked={4} shown_hand_offset={5:F3} max_offset={6:F3} max_axial_n={7:F0}",
+                    reason, value, _age, _maxDepth, Locked, PhysicalBlade.Separation(Role), _maxSeparation, _maxAxial));
             // One spill as the blade leaves a living body (UnPenetrate).
             if (Body != null && !Body.IsCorpse && _pending < .5f && _maxDepth > .02f) BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
             Release();
@@ -443,6 +444,13 @@ namespace BannerlordVR.VR.Physics
             // with the blade. The B&S weapon is held by a 2000 N grip on a
             // heavy creature; here the drag out is held to WithdrawDrag.
             if (depth < _lastDepth) axial = InteractionMath.ClampMagnitude(axial, WithdrawDrag);
+            // Going in, the B&S damper slows the weapon in the player's hand
+            // (a 2000 N grip) while the body stands on its pins; here the
+            // controller is never slowed, so the whole damper (1250 N.s/m on
+            // plate) shoved a 15 kg part and the body went back instead of
+            // letting the blade in. Held to the same 300 N as coming out.
+            else axial = InteractionMath.ClampMagnitude(axial, PushInDrag);
+            _maxAxial = Math.Max(_maxAxial, axial.Length);
             // UpdatePenetration: the penetration effect repeats once per
             // ragdollData.penetrationEffectRepeatDistance (6 cm) of new depth,
             // never on the way out. A burst on every 4 mm both ways (at most
