@@ -334,7 +334,9 @@ namespace BannerlordVR.VR.Physics
         // A body only hit goes back to its animation once it has swayed back
         // to its pose, after the push's recoil (B&S plays the stagger on the
         // still-physical body; here the pose is held while physical).
-        public const float HitReaction = .5f, HitReleaseError = .15f;
+        // A body only hit goes back to animation once nearly on its pose and
+        // still: at 15 cm off it slid sideways into the animated pose.
+        public const float HitReaction = .5f, HitReleaseError = .05f, HitReleaseSpeed = .3f, ItemSwayDv = 2.5f;
 
         private void ApplyHit(float now, float dt)
         {
@@ -343,8 +345,13 @@ namespace BannerlordVR.VR.Physics
                 int b = _hitBone < _bodyOfBone.Length ? _bodyOfBone[_hitBone] : -1;
                 if (b >= 0 && b < _drive.Count)
                 {
+                    // An item's momentum, held to a sway on the struck part: a
+                    // 7.6 m/s slash on a 4 kg head gave it 6 m/s and launched a
+                    // standing body at 9 m/s. B&S edges cut through rather
+                    // than shove; its push levels carry the rest.
                     Vec3 impulse = _hitFist ? PunchImpact.ContactImpulse(_drive.Mass(b), _hitVelocity)
-                        : InteractionMath.ClampMagnitude(_hitVelocity * Math.Max(.5f, Math.Min(8, _hitMass)), PunchImpact.MaxImpulse);
+                        : InteractionMath.ClampMagnitude(_hitVelocity * Math.Max(.5f, Math.Min(8, _hitMass)),
+                            Math.Min(PunchImpact.MaxImpulse, _drive.Mass(b) * ItemSwayDv));
                     _force[b] += impulse * PunchImpact.StepRate;
                     if (_cycle.Phase == ActiveRagdollPhase.Destabilized)
                     {
@@ -724,7 +731,7 @@ namespace BannerlordVR.VR.Physics
             (_cycle.Phase == ActiveRagdollPhase.Recovered ||
              (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > PhysicEnabledDuration) ||
              (_cycle.Phase == ActiveRagdollPhase.Standing && !_touched && _hitHold > 0 && _hitBone < 0 &&
-              _lastRootSample - _lastInteraction > _hitHold && LastPoseError < HitReleaseError));
+              _lastRootSample - _lastInteraction > _hitHold && LastPoseError < HitReleaseError && RootSpeed < HitReleaseSpeed));
         // Untouched long after physicEnabledDuration yet still off its pose
         // (an arm caught in the body, a turned pose the pins could not reach):
         // B&S returns parts to animation after the duration regardless. Close

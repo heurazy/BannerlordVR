@@ -79,6 +79,23 @@ namespace BannerlordVR.VR.Physics
                 Vec3 before = previous.TransformToParent((gripLocal + tipLocal) * .5f);
                 side = InteractionMath.Dot(before - plate.Centre, n) >= 0 ? 1 : -1;
             }
+            // Held only when the blade comes in through the shield's face: a
+            // blade point crosses the front face, inside its outline, between
+            // last frame and this one. A blade that went round the edge (or
+            // was already behind) is never dragged back through: that was the
+            // sword "teleported to the other side".
+            bool entered = false;
+            for (int i = 0; i <= Samples && !entered; i++)
+            {
+                Vec3 local = gripLocal + (tipLocal - gripLocal) * (i / (float)Samples);
+                Vec3 p0 = previous.TransformToParent(local) - plate.Centre, p1 = world.TransformToParent(local) - plate.Centre;
+                float d0 = side * InteractionMath.Dot(p0, n), d1 = side * InteractionMath.Dot(p1, n);
+                if (d0 < plate.HalfN || d1 >= plate.HalfN + Pad) continue;
+                float t = Math.Abs(d0 - d1) < 1e-5f ? 0 : (d0 - plate.HalfN) / (d0 - d1);
+                Vec3 hit = p0 + (p1 - p0) * Math.Max(0, Math.Min(1, t));
+                entered = Math.Abs(InteractionMath.Dot(hit, plate.A)) <= plate.HalfA + Pad && Math.Abs(InteractionMath.Dot(hit, plate.B)) <= plate.HalfB + Pad;
+            }
+            if (!entered) return false;
             float need = 0;
             for (int i = 0; i <= Samples; i++)
             {

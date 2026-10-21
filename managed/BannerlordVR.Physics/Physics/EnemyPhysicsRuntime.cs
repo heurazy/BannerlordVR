@@ -707,9 +707,7 @@ namespace BannerlordVR.VR.Physics
                 // body behind it: the whole blade is tested, not only this
                 // sample's path (one shield touch was counted in a whole test).
                 if (EquipmentBlocks(body, previous, current, fraction, thickness) ||
-                    (blade && ItemBlocks(body.Agent, body.Agent.GetOffhandWieldedItemIndex(), start, tip, 1, thickness) &&
-                     body.Agent.GetOffhandWieldedItemIndex() != EquipmentIndex.None &&
-                     body.Agent.Equipment[body.Agent.GetOffhandWieldedItemIndex()].CurrentUsageItem?.IsShield == true))
+                    (blade && BladeMetShield(body.Agent, hand.PreviousBase, hand.PreviousTip, start, tip, thickness)))
                 {
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
@@ -792,6 +790,19 @@ namespace BannerlordVR.VR.Physics
                 PhysicsInterop.Haptic(index, .2f + .8f * intensity, .02f + .04f * intensity);
             }
             else PhysicsInterop.Haptic(index, .45f, .035f);
+        }
+
+        // A blade that met the shield anywhere on its way this tick: a fast
+        // blow crosses the plate between two ticks, and by the time a limb is
+        // hit the blade is already behind it (3 parries counted in a test).
+        private static bool BladeMetShield(Agent agent, Vec3 prevBase, Vec3 prevTip, Vec3 baseNow, Vec3 tipNow, float radius)
+        {
+            EquipmentIndex off = agent.GetOffhandWieldedItemIndex();
+            if (off == EquipmentIndex.None || agent.Equipment[off].IsEmpty || agent.Equipment[off].CurrentUsageItem?.IsShield != true) return false;
+            Vec3 prevMid = (prevBase + prevTip) * .5f, midNow = (baseNow + tipNow) * .5f;
+            return ItemBlocks(agent, off, baseNow, tipNow, 1, radius) || ItemBlocks(agent, off, prevBase, prevTip, 1, radius) ||
+                ItemBlocks(agent, off, prevTip, tipNow, 1, radius) || ItemBlocks(agent, off, prevMid, midNow, 1, radius) ||
+                ItemBlocks(agent, off, prevBase, baseNow, 1, radius);
         }
 
         private static bool EquipmentBlocks(EnemyBody body, Vec3 start, Vec3 end, float bodyFraction, float radius)
