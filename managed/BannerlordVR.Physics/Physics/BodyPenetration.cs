@@ -118,6 +118,10 @@ namespace BannerlordVR.VR.Physics
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _maxSeparation = 0; _lockedLogged = false;
+            // BrainModuleEquipment: a pierce into an arm or hand disarms that hand.
+            if (!body.IsCorpse && (profile == PenetrationProfile.DaggerPierce || profile == PenetrationProfile.SwordPierce ||
+                    profile == PenetrationProfile.WarpickPierce || profile == PenetrationProfile.Arrow))
+                Disarm.ArmStab(body.Agent, point.Bone, point.Part, body.Skeleton.GetBoneName(point.Bone));
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION begin profile={0} zone={1} material={2} tier={3} speed={4:F2} pressure={5} bone={6} depth_limit={7:F3} damper_x={8:F2}",

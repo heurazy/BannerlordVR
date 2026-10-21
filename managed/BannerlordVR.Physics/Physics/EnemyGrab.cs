@@ -1,3 +1,4 @@
+using System;
 using TaleWorlds.Engine;
 using TaleWorlds.Library;
 
@@ -9,6 +10,8 @@ namespace BannerlordVR.VR.Physics
         public int Point { get; private set; }
         private Vec3 _localOffset;
         private Vec3 _lastTarget;
+        private float _waking;
+        private readonly PhysicsStepGate _gate = new PhysicsStepGate();
         public bool Held => Body != null;
         public int HandIndex;
         public BannerlordVR.VR.HandRole Role;
@@ -19,7 +22,7 @@ namespace BannerlordVR.VR.Physics
             // Anchor the contact in the bone's space, so it follows rotation.
             MatrixFrame world = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(body.Points[point].Bone));
             _localOffset = world.TransformToLocalNonOrthogonal(hand);
-            _lastTarget = hand;
+            _lastTarget = hand; _waking = 0; _gate.Reset();
             bool native = EnemyPhysicsRuntime.BeginLivingGrab(body);
             if (!body.IsCorpse && !native)
             {
@@ -35,6 +38,20 @@ namespace BannerlordVR.VR.Physics
             if (Body != null && EnemyPhysicsSettings.ActiveRagdoll) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
             if (Body != null) PhysicalBlade.ClearGrip(Role);
             Body = null; _localOffset = Vec3.Zero; _lastTarget = Vec3.Zero;
+        }
+
+        // Low estimates of a human ragdoll's part masses (89.7 kg over 16
+        // bodies): too light a guess only softens the grip.
+        private static float PartMass(string bone)
+        {
+            if (bone.Contains("hand") || bone.Contains("foot")) return 1;
+            if (bone.Contains("forearm")) return 1.5f;
+            if (bone.Contains("upperarm") || bone.Contains("neck") || bone.Contains("clavicle")) return 2;
+            if (bone.Contains("calf")) return 3.5f;
+            if (bone.Contains("head")) return 4;
+            if (bone.Contains("thigh")) return 6;
+            if (bone.Contains("spine") || bone.Contains("pelvis") || bone.Contains("abdomen") || bone.Contains("chest")) return 8;
+            return 3;
         }
 
         public void Tick(MatrixFrame hand, float dt)
@@ -59,9 +76,20 @@ namespace BannerlordVR.VR.Physics
             }
             if (Body.HasNativePhysics)
             {
-                Vec3 force = InteractionMath.SpringForce(error, p.Velocity - targetVelocity,
-                    EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce);
+                // B&S: a corpse's part is held by the same arm joint as a
+                // living one (spring 5000, max 3000 N), one force per PhysX step.
+                long steps = EnemyPhysicsRuntime.PhysicsSteps;
+                if (steps >= 0 && !_gate.CanApply(steps)) return;
+                float mass = PartMass(Body.Skeleton.GetBoneName(p.Bone) ?? "");
+                float k = Math.Min(RagdollPinDrive.HandSpring, mass * RagdollPinDrive.HandNaturalFrequency * RagdollPinDrive.HandNaturalFrequency);
+                float c = Math.Min(RagdollPinDrive.HandDamper * 4, mass * RagdollPinDrive.HandDampingRate);
+                Vec3 force = InteractionMath.ClampMagnitude(error * k - (p.Velocity - targetVelocity) * c, RagdollPinDrive.HandMaxForce);
                 Body.Agent.ApplyForceOnRagdoll(p.Bone, in force);
+                if (steps >= 0) _gate.Applied(EnemyPhysicsRuntime.PhysicsSteps);
+            }
+            else if (Body.IsCorpse && Body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled && (_waking += dt) < .5f)
+            {
+                // The woken ragdoll becomes active within a few ticks.
             }
             else if (!Body.IsCorpse)
             {

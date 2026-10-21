@@ -68,6 +68,19 @@ namespace BannerlordVR.VR.Physics
         public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
         // PhysX steps counted by the scene clock, or -1 when no clock runs.
         public static long PhysicsSteps => _living?.PhysicsSteps ?? -1;
+        // Horizontal gap between a capsule of this radius at a point and the
+        // nearest tracked living enemy's capsule (negative when overlapping).
+        public static float Clearance(Vec2 at, float radius)
+        {
+            float best = float.MaxValue;
+            foreach (EnemyBody body in Bodies)
+            {
+                Agent agent = body?.Agent;
+                if (agent == null || body.IsCorpse || !agent.IsActive()) continue;
+                best = Math.Min(best, (agent.Position.AsVec2 - at).Length - PlayerReach.Radius(agent) - radius);
+            }
+            return best;
+        }
         public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
@@ -432,7 +445,16 @@ namespace BannerlordVR.VR.Physics
                     if (d < distance && Visible(position, p.World, body)) { distance = d; best = body; point = i; }
                 }
             }
-            if (best != null && (!best.IsCorpse || best.HasNativePhysics)) hand.Grab.Begin(best, point, position);
+            if (best == null) return;
+            // The engine puts a corpse's ragdoll to sleep once it settles; a
+            // hand closing on it wakes it, as any B&S body is physical.
+            if (best.IsCorpse && !best.HasNativePhysics && best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
+            {
+                best.Skeleton.ActivateRagdoll();
+                if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("GRAB corpse agent=" + best.Agent.Index + " ragdoll woken");
+            }
+            if (!best.IsCorpse || best.HasNativePhysics || best.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled)
+                hand.Grab.Begin(best, point, position);
         }
 
         // Damager.TryHitByPressure: a point pushed into a body along the blade

@@ -35,6 +35,9 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool GrabBodyTurn = VrConfig.Bool("enemy_physics_grab_turn", false);
         // Every hit on a living enemy makes its body physical for the sway.
         public static readonly bool HitPhysics = VrConfig.Bool("enemy_physics_hit_physics", true);
+        // Lead the headset may take over a body stopped against an enemy (m); 0 keeps BannerlordVR's walking.
+        public static readonly float CloseReach = Read("enemy_physics_close_reach", 1, 0, 1.5f);
+        public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);
         public static readonly bool NeckCuts = VrConfig.Bool("enemy_physics_neck_cut", false);
