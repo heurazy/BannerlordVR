@@ -95,6 +95,9 @@ namespace BannerlordVR.VR.Physics
                 // longer updated (it stayed NeedsActivation), so the update
                 // is run here until the ragdoll is up.
                 RagdollState before = Body.Skeleton.GetCurrentRagdollState();
+                // Never on a filed corpse (the engine no longer owns it alive).
+                var visuals = Body.Agent.AgentVisuals;
+                if (visuals == null || !visuals.IsValid()) { Release(); return; }
                 Body.Skeleton.TickAnimationsAndForceUpdate(.001f, Body.Frame, false);
                 RagdollState after = Body.Skeleton.GetCurrentRagdollState();
                 if (after != before || !_wakeLogged)

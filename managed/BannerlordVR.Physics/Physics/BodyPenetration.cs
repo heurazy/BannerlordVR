@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private float _maxSeparation;
-        private const float MaxShove = .1f, LateralLoss = 2.5f;
+        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300;
         private int _tier = 2;
         // The blade direction in the part's frame at entry: the joint's
         // angular limits are relative to it.
@@ -329,6 +329,11 @@ namespace BannerlordVR.VR.Physics
             // a different brake going in and coming out, set by its armour.
             float damper = atLimit ? 0 : PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth, _tier);
             Vec3 axial = PenetrationJoint.AxialForce(axis, p.Velocity, targetVelocity, damper, _mass);
+            // Pulling out, the brake drags the part along at up to its mass x
+            // 30 N.s/m, about the whole body's weight on a torso: the body rose
+            // with the blade. The B&S weapon is held by a 2000 N grip on a
+            // heavy creature; here the drag out is held to WithdrawDrag.
+            if (depth < _lastDepth) axial = InteractionMath.ClampMagnitude(axial, WithdrawDrag);
             // Sliding inside the wound bleeds; pulling out spills at the exit.
             if (!Body.IsCorpse && Math.Abs(depth - _lastDepth) > .004f)
                 BloodFx.Burst(depth < _lastDepth ? BloodFx.Kind.Exit : BloodFx.Kind.Inside, anchor, -axis);
