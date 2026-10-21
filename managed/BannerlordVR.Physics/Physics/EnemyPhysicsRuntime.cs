@@ -99,6 +99,8 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
         public static float PartMass(EnemyBody body, sbyte bone) => _living?.PartMass(body.Agent, bone) ?? 5;
+        public static float BodyMass(EnemyBody body) => body == null || body.IsCorpse ? 0 : _living?.BodyMass(body.Agent) ?? 0;
+        public static bool IsDying(EnemyBody body) => body != null && !body.IsCorpse && (_living?.IsDying(body.Agent) ?? false);
         public static bool HandleActiveGrab(EnemyBody body, int hand, BodyPoint point, Vec3 handWorld, MatrixFrame boneWorld, Vec3 contact)
             => !body.IsCorpse && _living != null && _living.HandleActive(body, hand, point, handWorld, boneWorld, contact);
         public static bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,

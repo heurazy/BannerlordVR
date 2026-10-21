@@ -352,6 +352,7 @@ namespace BannerlordVR.VR.Physics
             _drive.ClearHandle(hand); _grabBody[hand] = -1;
         }
         public bool Grabbed => _grabs[0].Active || _grabs[1].Active;
+        public float TotalMass => _configured ? _drive.TotalMass : 0;
         public float PartMass(sbyte bone) =>
             _configured && bone >= 0 && bone < _bodyOfBone.Length ? _drive.Mass(_bodyOfBone[bone]) : 5;
 

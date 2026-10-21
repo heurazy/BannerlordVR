@@ -129,7 +129,7 @@ namespace BannerlordVR.VR.Physics
             _cut = !PenetrationJoint.Get(profile).Pierce; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
-            _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false;
+            _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false; _nextTrace = 0;
             // BrainModuleEquipment: a pierce into an arm or hand disarms that hand.
             if (!body.IsCorpse && (profile == PenetrationProfile.DaggerPierce || profile == PenetrationProfile.SwordPierce ||
                     profile == PenetrationProfile.WarpickPierce || profile == PenetrationProfile.Arrow))
@@ -154,7 +154,25 @@ namespace BannerlordVR.VR.Physics
         private float _pending, _woundLost, _depthBase = -1, _maxDepth;
         private bool _lockedLogged;
         private float _maxSeparation;
-        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300;
+        private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500;
+        private float _nextTrace;
+        // STAB every 0.1 s while a blade is in: how deep, how the part and the
+        // blade move along it and towards the player, the two damper forces.
+        private void Trace(BodyPoint p, float depth, float limit, bool atLimit, bool dying, float bladeAxial, float partAxial,
+            float fromBlade, float fromPart, float along)
+        {
+            if (!EnemyPhysicsSettings.Trace || _age < _nextTrace) return;
+            _nextTrace = _age + .1f;
+            Agent player = Mission.Current?.MainAgent;
+            Vec3 toPlayer = player != null ? player.Position - p.World : Vec3.Zero;
+            float distance = toPlayer.AsVec2.Length;
+            Vec3 flat = distance > 1e-3f ? new Vec3(toPlayer.x / distance, toPlayer.y / distance, 0) : Vec3.Zero;
+            PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "STAB age={0:F2} zone={1} depth={2:F3} limit={3:F2} at_limit={4} dying={5} locked={6} part_speed={7:F2} part_to_player={8:F2} part_up={9:F2} part_axial={10:F2} blade_axial={11:F2} f_blade={12:F0} f_part={13:F0} dist_xy={14:F2} hand_gap={15:F2} along={16:F2}",
+                _age, _zone, depth, float.IsInfinity(limit) ? -1 : limit, atLimit, dying, Locked, p.Velocity.Length,
+                InteractionMath.Dot(p.Velocity, flat), p.Velocity.z, partAxial, bladeAxial, fromBlade, fromPart, distance,
+                PhysicalBlade.Separation(Role), along));
+        }
         private float _maxAxial;
         // Slash joint (Damager_SwordSlash1H, DamageModifier_Slash): the edge
         // bites penetrationVelocityMaxDepth (3 mm per m/s over the material's
@@ -439,19 +457,27 @@ namespace BannerlordVR.VR.Physics
             // B&S axial damper: the part is dragged along with the blade, with
             // a different brake going in and coming out, set by its armour.
             float damper = atLimit ? 0 : PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth, _tier);
-            Vec3 axial = PenetrationJoint.AxialForce(axis, p.Velocity, targetVelocity, damper, _mass);
+            // The damper acts on the blade's speed into the part and on the
+            // part's own speed along the blade. The blade's push is held to
+            // 300 N (the controller is never slowed, and the full damper shoved
+            // the body back instead of letting the blade in); the part's own
+            // slide keeps the full B&S brake, on the whole body once it hangs
+            // limp: held to 300 N too, a falling body slid down the blade
+            // onto the player.
+            bool dying = EnemyPhysicsRuntime.IsDying(Body);
+            float braked = dying ? Math.Max(_mass, EnemyPhysicsRuntime.BodyMass(Body)) : _mass;
+            float c = Math.Min(damper, braked * RagdollPinDrive.MaxDampingRate);
+            float bladeAxial = InteractionMath.Dot(targetVelocity, axis), partAxial = InteractionMath.Dot(p.Velocity, axis);
+            float fromBlade = c * bladeAxial, fromPart = -c * partAxial;
+            fromBlade = Math.Max(-(depth < _lastDepth ? WithdrawDrag : PushInDrag), Math.Min(depth < _lastDepth ? WithdrawDrag : PushInDrag, fromBlade));
+            fromPart = Math.Max(-SlideBrake, Math.Min(SlideBrake, fromPart));
+            Vec3 axial = axis * (fromBlade + fromPart);
             // Pulling out, the brake drags the part along at up to its mass x
             // 30 N.s/m, about the whole body's weight on a torso: the body rose
             // with the blade. The B&S weapon is held by a 2000 N grip on a
             // heavy creature; here the drag out is held to WithdrawDrag.
-            if (depth < _lastDepth) axial = InteractionMath.ClampMagnitude(axial, WithdrawDrag);
-            // Going in, the B&S damper slows the weapon in the player's hand
-            // (a 2000 N grip) while the body stands on its pins; here the
-            // controller is never slowed, so the whole damper (1250 N.s/m on
-            // plate) shoved a 15 kg part and the body went back instead of
-            // letting the blade in. Held to the same 300 N as coming out.
-            else axial = InteractionMath.ClampMagnitude(axial, PushInDrag);
             _maxAxial = Math.Max(_maxAxial, axial.Length);
+            Trace(p, depth, limit, atLimit, dying, bladeAxial, partAxial, fromBlade, fromPart, along);
             // UpdatePenetration: the penetration effect repeats once per
             // ragdollData.penetrationEffectRepeatDistance (6 cm) of new depth,
             // never on the way out. A burst on every 4 mm both ways (at most

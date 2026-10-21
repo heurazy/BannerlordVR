@@ -445,6 +445,8 @@ namespace BannerlordVR.VR.Physics
         }
         public long PhysicsSteps => _clock.Running ? _clock.Steps : -1;
         public float PartMass(Agent agent, sbyte bone) => Find(agent)?.Active.PartMass(bone) ?? 5;
+        public float BodyMass(Agent agent) => Find(agent)?.Active.TotalMass ?? 0;
+        public bool IsDying(Agent agent) => Find(agent)?.Active.Dying ?? false;
         private Entry Find(Agent agent)
         {
             foreach (Entry entry in _entries) if (entry.Agent == agent && entry.Lease.Occupied) return entry;
