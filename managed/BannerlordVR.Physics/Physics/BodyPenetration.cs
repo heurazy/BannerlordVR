@@ -214,7 +214,8 @@ namespace BannerlordVR.VR.Physics
             if (damage - now > 0)
             {
                 _pending += damage - now; _pendingVictim = victim; _lastAnchor = anchor;
-                if (_pending >= .5f && Body != null && Body.Agent == victim) EnemyPhysicsRuntime.MarkDying(Body);
+                // Only a blow held back by the last point is mortal, not its fraction.
+                if (damage >= victim.Health - .5f && _pending >= .5f && Body != null && Body.Agent == victim) EnemyPhysicsRuntime.MarkDying(Body);
             }
             float lost = now >= .5f ? PhysicalHit.ApplyPenetration(_source, victim, _bone, _part, anchor, now, type) : 0;
             if (lost > 0) BloodFx.Burst(kind == "skewer" ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, anchor, Vec3.Up);
