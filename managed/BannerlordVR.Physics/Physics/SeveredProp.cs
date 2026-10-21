@@ -102,6 +102,31 @@ namespace BannerlordVR.VR.Physics
     internal static class HelmetHide
     {
         private static bool _logged;
+        // A helmet's cloth (coif, aventail) is simulated apart: it kept the
+        // head's old shape about a second after the palette collapsed. Held to
+        // its skinned position (max distance 0) and reset, it follows at once.
+        public static int Cloth(Agent victim, bool reset)
+        {
+            int n = 0;
+            try
+            {
+                Skeleton skeleton = victim?.AgentVisuals?.GetSkeleton();
+                GameEntity entity = victim?.AgentVisuals?.GetEntity();
+                if (skeleton != null)
+                    for (int i = 0; i < skeleton.GetComponentCount(GameEntity.ComponentType.ClothSimulator); i++)
+                        if (skeleton.GetComponentAtIndex(GameEntity.ComponentType.ClothSimulator, i) is ClothSimulatorComponent c) { Pin(c, reset); n++; }
+                if (entity != null)
+                    for (int i = 0; i < entity.GetComponentCount(GameEntity.ComponentType.ClothSimulator); i++)
+                        if (entity.GetComponentAtIndex(i, GameEntity.ComponentType.ClothSimulator) is ClothSimulatorComponent c) { Pin(c, reset); n++; }
+            }
+            catch (Exception) { }
+            return n;
+        }
+        private static void Pin(ClothSimulatorComponent cloth, bool reset)
+        {
+            cloth.SetMaxDistanceMultiplier(0);
+            if (reset) cloth.SetResetRequired();
+        }
         public static void Hide(Agent victim, sbyte head)
         {
             try
@@ -139,7 +164,13 @@ namespace BannerlordVR.VR.Physics
                         if (!_logged) names.Append(" [head bone] ").Append(mesh.GetName());
                         mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++;
                     }
-                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + (_logged ? "" : "; skeleton meshes:" + names));
+                int cloth = Cloth(victim, true);
+                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + " cloth=" + cloth +
+                    (_logged ? "" : "; skeleton components meta=" + count + " cloth=" + skeleton.GetComponentCount(GameEntity.ComponentType.ClothSimulator) +
+                    " composite=" + skeleton.GetComponentCount(GameEntity.ComponentType.CompositeComponent) +
+                    "; entity cloth=" + (entity?.GetComponentCount(GameEntity.ComponentType.ClothSimulator) ?? 0) +
+                    " composite=" + (entity?.GetComponentCount(GameEntity.ComponentType.CompositeComponent) ?? 0) +
+                    " children=" + (entity?.ChildCount ?? 0) + "; meshes:" + names));
                 _logged = true;
             }
             catch (Exception ex) { PhysicsLog.Error("SEVERED helmet hide failed.", ex); }

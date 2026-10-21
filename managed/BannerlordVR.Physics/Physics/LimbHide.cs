@@ -135,6 +135,7 @@ namespace BannerlordVR.VR.Physics
                     if (cut.Kind == SliceJoint.Neck) Fold(cut);
                     Collapse(cut);
                     if (late) Bleed(cut, now);
+                    if (cut.Kind == SliceJoint.Neck && now - cut.Started < 1.5f) HelmetHide.Cloth(cut.Agent, true);
                     if (late && !cut.Reported && now - cut.Started > 1.5f) Report(cut, "1.5s");
                 }
                 catch (Exception ex) { Fail("tick", ex); return; }
