@@ -70,14 +70,16 @@ namespace BannerlordVR.VR.Physics
         public static long PhysicsSteps => _living?.PhysicsSteps ?? -1;
         // Horizontal gap between a capsule of this radius at a point and the
         // nearest tracked living enemy's capsule (negative when overlapping).
-        public static float Clearance(Vec2 at, float radius)
+        public static float Clearance(Vec2 at, float radius) => Nearest(at, radius, out _);
+        public static float Nearest(Vec2 at, float radius, out Vec2 position)
         {
-            float best = float.MaxValue;
+            float best = float.MaxValue; position = at;
             foreach (EnemyBody body in Bodies)
             {
                 Agent agent = body?.Agent;
                 if (agent == null || body.IsCorpse || !agent.IsActive()) continue;
-                best = Math.Min(best, (agent.Position.AsVec2 - at).Length - PlayerReach.Radius(agent) - radius);
+                float gap = (agent.Position.AsVec2 - at).Length - PlayerReach.Radius(agent) - radius;
+                if (gap < best) { best = gap; position = agent.Position.AsVec2; }
             }
             return best;
         }
@@ -165,13 +167,15 @@ namespace BannerlordVR.VR.Physics
                 {
                     EnemyBody body = Bodies[i];
                     if (body == null) continue;
-                    if (!EnemyBody.Eligible(body.Agent, player, _living?.HasLease(body.Agent) == true) ||
-                        (body.Agent.Position - player.Position).Length > EnemyPhysicsSettings.ExitRadius || !body.Sample(dt))
+                    bool leased = _living?.HasLease(body.Agent) == true;
+                    if (!EnemyBody.Eligible(body.Agent, player, leased) ||
+                        (!leased && (body.Agent.Position - player.Position).Length > EnemyPhysicsSettings.ExitRadius) || !body.Sample(dt))
                         Remove(i);
                     else ActiveBodies++;
                 }
                 ShedUnheldBodies(player);
                 Scan(mission, player, dt);
+                PlayerReach.StickLean(player, dt);
                 if (PhysicsInterop.GetInputState(out BvrInputState input) != (int)BvrStatus.Ok)
                 { Once(ref _loggedInput, "Enemy physics: controller input unavailable this frame."); ClearHands(); return; }
                 var skeleton = player.AgentVisuals?.GetSkeleton();
@@ -238,8 +242,12 @@ namespace BannerlordVR.VR.Physics
             Bodies[i] = null;
             Records[i].Clear();
         }
+        // A body the physics simulates (thrown, falling, getting up) is held
+        // too: shedding it handed it back to its animation mid-fall, at the
+        // spot the agent never left.
         private static bool Held(EnemyBody body) => Hands[0].Grab.Body == body || Hands[1].Grab.Body == body ||
-            Hands[0].Penetration.Body == body || Hands[1].Penetration.Body == body;
+            Hands[0].Penetration.Body == body || Hands[1].Penetration.Body == body ||
+            (body?.Agent != null && _living != null && _living.HasLease(body.Agent));
 
         private static void Scan(Mission mission, Agent player, float dt)
         {

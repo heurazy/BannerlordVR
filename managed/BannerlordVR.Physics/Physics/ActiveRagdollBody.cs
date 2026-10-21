@@ -107,6 +107,7 @@ namespace BannerlordVR.VR.Physics
         // old spot and the released enemy snapped back.
         public bool Moved => _configured && ((_root.origin - _capturedRoot.origin).AsVec2.Length > .05f || Turned);
         public Vec3 RecoveryPosition => _root.origin;
+        public Vec3 PelvisPosition => _lastPelvis;
 
         public void Clear()
         {

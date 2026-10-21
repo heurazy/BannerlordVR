@@ -47,6 +47,28 @@ namespace BannerlordVR.VR.Physics
                     PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
             }
+            // Whatever ends the lease (a timeout, the agent no longer safe to
+            // hold), the agent comes back where its body lies, not at the
+            // spot it was held at while the body was thrown about.
+            private void PlaceUnderBody()
+            {
+                try
+                {
+                    if (!EnemyPhysicsSettings.ActiveRagdoll || !Active.Configured || Agent.MountAgent != null) return;
+                    Vec3 pelvis = Active.PelvisPosition;
+                    if (!InteractionMath.IsFinite(pelvis) || (pelvis - Agent.Position).AsVec2.Length < .5f ||
+                        (pelvis - Agent.Position).Length > 30) return;
+                    var face = new PathFaceRecord(-1, -1, -1);
+                    Mission.Scene.GetNavMeshFaceIndex(ref face, pelvis, true);
+                    if (!face.IsValid()) return;
+                    Vec3 ground = new WorldPosition(Mission.Scene, pelvis).GetGroundVec3();
+                    if (!InteractionMath.IsFinite(ground)) return;
+                    Agent.TeleportToPosition(ground);
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "ACTIVE_RAGDOLL lease_end placed agent={0} at its body phase={1}", Agent.Index, Active.Phase));
+                }
+                catch (Exception ex) { PhysicsLog.Error("Placing a released agent under its body failed.", ex); }
+            }
             public static string Actions(Agent agent)
             {
                 try
@@ -59,6 +81,7 @@ namespace BannerlordVR.VR.Physics
             public void EndNative()
             {
                 if (!SkeletonMatches || NativeDisabled) { ReleasePending = false; return; }
+                PlaceUnderBody();
                 RagdollState state = Skeleton.GetCurrentRagdollState();
                 if (state == RagdollState.NeedsActivation) { ReleasePending = true; return; }
                 NativeRagdollBridge.Release(Agent, Mission, Skeleton);

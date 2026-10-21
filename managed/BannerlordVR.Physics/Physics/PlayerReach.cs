@@ -29,6 +29,44 @@ namespace BannerlordVR.VR.Physics
             return EnemyPhysicsRuntime.Clearance(player.Position.AsVec2, Radius(player)) < Near ? reach : configured;
         }
 
+        // Stick locomotion stops at the capsules' contact; the stick then
+        // walks the view on into reach (at walking speed, up to CloseReach),
+        // the body staying where the engine stopped it.
+        private const float LeanSpeed = 1.5f, Contact = .08f;
+        public static void StickLean(Agent player, float dt)
+        {
+            try
+            {
+                float reach = EnemyPhysicsSettings.CloseReach;
+                if (reach <= 0 || player == null || !player.IsActive() || dt <= 0 || dt > .1f) return;
+                Vec2 input = player.MovementInputVector;
+                if (input.LengthSquared < .04f) return;
+                Vec2 at = player.Position.AsVec2;
+                if (EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy) > Contact) return;
+                Vec3 look = player.LookDirection;
+                Vec2 forward = new Vec2(look.x, look.y);
+                Vec2 toEnemy = enemy - at;
+                if (forward.Length < 1e-3f || toEnemy.Length < 1e-3f) return;
+                forward = forward.Normalized(); toEnemy = toEnemy.Normalized();
+                Vec2 right = new Vec2(forward.y, -forward.x);
+                Vec2 move = right * input.x + forward * input.y;
+                float amount = Math.Min(1, move.Length);
+                if (amount < 1e-3f || Vec2.DotProduct(move.Normalized(), toEnemy) < .3f) return;
+                Vec3 offset = VrCameraDriver.RoomOffset;
+                float lead = new Vec2(offset.x, offset.y).Length;
+                if (lead >= reach) return;
+                Vec2 dir = move.Normalized();
+                float step = Math.Min(reach - lead, LeanSpeed * amount * dt);
+                Vec3 local = VrCameraDriver.RoomRotation.TransformToLocal(new Vec3(dir.x * step, dir.y * step, 0));
+                local.z = 0;
+                VrCameraDriver.ConsumeRoomOffset(-local);
+            }
+            catch (Exception ex)
+            {
+                PhysicsLog.Error("Stick lean failed.", ex);
+            }
+        }
+
         public static float Radius(Agent agent) =>
             agent?.Monster != null && agent.Monster.BodyCapsuleRadius > 0 ? agent.Monster.BodyCapsuleRadius * agent.AgentScale : .37f;
 
