@@ -47,6 +47,7 @@ namespace BannerlordVR.VR.Physics
                 else if (EnemyPhysicsSettings.ActiveBalance)
                     PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
+                CloseCapsule();
             }
             // Whatever ends the lease (a timeout, the agent no longer safe to
             // hold), the agent comes back where its body lies, not at the
@@ -85,6 +86,7 @@ namespace BannerlordVR.VR.Physics
                 PlaceUnderBody();
                 RagdollState state = Skeleton.GetCurrentRagdollState();
                 if (state == RagdollState.NeedsActivation) { ReleasePending = true; return; }
+                OpenCapsule("release");
                 NativeRagdollBridge.Release(Agent, Mission, Skeleton);
                 ReleasePending = false;
                 // The corpse ragdoll leaves the skeleton frozen (captured
@@ -96,8 +98,46 @@ namespace BannerlordVR.VR.Physics
             // in a battle test. Hold the agent where its body went physical.
             private bool _held;
             private Vec2 _holdPosition;
+            // Agent.SetIsPhysicsForceClosed (IMBAgent set_is_physics_force_closed,
+            // unused by the game): the capsule the engine collides agents with.
+            // Watched: an agent sinking under its hold spot gets it back.
+            private bool _capsuleClosed, _capsuleLogged;
+            private float _capsuleZ;
+            private void CloseCapsule()
+            {
+                if (!EnemyPhysicsSettings.CloseHeldCapsule || _capsuleClosed) return;
+                try
+                {
+                    _capsuleZ = Agent.Position.z;
+                    Agent.SetIsPhysicsForceClosed(true);
+                    _capsuleClosed = true;
+                    if (!_capsuleLogged) { _capsuleLogged = true; PhysicsLog.Info("ACTIVE_RAGDOLL capsule closed agent=" + Agent.Index); }
+                }
+                catch (Exception ex) { PhysicsLog.Error("Closing a held agent's capsule failed.", ex); }
+            }
+            public bool CapsuleClosed => _capsuleClosed;
+            public void OpenCapsule(string reason)
+            {
+                if (!_capsuleClosed) return;
+                _capsuleClosed = false;
+                try
+                {
+                    if (Agent != null && Agent.State != AgentState.Deleted) Agent.SetIsPhysicsForceClosed(false);
+                    if (reason != "release") PhysicsLog.Info("ACTIVE_RAGDOLL capsule reopened reason=" + reason);
+                }
+                catch (Exception ex) { PhysicsLog.Error("Reopening an agent's capsule failed.", ex); }
+            }
+            private void WatchCapsule()
+            {
+                if (!_capsuleClosed) return;
+                Vec3 position = Agent.Position;
+                if (InteractionMath.IsFinite(position) && position.z > _capsuleZ - .5f) return;
+                OpenCapsule("sank_" + (_capsuleZ - position.z).ToString("F2", CultureInfo.InvariantCulture));
+                Agent.TeleportToPosition(new Vec3(position.x, position.y, _capsuleZ));
+            }
             public void SuppressMovement()
             {
+                WatchCapsule();
                 if (!_held) { _held = true; _holdPosition = Agent.Position.AsVec2; }
                 Agent.MovementFlags = 0;
                 Agent.MovementInputVector = Vec2.Zero;
@@ -114,7 +154,7 @@ namespace BannerlordVR.VR.Physics
                 Agent.SetMaximumSpeedLimit(-1, false);
                 Agent.ForceAiBehaviorSelection();
             }
-            public void Clear() { _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
+            public void Clear() { OpenCapsule("clear"); _held = false; Balance.Clear(); Active.Clear(); StartDestabilized = false; Agent = null; Skeleton = null; Mission = null; ImpactPending = ReleasePending = false; ImpactForce = Vec3.Zero; }
         }
         private readonly Entry[] _entries = CreateEntries();
         private readonly PhysicsStepCounter _clock = new PhysicsStepCounter();
@@ -185,6 +225,8 @@ namespace BannerlordVR.VR.Physics
             foreach (Entry entry in _entries)
             {
                 if (entry.Lease.Occupied || entry.Lease.Faulted) continue;
+                // A lease that ended by death never reopened its agent's capsule.
+                if (entry.Agent != null) entry.OpenCapsule("reuse");
                 entry.Agent = body.Agent; entry.Skeleton = body.Skeleton; entry.Mission = Mission;
                 entry.StartDestabilized = destabilized;
                 try

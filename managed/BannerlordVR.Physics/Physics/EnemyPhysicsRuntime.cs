@@ -83,7 +83,9 @@ namespace BannerlordVR.VR.Physics
             foreach (EnemyBody body in Bodies)
             {
                 Agent agent = body?.Agent;
-                if (agent == null || body.IsCorpse || !agent.IsActive()) continue;
+                // A physical body's capsule is closed: nothing to stop at.
+                if (agent == null || body.IsCorpse || !agent.IsActive() ||
+                    (EnemyPhysicsSettings.CloseHeldCapsule && _living != null && _living.HasLease(agent))) continue;
                 float gap = (agent.Position.AsVec2 - at).Length - PlayerReach.Radius(agent) - radius;
                 if (gap < best) { best = gap; position = agent.Position.AsVec2; }
             }

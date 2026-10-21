@@ -39,6 +39,9 @@ namespace BannerlordVR.VR.Physics
         public static readonly float CloseReach = Read("enemy_physics_close_reach", 1, 0, 1.5f);
         // A body lying on its back gets up with the game's own rise animation.
         public static readonly bool AnimatedRise = VrConfig.Bool("enemy_physics_animated_rise", true);
+        // While its body is physical an agent's own capsule stays at the spot
+        // it was held at; close it so it does not block the player there.
+        public static readonly bool CloseHeldCapsule = VrConfig.Bool("enemy_physics_close_held_capsule", true);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);
