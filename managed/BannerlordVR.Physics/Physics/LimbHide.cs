@@ -31,6 +31,8 @@ namespace BannerlordVR.VR.Physics
         private static extern int bvr_skeleton_bone_record(UIntPtr skeleton, int bone, byte[] output, int bytes);
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_skeleton_write_record(UIntPtr skeleton, int bone, int offset, float[] values, int count);
+        [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_skeleton_collapse_bone(UIntPtr skeleton, int bone, float x, float y, float z);
 
         private const int RecordBytes = 0x100, DrawnRotation = 0x04, DrawnPosition = 0x14;
         private const float HoldSeconds = 30, Tolerance = .003f, HeadSink = .30f;
@@ -39,7 +41,7 @@ namespace BannerlordVR.VR.Physics
         {
             public Agent Agent; public Skeleton Skeleton; public SliceJoint Kind; public sbyte Root, Parent, Grandparent;
             public sbyte[] Bones; public float Until, Started; public Vec3 Written; public bool HasWritten, Reported;
-            public int Writes, Skipped, Survived, Lost;
+            public int Writes, Skipped, Survived, Lost, Collapsed, CollapseFailed, LastError;
             // Watch: the record a tick before and how far each 16-byte block moved.
             public byte[] Prev; public float[] Moved = new float[16], Total = new float[16]; public float NextLog; public int Samples;
         }
@@ -106,7 +108,7 @@ namespace BannerlordVR.VR.Physics
                     if (EnemyPhysicsSettings.LimbWatch) { Watch(cut, now); continue; }
                     if (!_layoutChecked) CheckLayout(cut);
                     if (!_layoutOk) { Cuts.RemoveAt(i); continue; }
-                    Fold(cut);
+                    Collapse(cut);
                     if (late && !cut.Reported && now - cut.Started > 1.5f) Report(cut, "1.5s");
                 }
                 catch (Exception ex) { Fail("tick", ex); return; }
@@ -153,6 +155,23 @@ namespace BannerlordVR.VR.Physics
             _layoutOk = Read(cut, cut.Root, out Pose root) && (root.P - e.origin).Length < Tolerance &&
                 Math.Abs(root.W * root.W + root.X * root.X + root.Y * root.Y + root.Z * root.Z - 1) < .01f;
             PhysicsLog.Info("LIMB_TUCK layout " + (_layoutOk ? "matches" : "does not match: folding off"));
+        }
+
+        // The skinning palette, not the record, is what the GPU draws: the
+        // engine fills it from the record in 0x361010 right after its own
+        // writes, so a fold written to the record alone was never drawn. Each
+        // bone of the limb gets its palette matrix collapsed onto the joint
+        // (native bvr_skeleton_collapse_bone): every vertex it skins, armour
+        // included, is drawn at that point, and the limb is gone.
+        private static void Collapse(Cut cut)
+        {
+            if (!Read(cut, cut.Root, out Pose root)) return;
+            foreach (sbyte bone in cut.Bones)
+            {
+                int status = bvr_skeleton_collapse_bone(cut.Skeleton.Pointer, bone, root.P.x, root.P.y, root.P.z);
+                if (status == 0) cut.Collapsed++; else { cut.CollapseFailed++; cut.LastError = status; }
+            }
+            cut.Writes++;
         }
 
         private static void Fold(Cut cut)
@@ -227,8 +246,8 @@ namespace BannerlordVR.VR.Physics
         {
             cut.Reported = true;
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                "LIMB_TUCK {0} agent={1} joint={2} writes={3} still_ours={4} next_frame survived={5} lost={6} (survived: drawn folded)",
-                when, cut.Agent.Index, cut.Kind, cut.Writes, cut.Skipped, cut.Survived, cut.Lost));
+                "LIMB_TUCK {0} agent={1} joint={2} passes={3} collapsed={4} failed={5} last_error={6}",
+                when, cut.Agent.Index, cut.Kind, cut.Writes, cut.Collapsed, cut.CollapseFailed, cut.LastError));
             if (cut.Samples > 0)
             {
                 var sb = new System.Text.StringBuilder();

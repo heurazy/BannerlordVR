@@ -36,6 +36,10 @@ BVR_API int32_t BVR_CALL bvr_ragdoll_prepare(void);
 BVR_API int32_t BVR_CALL bvr_skeleton_bone_count(uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_skeleton_bone_record(uintptr_t skeleton, int32_t bone, uint8_t* out, int32_t bytes);
 BVR_API int32_t BVR_CALL bvr_skeleton_write_record(uintptr_t skeleton, int32_t bone, int32_t offset, const float* values, int32_t count);
+/* The engine's palette refresh for one bone (TaleWorlds.Native 0x361010), and
+   a bone's palette matrix collapsed onto one entity-space point. */
+BVR_API int32_t BVR_CALL bvr_skeleton_refresh_bone(uintptr_t skeleton, int32_t bone);
+BVR_API int32_t BVR_CALL bvr_skeleton_collapse_bone(uintptr_t skeleton, int32_t bone, float x, float y, float z);
 BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
 /* Read-only developer evidence: module-relative implementations reached by

@@ -70,7 +70,7 @@ namespace BannerlordVR.VR.Physics
         // calf or foot is laid onto the bone above it.
         public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
         // Only watch the cut bone's record instead of folding it (in-game probe).
-        public static readonly bool LimbWatch = VrConfig.Bool("enemy_physics_limb_watch", true);
+        public static readonly bool LimbWatch = VrConfig.Bool("enemy_physics_limb_watch", false);
         // A neck cut fast enough hides the head (meshless head armour). Off:
         // rebuilding the visuals without the head crashed the game when the
         // corpse went ragdoll (19 Oct 2026, docs/physical-enemies.md).
