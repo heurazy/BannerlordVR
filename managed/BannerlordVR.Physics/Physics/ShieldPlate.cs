@@ -18,7 +18,7 @@ namespace BannerlordVR.VR.Physics
     // shields both read this plate.
     internal static class ShieldPlate
     {
-        private static bool _logged;
+        private static bool _logged, _compared;
 
         public static bool FromEntity(Agent agent, out VrBlade.Plate plate)
         {
@@ -69,7 +69,20 @@ namespace BannerlordVR.VR.Physics
                 if (!EnemyPhysicsSettings.Enabled || !EnemyPhysicsSettings.EntityShieldPlates) return;
                 try
                 {
-                    if (FromEntity(agent, out VrBlade.Plate fitted)) { plate = fitted; __result = true; }
+                    VrBlade.Plate original = plate; bool had = __result;
+                    if (FromEntity(agent, out VrBlade.Plate fitted))
+                    {
+                        if (!_compared && had && original.Valid)
+                        {
+                            _compared = true;
+                            PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "SHIELD compare: BannerlordVR {0:F2}x{1:F2}x{2:F2} vs entity {3:F2}x{4:F2}x{5:F2}; centres {6:F2} m apart; normals {7:F0} deg apart",
+                                original.HalfA * 2, original.HalfB * 2, original.HalfN * 2, fitted.HalfA * 2, fitted.HalfB * 2, fitted.HalfN * 2,
+                                (original.Centre - fitted.Centre).Length,
+                                Math.Acos(Math.Min(1, Math.Abs(InteractionMath.Dot(original.N.NormalizedCopy(), fitted.N.NormalizedCopy())))) * 57.3));
+                        }
+                        plate = fitted; __result = true;
+                    }
                 }
                 catch (Exception) { }
             }

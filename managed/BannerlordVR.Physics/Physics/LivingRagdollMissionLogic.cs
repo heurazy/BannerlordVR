@@ -72,6 +72,7 @@ namespace BannerlordVR.VR.Physics
                     Vec3 ground = new WorldPosition(Mission.Scene, pelvis).GetGroundVec3();
                     if (!InteractionMath.IsFinite(ground)) return;
                     Agent.TeleportToPosition(ground);
+                    Rehold();
                     PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                         "ACTIVE_RAGDOLL lease_end placed agent={0} at its body phase={1}", Agent.Index, Active.Phase));
                 }
@@ -160,6 +161,7 @@ namespace BannerlordVR.VR.Physics
                 // with it (the body hopped 0.5 m); the release places it.
                 OpenCapsule("sank_" + (_capsuleZ - position.z).ToString("F2", CultureInfo.InvariantCulture));
             }
+            public void Rehold() { if (_held && Agent != null) _holdPosition = Agent.Position.AsVec2; }
             public void SuppressMovement()
             {
                 WatchCapsule();
@@ -169,7 +171,8 @@ namespace BannerlordVR.VR.Physics
                 // Held still (its own movement step is closed), the agent only
                 // moves when the physics teleports it under its body; its spot
                 // goes with it, or it walked back to where it was grabbed.
-                else if ((Agent.Position.AsVec2 - _holdPosition).Length > .3f) _holdPosition = Agent.Position.AsVec2;
+                // (the physics' own teleports call Rehold; any other drift is
+                // the blow's root motion and is not adopted)
                 Agent.MovementFlags = 0;
                 Agent.MovementInputVector = Vec2.Zero;
                 Agent.EventControlFlags = 0;
@@ -353,6 +356,9 @@ namespace BannerlordVR.VR.Physics
             }
             else if (push == PushEffect.Destabilize) entry.Active.Destabilize();
             if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
+            // The blow just registered started its knock-back: stop it before
+            // its root motion walks the hidden agent off the physical body.
+            ClearHitReaction(body.Agent);
             entry.Active.QueueHit(point.Bone, velocity, hitMass, fist, push);
             entry.Active.LastPusher = Mission.MainAgent;
         }
@@ -778,6 +784,7 @@ namespace BannerlordVR.VR.Physics
             _releasesThisTick++;
             SafeRelease(entry);
             agent.TeleportToPosition(ground);
+            entry.Rehold();
             agent.LookDirection = forward;
             agent.SetMovementDirection(forward.AsVec2);
             agent.SetActionChannel(0, RiseAction, ignorePriority: true);
@@ -856,10 +863,9 @@ namespace BannerlordVR.VR.Physics
             // A hit reaction the blow started under the physical body plays from
             // its middle at the switch: back to the idle instead.
             ClearHitReaction(entry.Agent);
-            // Only a body that was moved: the agent stands about 1 m from its
-            // visual entity's origin, so a distance test teleported every
-            // released agent by a metre.
-            if (moved && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
+            // A moved body, or an agent the blow's knock-back walked off its
+            // body (the ~1 m seen at every release: the switch jumped there).
+            if ((moved || distance > .25f) && entry.Agent.MountAgent == null && InteractionMath.IsFinite(position) &&
                 distance < 30 && navmesh)
             {
                 entry.Agent.TeleportToPosition(position); teleported = true;

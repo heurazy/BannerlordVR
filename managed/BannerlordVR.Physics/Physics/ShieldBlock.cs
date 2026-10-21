@@ -27,7 +27,8 @@ namespace BannerlordVR.VR.Physics
             BlockedAt[(int)role] != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - BlockedAt[(int)role] < Fresh;
         private const int Samples = 10;
         private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
-        private static bool _broken, _logged;
+        private static bool _broken;
+        private static int _logs;
 
         // world: the hand frame VrCollide produced; previous: last shown frame;
         // gripLocal/tipLocal: the blade in the hand frame.
@@ -92,11 +93,13 @@ namespace BannerlordVR.VR.Physics
             if ((total + shift).Length > MaxLag) return false; // past the hand's reach: it goes through
             total += shift;
             world.origin += shift;
-            if (!_logged)
+            if (_logs < 6)
             {
-                _logged = true;
+                _logs++;
                 PhysicsLog.Info("SHIELD blade stopped by " + (owner < 0 ? "the player's shield" : "agent " + owner + "'s shield") +
-                    " (hand held back " + need.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " m)");
+                    " (hand held back " + need.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " m, side " + side +
+                    ", blade middle " + InteractionMath.Dot(world.TransformToParent((gripLocal + tipLocal) * .5f) - plate.Centre, n).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) +
+                    " m off the plate centre along its normal)");
             }
             return true;
         }

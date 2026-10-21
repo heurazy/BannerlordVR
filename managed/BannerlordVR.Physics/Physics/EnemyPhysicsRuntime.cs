@@ -703,7 +703,13 @@ namespace BannerlordVR.VR.Physics
                 if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
                 Vec3 c = previous + (current - previous) * fraction;
                 if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
-                if (EquipmentBlocks(body, previous, current, fraction, thickness))
+                // A blade lying in or across the shield is on the shield, not the
+                // body behind it: the whole blade is tested, not only this
+                // sample's path (one shield touch was counted in a whole test).
+                if (EquipmentBlocks(body, previous, current, fraction, thickness) ||
+                    (blade && ItemBlocks(body.Agent, body.Agent.GetOffhandWieldedItemIndex(), start, tip, 1, thickness) &&
+                     body.Agent.GetOffhandWieldedItemIndex() != EquipmentIndex.None &&
+                     body.Agent.Equipment[body.Agent.GetOffhandWieldedItemIndex()].CurrentUsageItem?.IsShield == true))
                 {
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
@@ -738,7 +744,16 @@ namespace BannerlordVR.VR.Physics
             }
             // Blade & Sorcery push: level from impact speed and material, effect
             // from the human hit reaction table and the enemy's current action.
-            PushEffect push = hit.IsCorpse || _living == null ? PushEffect.None :
+            // B&S pushes only from a contact that deals damage (the material's
+            // minVelocity): slow touches at 0.3-2 m/s staggered the enemy.
+            float pushMin = usage == null ? PunchImpact.For(BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part)).MinVelocity : 0;
+            if (blade && !hit.IsCorpse)
+            {
+                BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile pushProfile);
+                pushMin = PenetrationModifiers.Get(pushProfile, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part),
+                    BodyPenetration.TierOf(weapon.Item)).DamageMinVelocity;
+            }
+            PushEffect push = hit.IsCorpse || _living == null || velocity.Length < pushMin ? PushEffect.None :
                 _living.EvaluatePush(hit, hitPoint, velocity, PhysicalHit.Material(usage, thrust));
             // A thrust that enters is not an impact kill: its damage comes from
             // depth and skewering, and lands when the blade is pulled out.
