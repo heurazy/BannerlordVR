@@ -16,7 +16,11 @@ namespace BannerlordVR.VR.Physics
     // the human brains set knockoutDuration 0, so a knockout is a forced fall.
     public static class Dismemberment
     {
-        public const float MaxAngle = 30, SliceWidth = .12f;
+        // Damager_SwordSlash1H tiers: dismembermentMaxVerticalAngle 90 (the
+        // blade's tilt never refuses a slice), dismembermentMaxHorizontalAngle
+        // 35 (the cut's direction across the limb). 30 for both refused nearly
+        // every neck cut.
+        public const float MaxVerticalAngle = 90, MaxHorizontalAngle = 35, SliceWidth = .12f;
 
         // Damager_*.json dismembermentMinVelocity; 0 when the damager cannot slice.
         public static float MinVelocity(PenetrationProfile profile, bool twoHanded)
@@ -36,10 +40,10 @@ namespace BannerlordVR.VR.Physics
             if (!InteractionMath.IsFinite(sliceAxis) || !InteractionMath.IsFinite(bladeUp) || !InteractionMath.IsFinite(bladeForward) ||
                 !InteractionMath.IsFinite(contactDistance) || contactDistance >= SliceWidth) return false;
             if (sliceAxis.LengthSquared < 1e-8f || bladeUp.LengthSquared < 1e-8f || bladeForward.LengthSquared < 1e-8f) return false;
-            float limit = MaxAngle / 90;
+            // Damager.CheckSlice compares the dot products with angle / 90.
             Vec3 axis = sliceAxis.NormalizedCopy();
-            return Math.Abs(InteractionMath.Dot(axis, bladeUp.NormalizedCopy())) < limit &&
-                   Math.Abs(InteractionMath.Dot(axis, bladeForward.NormalizedCopy())) < limit;
+            return Math.Abs(InteractionMath.Dot(axis, bladeUp.NormalizedCopy())) < MaxVerticalAngle / 90 &&
+                   Math.Abs(InteractionMath.Dot(axis, bladeForward.NormalizedCopy())) < MaxHorizontalAngle / 90;
         }
 
         public static bool Slices(PenetrationProfile profile, bool twoHanded, bool thrust, float speed,

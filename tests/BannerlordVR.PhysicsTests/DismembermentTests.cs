@@ -17,8 +17,11 @@ internal static class DismembermentTests
         check(!Dismemberment.Slices(PenetrationProfile.SwordPierce, false, false, 30, neck, blade, swing, .05f) &&
               !Dismemberment.Slices(PenetrationProfile.SaberSlash, false, true, 30, neck, blade, swing, .05f),
             "Thrusts and piercing damagers never slice");
-        check(!Dismemberment.CheckSlice(neck, new Vec3(1, 0, 1), swing, .05f),
-            "A blade 45 degrees off perpendicular fails the 30 degree check");
+        check(Dismemberment.CheckSlice(neck, new Vec3(1, 0, 1), swing, .05f),
+            "A blade tilted 45 degrees still slices (dismembermentMaxVerticalAngle 90)");
+        check(!Dismemberment.CheckSlice(neck, blade, new Vec3(0, 1, .9f), .05f) &&
+              Dismemberment.CheckSlice(neck, blade, new Vec3(0, 1, .3f), .05f),
+            "A cut more than 35 degrees off perpendicular to the limb fails (dismembermentMaxHorizontalAngle)");
         check(!Dismemberment.CheckSlice(neck, blade, new Vec3(0, 1, 1), .05f), "An edge moving along the limb does not cut through");
         check(!Dismemberment.CheckSlice(neck, blade, swing, .2f), "Contact outside sliceWidth does not slice");
         check(!Dismemberment.CheckSlice(Vec3.Zero, blade, swing, 0) && !Dismemberment.CheckSlice(neck, blade, swing, float.NaN),
