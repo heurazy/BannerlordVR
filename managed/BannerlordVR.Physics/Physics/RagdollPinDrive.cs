@@ -27,6 +27,8 @@ namespace BannerlordVR.VR.Physics
         public const float DestabilizedSpringRotation = .5f, DestabilizedDamperRotation = .1f;
         public const float DestabilizedGroundSpringRotation = .2f;
         public const float Gravity = 9.81f;
+        // Share of the rotation damper a released (limp) part keeps.
+        public const float LimpJointDamping = 1;
         // PhysX integrates Unity's drives implicitly. Here forces are explicit
         // and arrive one PhysX step late, so very light bodies would oscillate
         // under the raw spring. Cap each body's natural frequency instead.
@@ -144,7 +146,23 @@ namespace BannerlordVR.VR.Physics
                 }
                 int p = _parent[i];
                 // Destabilized keeps no rotation drive on the root (rootPart).
-                if (p < 0 || part <= 0) continue;
+                if (p < 0) continue;
+                if (part <= 0)
+                {
+                    // A released part keeps its joint's damping: PhysX joints
+                    // and Unity's implicit solver damp a limp B&S arm; with the
+                    // explicit, one-step-late forces here an undamped arm
+                    // flailed on the blade and shook the shown weapon with it.
+                    Vec3 offsetNow = position[i] - position[p];
+                    float limpLever = offsetNow.Length;
+                    if (limpLever < MinLever) continue;
+                    Vec3 parentVel = sampled ? (position[p] - _lastPosition[p]) * (1 / dt) : Vec3.Zero;
+                    float limpReduced = _mass[i] * _mass[p] / (_mass[i] + _mass[p]);
+                    float limpDamper = Math.Min(DamperRotation * LimpJointDamping / (limpLever * limpLever), limpReduced * MaxDampingRate);
+                    Vec3 drag = InteractionMath.ClampMagnitude((parentVel - velocity) * limpDamper, MaxRotation / limpLever);
+                    force[i] += drag; force[p] -= drag;
+                    continue;
+                }
                 float springScale = State == PinState.Standing ? 1 :
                     Grounded ? DestabilizedGroundSpringRotation : DestabilizedSpringRotation;
                 float damperScale = State == PinState.Standing ? 1 : DestabilizedDamperRotation;

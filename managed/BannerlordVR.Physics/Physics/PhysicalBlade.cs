@@ -29,6 +29,7 @@ namespace BannerlordVR.VR.Physics
             public long At;
             public bool Pierced;
             public Vec3 Anchor, PartAxis, GripLocal, TipLocal;
+            public long AnchorAt;
             public float AngleLimit, AlongMin;
             // Offset still shown after the blade came out, glided away.
             public Vec3 Residual; public long ResidualAt;
@@ -39,7 +40,7 @@ namespace BannerlordVR.VR.Physics
             public Vec3 BladeGrip, BladeTip; public long BladeAt;
         }
         private static readonly State[] States = { new State(), new State() };
-        private const float MaxSeparation = .9f, GlideSeconds = .12f;
+        private const float MaxSeparation = .9f, GlideSeconds = .12f, AnchorSmoothing = .04f;
         private static readonly long Fresh = Stopwatch.Frequency / 10;
 
         // The physics, from the raw controller blade of this frame.
@@ -49,6 +50,14 @@ namespace BannerlordVR.VR.Physics
             if (Stopwatch.GetTimestamp() - s.At > Fresh) { s.Pierced = false; return; }
             s.GripLocal = s.Raw.TransformToLocalNonOrthogonal(rawGrip);
             s.TipLocal = s.Raw.TransformToLocalNonOrthogonal(rawTip);
+            // The shown weapon follows the part through a short low-pass: the
+            // B&S weapon is a rigidbody with inertia, not glued to the part's
+            // every solver jitter.
+            long stamp = Stopwatch.GetTimestamp();
+            float since = s.AnchorAt == 0 ? 1 : (stamp - s.AnchorAt) / (float)Stopwatch.Frequency;
+            s.AnchorAt = stamp;
+            if (s.Pierced && InteractionMath.IsFinite(s.Anchor) && InteractionMath.IsFinite(anchor) && since < .1f && (anchor - s.Anchor).Length < .3f)
+                anchor = s.Anchor + (anchor - s.Anchor) * (1 - (float)Math.Exp(-since / AnchorSmoothing));
             s.Anchor = anchor; s.PartAxis = partAxis; s.AngleLimit = angleLimit; s.AlongMin = alongMin;
             s.Pierced = InteractionMath.IsFinite(anchor) && (s.TipLocal - s.GripLocal).Length > .05f;
         }

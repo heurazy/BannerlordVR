@@ -242,8 +242,11 @@ namespace BannerlordVR.VR.Physics
                     // Bannerlord types the upper arm Shoulder*, the forearm Arm*: the
                     // B&S arm part is both. With the upper arm still pinned the
                     // limp forearm only swung about a fixed elbow.
-                    _armBody[i] = part == BoneBodyPartType.ArmLeft || part == BoneBodyPartType.ArmRight ||
-                        part == BoneBodyPartType.ShoulderLeft || part == BoneBodyPartType.ShoulderRight;
+                    // The clavicle is a torso part in B&S: it stays pinned, and a
+                    // stab into the shoulder leaves the arm alone.
+                    string name = (skeleton.GetBoneName(_bone[i]) ?? "").ToLowerInvariant();
+                    _armBody[i] = !name.Contains("clavicle") && (part == BoneBodyPartType.ArmLeft || part == BoneBodyPartType.ArmRight ||
+                        part == BoneBodyPartType.ShoulderLeft || part == BoneBodyPartType.ShoulderRight);
                 }
             }
             catch (Exception) { Array.Clear(_armBody, 0, _armBody.Length); }
@@ -512,13 +515,15 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (!standing && i == _pelvisBody) continue;
-                if (_drive.PartScale(i) <= 0) continue;
+                bool limp = _drive.PartScale(i) <= 0;
                 MatrixFrame posed = _root.TransformToParent(_captured[_bone[i]]);
                 posed.rotation.Orthonormalize();
-                Vec3 error = RotationPin.Error(_rs[i], _rf[i], _ru[i], posed.rotation.s, posed.rotation.f, posed.rotation.u);
+                Vec3 error = limp ? Vec3.Zero : RotationPin.Error(_rs[i], _rf[i], _ru[i], posed.rotation.s, posed.rotation.f, posed.rotation.u);
                 Vec3 omega = _rotationSampled && dt > 0
                     ? RotationPin.Error(_ps[i], _pf[i], _pu[i], _rs[i], _rf[i], _ru[i]) * (1 / dt) : Vec3.Zero;
-                Vec3 a = RotationPin.Acceleration(error, omega, _drive.Mass(i), spring, damper, multiplier);
+                // A limp arm keeps only the damping of its spin (see the drive).
+                Vec3 a = limp ? RotationPin.Acceleration(Vec3.Zero, omega, _drive.Mass(i), 0, RagdollPinDrive.LimpJointDamping, 1)
+                    : RotationPin.Acceleration(error, omega, _drive.Mass(i), spring, damper, multiplier);
                 int b = _bone[i] * 3;
                 _torques[b] = a.x; _torques[b + 1] = a.y; _torques[b + 2] = a.z;
             }
