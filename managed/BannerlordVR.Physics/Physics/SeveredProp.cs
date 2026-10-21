@@ -157,6 +157,21 @@ namespace BannerlordVR.VR.Physics
                     if (!_logged) names.Append(" [entity] ").Append(name);
                     if (name.StartsWith(helmet, StringComparison.OrdinalIgnoreCase)) { mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++; }
                 }
+                // Child entities (attached prefabs, the equipment's pieces).
+                int children = entity?.ChildCount ?? 0;
+                for (int c = 0; c < children; c++)
+                {
+                    GameEntity child = entity.GetChild(c);
+                    if (child == null) continue;
+                    if (!_logged) names.Append(" [child ").Append(child.Name).Append(']');
+                    for (int i = 0; i < child.MultiMeshComponentCount; i++)
+                    {
+                        MetaMesh mesh = child.GetMetaMesh(i);
+                        string name = mesh?.GetName() ?? "";
+                        if (!_logged) names.Append(' ').Append(name);
+                        if (mesh != null && name.StartsWith(helmet, StringComparison.OrdinalIgnoreCase)) { mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++; }
+                    }
+                }
                 int onBone = skeleton.GetBoneComponentCount(head);
                 for (int i = 0; i < onBone; i++)
                     if (skeleton.GetBoneComponentAtIndex(head, i) is MetaMesh mesh)
