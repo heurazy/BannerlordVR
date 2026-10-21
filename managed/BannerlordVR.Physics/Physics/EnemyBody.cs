@@ -41,8 +41,17 @@ namespace BannerlordVR.VR.Physics
             bool live = visuals != null && visuals.IsValid();
             BoneBodyPartType part = live ? visuals.GetBoneTypeData(bone).BodyPartType : BoneBodyPartType.None;
             Vec3 world = Frame.TransformToParent(Skeleton.GetBoneEntitialFrameWithIndex(bone)).origin;
-            Vec3 velocity = Agent.Velocity;
-            for (int i = 0; i < Count; i++) if (Points[i].Bone == bone) { velocity = Points[i].Velocity; if (!live) part = Points[i].Part; break; }
+            // A bone without a sampled point moves with its nearest sampled
+            // ancestor on the drawn body. Agent.Velocity is the hidden agent's
+            // walk (horizontal, up to 4 m/s), not the ragdoll's: a stab into a
+            // spine bone braked a part that 'moved' at 4 m/s, with 1500 N the
+            // wrong way, and threw the body or dragged it onto the player.
+            Vec3 velocity = Vec3.Zero;
+            bool found = false;
+            for (int i = 0; i < Count; i++) if (Points[i].Bone == bone) { velocity = Points[i].Velocity; found = true; if (!live) part = Points[i].Part; break; }
+            for (sbyte up = Skeleton.GetParentBoneIndex(bone); !found && up >= 0; up = Skeleton.GetParentBoneIndex(up))
+                for (int i = 0; i < Count; i++) if (Points[i].Bone == up) { velocity = Points[i].Velocity; found = true; break; }
+            if (!found && !IsCorpse) velocity = Agent.Velocity;
             for (sbyte up = Skeleton.GetParentBoneIndex(bone); !live && part == BoneBodyPartType.None && up >= 0; up = Skeleton.GetParentBoneIndex(up))
                 for (int i = 0; i < Count; i++) if (Points[i].Bone == up) { part = Points[i].Part; break; }
             return new BodyPoint { Bone = bone, Part = part, World = world, Velocity = velocity };

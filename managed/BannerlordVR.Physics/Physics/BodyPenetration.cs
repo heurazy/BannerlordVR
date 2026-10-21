@@ -142,7 +142,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            Body = body; _bone = point.Bone; _sampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
+            Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
@@ -156,6 +156,8 @@ namespace BannerlordVR.VR.Physics
         private float _maxSeparation;
         private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500;
         private float _nextTrace;
+        private Vec3 _prevAnchor;
+        private bool _anchorSampled;
         // STAB every 0.1 s while a blade is in: how deep, how the part and the
         // blade move along it and towards the player, the two damper forces.
         private void Trace(BodyPoint p, float depth, float limit, bool atLimit, bool dying, float bladeAxial, float partAxial,
@@ -367,6 +369,10 @@ namespace BannerlordVR.VR.Physics
             BodyPoint p = Body.ReadContact(_bone);
             MatrixFrame bone = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = bone.TransformToParent(_localContact);
+            // The part's speed is the entry point's own, measured tick to tick
+            // on the drawn body.
+            if (_anchorSampled && dt > 1e-4f) p.Velocity = InteractionMath.ClampMagnitude((anchor - _prevAnchor) * (1 / dt), 15);
+            _prevAnchor = anchor; _anchorSampled = true;
             Vec3 axis = bladeTip - bladeBase;
             float bladeLength = axis.Length;
             if (bladeLength < .05f) { End("no_blade"); return false; }
