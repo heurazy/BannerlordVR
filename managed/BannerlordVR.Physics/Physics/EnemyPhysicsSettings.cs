@@ -69,6 +69,8 @@ namespace BannerlordVR.VR.Physics
         // records (LimbHide): the head sinks into the chest, a forearm, hand,
         // calf or foot is laid onto the bone above it.
         public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
+        // A severed head's helmet flies off as a physical object.
+        public static readonly bool SeveredProps = VrConfig.Bool("enemy_physics_severed_props", true);
         // Only watch the cut bone's record instead of folding it (in-game probe).
         public static readonly bool LimbWatch = VrConfig.Bool("enemy_physics_limb_watch", false);
         // A neck cut fast enough hides the head (meshless head armour). Off:

@@ -49,7 +49,8 @@ namespace BannerlordVR.VR.Physics
         {
             public Agent Agent; public Skeleton Skeleton; public SliceJoint Kind; public sbyte Root, Parent, Grandparent;
             public sbyte[] Bones; public float Until, Started; public Vec3 Written; public bool HasWritten, Reported;
-            public int Writes, Skipped, Survived, Lost, Collapsed, CollapseFailed, LastError;
+            public int Writes, Skipped, Survived, Lost, Collapsed, CollapseFailed, LastError, Spurts;
+            public float NextSpurt;
             // Watch: the record a tick before and how far each 16-byte block moved.
             public byte[] Prev; public float[] Moved = new float[16], Total = new float[16]; public float NextLog; public int Samples;
         }
@@ -58,7 +59,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly byte[] Buffer = new byte[RecordBytes];
         private static readonly float[] Values = new float[4];
 
-        public static void Begin(Agent agent, sbyte bone, sbyte parent, SliceJoint kind)
+        public static void Begin(Agent agent, sbyte bone, sbyte parent, SliceJoint kind, Vec3 cutVelocity = default(Vec3))
         {
             if (!EnemyPhysicsSettings.LimbHide || _broken || agent?.AgentVisuals == null) return;
             try
@@ -71,6 +72,9 @@ namespace BannerlordVR.VR.Physics
                     for (sbyte up = b; up >= 0; up = skeleton.GetParentBoneIndex(up))
                         if (up == bone) { bones.Add(b); break; }
                 float now = Mission.Current?.CurrentTime ?? 0;
+                // The helmet flies before the head is folded away.
+                if (kind == SliceJoint.Neck && bvr_skeleton_bone_record(skeleton.Pointer, bone, Buffer, RecordBytes) == RecordBytes)
+                    SeveredProp.ThrowHelmet(agent, skeleton.GetBoneEntitialFrameWithIndex(bone), RestFrame(), cutVelocity);
                 ulong mask = 0;
                 foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;
                 int sever = bvr_limb_sever(skeleton.Pointer, bone, mask);
@@ -124,7 +128,12 @@ namespace BannerlordVR.VR.Physics
                     if (EnemyPhysicsSettings.LimbWatch) { Watch(cut, now); continue; }
                     if (!_layoutChecked) CheckLayout(cut);
                     if (!_layoutOk) { Cuts.RemoveAt(i); continue; }
+                    // A neck cut also sinks the head into the chest in the record:
+                    // the helmet follows the bone's frame there, not the palette,
+                    // and stayed drawn a second while the head was gone.
+                    if (cut.Kind == SliceJoint.Neck) Fold(cut);
                     Collapse(cut);
+                    if (late) Bleed(cut, now);
                     if (late && !cut.Reported && now - cut.Started > 1.5f) Report(cut, "1.5s");
                 }
                 catch (Exception ex) { Fail("tick", ex); return; }
@@ -171,6 +180,38 @@ namespace BannerlordVR.VR.Physics
             _layoutOk = Read(cut, cut.Root, out Pose root) && (root.P - e.origin).Length < Tolerance &&
                 Math.Abs(root.W * root.W + root.X * root.X + root.Y * root.Y + root.Z * root.Z - 1) < .01f;
             PhysicsLog.Info("LIMB_TUCK layout " + (_layoutOk ? "matches" : "does not match: folding off"));
+        }
+
+        // The record's rest frame (4x4 at 0x60, rows s f u origin) in Buffer.
+        private static MatrixFrame RestFrame()
+        {
+            Vec3 Row(int o) => new Vec3(BitConverter.ToSingle(Buffer, o), BitConverter.ToSingle(Buffer, o + 4), BitConverter.ToSingle(Buffer, o + 8));
+            return new MatrixFrame(new Mat3(Row(0x60), Row(0x70), Row(0x80)), Row(0x90));
+        }
+
+        // The stump spurts with the heartbeat, weaker and rarer for 4 s.
+        private const float BleedSeconds = 4;
+        private static void Bleed(Cut cut, float now)
+        {
+            float age = now - cut.Started;
+            if (age > BleedSeconds || now < cut.NextSpurt) return;
+            cut.NextSpurt = now + .12f + age * .07f;
+            if (!Read(cut, cut.Parent, out Pose stump)) return;
+            Vec3 axis = Vec3.Up;
+            if (cut.Grandparent >= 0 && Read(cut, cut.Grandparent, out Pose above))
+            {
+                Vec3 d = stump.P - above.P;
+                if (d.Length > 1e-3f) axis = d.NormalizedCopy();
+            }
+            if (cut.Kind != SliceJoint.Neck && Read(cut, cut.Root, out Pose root))
+            {
+                Vec3 d = root.P - stump.P;
+                if (d.Length > 1e-3f) axis = d.NormalizedCopy();
+            }
+            MatrixFrame global = cut.Agent.AgentVisuals.GetGlobalFrame();
+            Vec3 at = global.TransformToParent(cut.Kind == SliceJoint.Neck ? stump.P : (Read(cut, cut.Root, out Pose r) ? r.P : stump.P));
+            Vec3 direction = global.rotation.TransformToParent(axis);
+            BloodFx.Burst((cut.Spurts++ & 1) == 0 ? BloodFx.Kind.Exit : BloodFx.Kind.Enter, at, direction);
         }
 
         // The skinning palette, not the record, is what the GPU draws: the

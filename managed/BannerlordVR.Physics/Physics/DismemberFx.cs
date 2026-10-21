@@ -101,6 +101,7 @@ namespace BannerlordVR.VR.Physics
         public static void Tick()
         {
             LimbHide.Tick();
+            SeveredProp.Tick();
             for (int i = Pending.Count - 1; i >= 0; i--)
             {
                 Cut cut = Pending[i];
@@ -127,7 +128,13 @@ namespace BannerlordVR.VR.Physics
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
             // The severed part is shrunk away in the skeleton.
-            LimbHide.Begin(victim, bone, parent, kind);
+            Vec3 cutDirection = player != null ? at - player.Position : Vec3.Zero;
+            cutDirection.z = 0;
+            if (cutDirection.Length > 1e-3f) cutDirection.Normalize();
+            LimbHide.Begin(victim, bone, parent, kind, cutDirection * speed);
+            // The cut itself sprays.
+            BloodFx.Burst(BloodFx.Kind.Enter, at, cutDirection);
+            BloodFx.Burst(BloodFx.Kind.Inside, at, Vec3.Up);
         }
 
         // Official equipment refresh with a meshless head item that covers the
