@@ -23,6 +23,8 @@ namespace BannerlordVR.VR.Physics
             public bool Sampled, GripDown, SuppressTrigger;
             // A point resting on a body while the blade pushes (pressure entry).
             public EnemyBody PressBody; public sbyte PressBone; public Vec3 PressLocal; public float PressAge;
+            // The body the blade last came out of, and when.
+            public EnemyBody ReleasedFrom; public float ReleasedAt = -10;
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
@@ -386,7 +388,16 @@ namespace BannerlordVR.VR.Physics
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
                 if (EnemyPhysicsSettings.Trace) Diagnose(index, hand, pose, slot, player, usage, blade, input, gestureSpeed, now);
+                EnemyBody heldBefore = hand.Penetration.Body;
                 bool embedded = blade && hand.Penetration.Tick(basePoint, tip, dt);
+                // Damager hitDelayByCollider: a blade just drawn out of a body
+                // does not strike it again at once (the withdrawn stab cut the
+                // victim's head 2-40 ms later, a hit on every withdrawal).
+                if (heldBefore != null && hand.Penetration.Body == null)
+                {
+                    if (index == 0) heldBefore.LastHitLeft = now; else heldBefore.LastHitRight = now;
+                    hand.ReleasedFrom = heldBefore; hand.ReleasedAt = now;
+                }
                 if (embedded && hand.Penetration.RumbleDue())
                     PhysicsInterop.Haptic(index, BodyPenetration.RumbleIntensity, .01f);
                 bool drawing = !embedded && TryNeckCut(index, hand, otherInput, input.Trigger, basePoint, tip,
@@ -713,6 +724,7 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
+        private const float ReleaseHitDelay = .35f;
         private static void Reject(Hand hand, string reason) { hand.DiagRejected++; hand.DiagReject = reason; }
 
         private static void TryHit(int index, Hand hand, Vec3 start, Vec3 tip, WeaponComponentData usage,
@@ -743,6 +755,7 @@ namespace BannerlordVR.VR.Physics
                 EnemyBody body = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
                 if (body == null) { Reject(hand, "agent_not_tracked"); continue; }
+                if (body == hand.ReleasedFrom && now - hand.ReleasedAt < ReleaseHitDelay) { Reject(hand, "just_withdrawn"); continue; }
                 if (bone >= body.Skeleton.GetBoneCount()) { Reject(hand, "bone_range"); continue; }
                 // A point driven along the blade is a new pierce attempt: B&S
                 // tries penetration on every contact. The cooldown only spaces

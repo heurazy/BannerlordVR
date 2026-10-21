@@ -216,6 +216,20 @@ namespace BannerlordVR.VR.Physics
 
         public override void OnAgentHit(Agent victim, Agent source, in MissionWeapon weapon, in Blow blow, in AttackCollisionData collision)
         {
+            // Every blow any system lands while the physics runs, with who dealt
+            // it: ours (PhysicalHit), BannerlordVR's or the engine's own melee.
+            if (EnemyPhysicsSettings.Trace)
+            {
+                try
+                {
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "BLOW victim={0} source={1} origin={2} damage={3} type={4} flags={5} bone={6} weapon={7} health_after={8:F0}",
+                        victim?.Index ?? -1, source?.Index ?? -1, PhysicalHit.DeliveringOwnBlow ? "physics" : "other",
+                        blow.InflictedDamage, blow.DamageType, blow.BlowFlag, blow.BoneIndex,
+                        weapon.IsEmpty ? "-" : weapon.Item?.StringId ?? "?", victim?.Health ?? 0));
+                }
+                catch (Exception) { }
+            }
             if (!_probeStarted || _probeFinished || victim != _probeAgent) return;
             if (!_probeApplying) { _probeForeignHit = true; return; }
             _probeHitCallbacks++;
