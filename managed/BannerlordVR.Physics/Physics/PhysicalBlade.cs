@@ -100,6 +100,17 @@ namespace BannerlordVR.VR.Physics
         {
             State s = States[(int)role];
             if (Stopwatch.GetTimestamp() - s.At > Fresh) return;
+            // Held in a body, the blade comes from the controller alone, with
+            // its place in the hand learnt before the entry. Mapped from the
+            // shown weapon (drawn a frame earlier, following the falling part)
+            // the part's own motion leaked into the blade the physics follows:
+            // the body pulled itself along it, towards the player.
+            if (s.Pierced && s.BladeAt != 0)
+            {
+                Vec3 cg = s.Raw.TransformToParent(s.BladeGrip), ct = s.Raw.TransformToParent(s.BladeTip);
+                if (InteractionMath.IsFinite(cg) && InteractionMath.IsFinite(ct)) { grip = cg; tip = ct; }
+                return;
+            }
             Vec3 g = s.Shown.TransformToLocalNonOrthogonal(grip), t = s.Shown.TransformToLocalNonOrthogonal(tip);
             Vec3 rg = s.Raw.TransformToParent(g), rt = s.Raw.TransformToParent(t);
             if (InteractionMath.IsFinite(rg) && InteractionMath.IsFinite(rt)) { grip = rg; tip = rt; }
@@ -109,6 +120,10 @@ namespace BannerlordVR.VR.Physics
         {
             State s = States[(int)role];
             if (Stopwatch.GetTimestamp() - s.At > Fresh) return;
+            // The blade sits fixed in the hand: while it is held in a body the
+            // shown weapon moves with the part and a frame-late measure of it
+            // would drift; the one learnt before the entry is kept.
+            if (s.Pierced && s.BladeAt != 0) { s.BladeAt = Stopwatch.GetTimestamp(); return; }
             Vec3 g = s.Shown.TransformToLocalNonOrthogonal(grip), t = s.Shown.TransformToLocalNonOrthogonal(tip);
             if (!InteractionMath.IsFinite(g) || !InteractionMath.IsFinite(t)) return;
             s.BladeGrip = g; s.BladeTip = t; s.BladeAt = Stopwatch.GetTimestamp();
