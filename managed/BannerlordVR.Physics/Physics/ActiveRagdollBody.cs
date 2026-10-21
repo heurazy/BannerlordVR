@@ -498,6 +498,9 @@ namespace BannerlordVR.VR.Physics
                 _cycle.Destabilize();
                 _drive.State = _cycle.DriveState;
             }
+            // The death blow lands as the last blade leaves; a body that lived
+            // through it falls and gets up instead of staying inert for good.
+            if (Dying && !Grabbed) Dying = false;
             if (Dying) _drive.State = PinState.Inert;
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));

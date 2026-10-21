@@ -126,7 +126,7 @@ namespace BannerlordVR.VR.Physics
             _handleAxis[h] = InteractionMath.IsFinite(freeAxis) && freeAxis.Length > .5f ? freeAxis.NormalizedCopy() : Vec3.Zero;
             return true;
         }
-        public void ClearHandle(int h) { if (h >= 0 && h < MaxHandles) { _handleBody[h] = -1; _handleSampled[h] = false; ClearSpread(h); } }
+        public void ClearHandle(int h) { if (h >= 0 && h < MaxHandles) { _handleBody[h] = -1; _handleSampled[h] = false; _pushOnlyAxis[h] = Vec3.Zero; ClearSpread(h); } }
         // Damager.Penetrate's joint is locked: PhysX moves the item and the
         // pierced limb as one, and the player's grip (2500 N/m, 2000 N) pulls
         // that whole. A limp arm is pulled here as one too: the grip is sized

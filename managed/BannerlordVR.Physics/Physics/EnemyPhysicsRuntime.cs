@@ -28,7 +28,7 @@ namespace BannerlordVR.VR.Physics
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
-            public void Reset() { PressBody = null; Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; }
+            public void Reset() { PressBody = null; Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; ReleasedFrom = null; ReleasedAt = -10; }
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
         private static readonly EnemyBody[] Records = CreateRecords();
@@ -738,7 +738,8 @@ namespace BannerlordVR.VR.Physics
             if (index < 0 || index >= Hands.Length) return false;
             Hand hand = Hands[index];
             float now = Mission.Current != null ? Mission.Current.CurrentTime : 0;
-            return hand.Penetration.Body != null || hand.Grab.Held || now - hand.ReleasedAt < .5f;
+            // Mission time restarts with each mission: a stamp ahead of it is stale.
+            return hand.Penetration.Body != null || hand.Grab.Held || (now >= hand.ReleasedAt && now - hand.ReleasedAt < .5f);
         }
         // The engine attack the stabbing swing started is stopped as the
         // blade enters: the physics deals that blow.
@@ -783,7 +784,7 @@ namespace BannerlordVR.VR.Physics
                 EnemyBody body = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
                 if (body == null) { Reject(hand, "agent_not_tracked"); continue; }
-                if (body == hand.ReleasedFrom && now - hand.ReleasedAt < ReleaseHitDelay) { Reject(hand, "just_withdrawn"); continue; }
+                if (body == hand.ReleasedFrom && now >= hand.ReleasedAt && now - hand.ReleasedAt < ReleaseHitDelay) { Reject(hand, "just_withdrawn"); continue; }
                 if (bone >= body.Skeleton.GetBoneCount()) { Reject(hand, "bone_range"); continue; }
                 // A point driven along the blade is a new pierce attempt: B&S
                 // tries penetration on every contact. The cooldown only spaces
