@@ -38,6 +38,9 @@ namespace BannerlordVR.VR.Physics
         // Lead the headset may take over a body stopped against an enemy (m); 0 keeps BannerlordVR's walking.
         public static readonly float CloseReach = Read("enemy_physics_close_reach", 1, 0, 1.5f);
         // A body lying on its back gets up with the game's own rise animation.
+        // Blend from the physical pose into the animation on release (off:
+        // the helmet stayed on the animated head while the body blended).
+        public static readonly bool ReleaseBlend = VrConfig.Bool("enemy_physics_release_blend", false);
         public static readonly bool AnimatedRise = VrConfig.Bool("enemy_physics_animated_rise", true);
         // While its body is physical an agent's own capsule stays at the spot
         // it was held at; close it so it does not block the player there.

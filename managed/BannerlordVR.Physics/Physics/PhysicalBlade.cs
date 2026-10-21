@@ -37,7 +37,7 @@ namespace BannerlordVR.VR.Physics
             public Vec3 Grip; public long GripAt;
         }
         private static readonly State[] States = { new State(), new State() };
-        private const float MaxSeparation = .6f, GlideSeconds = .12f;
+        private const float MaxSeparation = .9f, GlideSeconds = .12f;
         private static readonly long Fresh = Stopwatch.Frequency / 10;
 
         // The physics, from the raw controller blade of this frame.

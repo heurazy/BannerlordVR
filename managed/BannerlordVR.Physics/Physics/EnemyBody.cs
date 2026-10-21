@@ -96,7 +96,9 @@ namespace BannerlordVR.VR.Physics
                 if (!CorpseVisuals.Pose(Agent, out Frame, out current)) { LastFailure = "no_entity " + CorpseVisuals.Describe(Agent); return false; }
             }
             else { LastFailure = "no_entity"; return false; }
-            if (Agent.IsFadingOut()) { LastFailure = "fading_out"; return false; }
+            // Every filed corpse joins the engine's fading list (it stays
+            // visible meanwhile): only a living agent fading out is gone.
+            if (!IsCorpse && Agent.IsFadingOut()) { LastFailure = "fading_out"; return false; }
             // Equipment/LOD or scene rebuild may replace the skeleton; discard the cache.
             if (current == null || current.Pointer != Skeleton.Pointer) { LastFailure = "skeleton_replaced"; return false; }
             for (int i = 0; i < Count; i++)

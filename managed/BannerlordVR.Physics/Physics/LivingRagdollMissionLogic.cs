@@ -91,7 +91,7 @@ namespace BannerlordVR.VR.Physics
                 if (!SkeletonMatches || NativeDisabled) { ReleasePending = false; return; }
                 // The last physical pose, in the world, before anything moves
                 // the agent: the animation takes over from it gradually.
-                if (EnemyPhysicsSettings.ActiveRagdoll) StartBlend(Agent, Skeleton);
+                if (EnemyPhysicsSettings.ActiveRagdoll && EnemyPhysicsSettings.ReleaseBlend) StartBlend(Agent, Skeleton);
                 PlaceUnderBody();
                 RagdollState state = Skeleton.GetCurrentRagdollState();
                 if (state == RagdollState.NeedsActivation) { ReleasePending = true; return; }
