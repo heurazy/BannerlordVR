@@ -19,6 +19,7 @@ namespace BannerlordVR.VR.Physics
     internal static class ShieldPlate
     {
         private static bool _logged, _compared;
+        public const float MinHalfThickness = .03f;
 
         public static bool FromEntity(Agent agent, out VrBlade.Plate plate)
         {
@@ -66,7 +67,15 @@ namespace BannerlordVR.VR.Physics
             [HarmonyPostfix]
             public static void Postfix(Agent agent, ref VrBlade.Plate plate, ref bool __result)
             {
-                if (!EnemyPhysicsSettings.Enabled || !EnemyPhysicsSettings.EntityShieldPlates) return;
+                if (!EnemyPhysicsSettings.Enabled) return;
+                // VrBlade's plate is where the shield is drawn but has no
+                // thickness (HalfN 0 in the logs): a blade crossed its plane
+                // between two frames. It is given a shield's thickness.
+                if (!EnemyPhysicsSettings.EntityShieldPlates)
+                {
+                    if (__result && plate.Valid && plate.HalfN < MinHalfThickness) plate.HalfN = MinHalfThickness;
+                    return;
+                }
                 try
                 {
                     VrBlade.Plate original = plate; bool had = __result;

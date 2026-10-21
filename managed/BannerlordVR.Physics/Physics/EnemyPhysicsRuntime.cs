@@ -806,6 +806,16 @@ namespace BannerlordVR.VR.Physics
             if (slot == EquipmentIndex.None) return false;
             WeaponComponentData item = agent.Equipment[slot].CurrentUsageItem;
             if (item == null || (!item.IsShield && !item.IsMeleeWeapon)) return false;
+            // A shield is where BannerlordVR draws it (its plate); the weapon
+            // entity's box was 0.93 m away, and blows went past the shield.
+            if (item.IsShield && VrBlade.TryGetEnemyPlate(agent, out VrBlade.Plate plate) && plate.Valid)
+            {
+                Vec3 a = plate.A.NormalizedCopy(), b = plate.B.NormalizedCopy(), n = plate.N.NormalizedCopy();
+                Vec3 ls = new Vec3(InteractionMath.Dot(start - plate.Centre, a), InteractionMath.Dot(start - plate.Centre, b), InteractionMath.Dot(start - plate.Centre, n));
+                Vec3 le = new Vec3(InteractionMath.Dot(end - plate.Centre, a), InteractionMath.Dot(end - plate.Centre, b), InteractionMath.Dot(end - plate.Centre, n));
+                Vec3 half = new Vec3(plate.HalfA, plate.HalfB, Math.Max(plate.HalfN, ShieldPlate.MinHalfThickness));
+                return InteractionMath.SegmentBox(ls, le, -half, half, radius, out float hit) && hit <= bodyFraction;
+            }
             WeakGameEntity entity = agent.GetWeaponEntityFromEquipmentSlot(slot);
             if (!entity.IsValid) return false;
             MatrixFrame frame = entity.GetGlobalFrame();

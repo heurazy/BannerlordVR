@@ -55,7 +55,8 @@ namespace BannerlordVR.VR.Physics
         // Shields stop the shown weapon and hand, not only turn the weapon.
         public static readonly bool SolidShields = VrConfig.Bool("enemy_physics_solid_shields", true);
         // Enemy shield plates from the shield's own entity box, not VrBlade's fit.
-        public static readonly bool EntityShieldPlates = VrConfig.Bool("enemy_physics_entity_shield_plates", true);
+        // Off: the weapon entity's box sat 0.93 m and 77 deg off the shield drawn.
+        public static readonly bool EntityShieldPlates = VrConfig.Bool("enemy_physics_entity_shield_plates", false);
         public static readonly bool ArmStabDisarm = VrConfig.Bool("enemy_physics_arm_stab_disarm", true);
         public static readonly bool CadenceProbe = VrConfig.Bool("enemy_physics_cadence_probe", false);
         public static readonly bool CadenceRagdoll = VrConfig.Bool("enemy_physics_cadence_ragdoll", false);

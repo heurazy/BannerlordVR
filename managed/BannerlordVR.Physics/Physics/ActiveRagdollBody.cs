@@ -510,7 +510,10 @@ namespace BannerlordVR.VR.Physics
             {
                 int grabbed = _grabBody[h];
                 if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
-                if (_grabs[h].Blade) LeverPart(h, grabbed);
+                // A standing body is not levered by the blade: its pins carried
+                // the whole body round with the blade (launched at 8.8 m/s in the
+                // logs); the B&S hand turns the weapon in the grip instead.
+                if (_grabs[h].Blade && _cycle.Phase != ActiveRagdollPhase.Standing) LeverPart(h, grabbed);
                 Vec3 delta = _grabTarget[h] - _target[grabbed];
                 if (!InteractionMath.IsFinite(delta)) continue;
                 // The animated pose keeps resisting along a blade: in B&S the
@@ -554,11 +557,10 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < _drive.Count; i++)
                 if (i != _pelvisBody && _drive.InSubtree(i, grabbed))
                     _target[i] = pivot + Rotate(_target[i] - pivot, turnAxis, angle);
-            int up = _drive.Parent(grabbed);
-            for (int level = 1; level < ReachShare.Length && up >= 0 && up != _pelvisBody; level++, up = _drive.Parent(up))
-                _target[up] = pivot + Rotate(_target[up] - pivot, turnAxis, angle * ReachShare[level]);
+            // Only the pierced part and what hangs from it turn; its parents
+            // (and so the whole body) are left to the joints.
         }
-        private const float MaxLever = .6f;
+        private const float MaxLever = .3f;
         private static Vec3 Cross(Vec3 a, Vec3 b) => new Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
         // Rodrigues rotation of v about unit axis k.
         private static Vec3 Rotate(Vec3 v, Vec3 k, float angle)

@@ -854,7 +854,15 @@ namespace BannerlordVR.VR.Physics
             bool moved = entry.Active.Moved;
             Vec3 position = entry.Active.RecoveryPosition;
             bool teleported = false;
-            float distance = (position - entry.Agent.Position).Length;
+            // On the ground under the body's root: the root frame can sit at
+            // hip height (0.85 m up in the logs), and a teleport there left the
+            // agent in the air, drawn low until it landed half a second later.
+            if (InteractionMath.IsFinite(position))
+            {
+                Vec3 ground = new WorldPosition(Mission.Scene, position).GetGroundVec3();
+                if (InteractionMath.IsFinite(ground) && Math.Abs(ground.z - position.z) < 2) position = ground;
+            }
+            float distance = (position - entry.Agent.Position).AsVec2.Length;
             bool navmesh = InteractionMath.IsFinite(position) && OnNavmesh(position);
             // Agent.CanTeleport only reflects the deployment-phase order gate;
             // SetPosition itself is valid for a dismounted agent in battle.
