@@ -35,10 +35,16 @@ namespace BannerlordVR.VR.Physics
         public BodyPoint ReadContact(sbyte bone)
         {
             if (bone < 0 || bone >= Skeleton.GetBoneCount()) return default;
-            BoneBodyPartType part = Agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
+            MBAgentVisuals visuals = Agent.AgentVisuals;
+            // A filed corpse's visuals no longer answer: the part comes from
+            // the bound points, the nearest bound ancestor for other bones.
+            bool live = visuals != null && visuals.IsValid();
+            BoneBodyPartType part = live ? visuals.GetBoneTypeData(bone).BodyPartType : BoneBodyPartType.None;
             Vec3 world = Frame.TransformToParent(Skeleton.GetBoneEntitialFrameWithIndex(bone)).origin;
             Vec3 velocity = Agent.Velocity;
-            for (int i = 0; i < Count; i++) if (Points[i].Bone == bone) { velocity = Points[i].Velocity; break; }
+            for (int i = 0; i < Count; i++) if (Points[i].Bone == bone) { velocity = Points[i].Velocity; if (!live) part = Points[i].Part; break; }
+            for (sbyte up = Skeleton.GetParentBoneIndex(bone); !live && part == BoneBodyPartType.None && up >= 0; up = Skeleton.GetParentBoneIndex(up))
+                for (int i = 0; i < Count; i++) if (Points[i].Bone == up) { part = Points[i].Part; break; }
             return new BodyPoint { Bone = bone, Part = part, World = world, Velocity = velocity };
         }
 
@@ -47,6 +53,9 @@ namespace BannerlordVR.VR.Physics
         {
             Agent = agent;
             Skeleton = agent.AgentVisuals?.GetSkeleton();
+            if (Skeleton != null) CorpseVisuals.Verify(agent);
+            // A filed corpse's visuals stop answering; its body lives on.
+            else if (IsCorpse) Skeleton = CorpseVisuals.Skeleton(agent);
             LastFailure = "no_skeleton";
             if (Skeleton == null) return false;
             LastFailure = "no_bones";
@@ -77,12 +86,18 @@ namespace BannerlordVR.VR.Physics
         {
             var visuals = Agent.AgentVisuals;
             var entity = visuals?.GetEntity();
-            if (entity == null) { LastFailure = "no_entity"; return false; }
+            Skeleton current;
+            if (entity != null) { Frame = entity.GetGlobalFrame(); current = visuals.GetSkeleton(); }
+            else if (IsCorpse)
+            {
+                WeakGameEntity corpse = CorpseVisuals.Entity(Agent);
+                if (!corpse.IsValid) { LastFailure = "no_entity"; return false; }
+                Frame = corpse.GetGlobalFrame(); current = corpse.Skeleton;
+            }
+            else { LastFailure = "no_entity"; return false; }
             if (Agent.IsFadingOut()) { LastFailure = "fading_out"; return false; }
             // Equipment/LOD or scene rebuild may replace the skeleton; discard the cache.
-            var current = visuals.GetSkeleton();
             if (current == null || current.Pointer != Skeleton.Pointer) { LastFailure = "skeleton_replaced"; return false; }
-            Frame = entity.GetGlobalFrame();
             for (int i = 0; i < Count; i++)
             {
                 BodyPoint point = Points[i];

@@ -470,6 +470,7 @@ namespace BannerlordVR.VR.Physics
             // hand closing on it wakes it, as any B&S body is physical.
             if (best.IsCorpse && !best.HasNativePhysics && best.Skeleton.GetCurrentRagdollState() == RagdollState.Disabled)
             {
+                if (best.Skeleton.IsFrozen()) best.Skeleton.Freeze(false);
                 best.Skeleton.ActivateRagdoll();
                 if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("GRAB corpse agent=" + best.Agent.Index + " ragdoll woken");
             }

@@ -113,7 +113,14 @@ namespace BannerlordVR.VR.Physics
                 }
                 else if (!EnemyPhysicsRuntime.HasLivingLease(Body.Agent)) Release();
             }
-            else Release(); // The engine retired this corpse's native ragdoll.
+            else
+            {
+                // The engine retired this corpse's native ragdoll.
+                if (Body.IsCorpse)
+                    PhysicsLog.Info("GRAB corpse agent=" + Body.Agent.Index + " let go: ragdoll " + Body.Skeleton.GetCurrentRagdollState() +
+                        " frozen=" + Body.Skeleton.IsFrozen());
+                Release();
+            }
         }
     }
 }

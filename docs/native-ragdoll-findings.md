@@ -272,3 +272,16 @@ Les broches de rotation B&S passent par lui en mode acceleration (3).
   (agent+0x838)+0x10 est négatif. 0x100 vaut `AIScriptedFrameFlags.InConversation`
   (drapeaux de script à [agent+0x888]+0x2110, ids 118/221) : le lien entre ces
   drapeaux et composant+0x88 n'est pas prouvé, il est essayé en jeu.
+
+## Cadavres (21 octobre 2026, REA + Ghidra)
+
+- `add_as_corpse` (id 10) -> 0x6f5a40 appelle 0x1805c6f40 (inscription dans la liste
+  des cadavres de la mission ; aussi appelée par 0x1805e60e0 et 0x1805fe9f0) et met
+  agent+0xc50 à 1.
+- `MBAgentVisuals` `get_skeleton` (id 290 -> 0x6fcce0), `get_entity` (282 -> 0x6fcd80)
+  et `get_entity_pointer` (283 -> 0x6fb440) renvoient rien si visuels+0x8ce == 0 ;
+  l'entité est à visuels+0x8b8 et son squelette à entité+0x298. Un cadavre classé a
+  +0x8ce à 0 (le mod perdait le corps : « could not bind agent: no_skeleton »),
+  mais l'entité reste celle du corps et `apply_force_on_ragdoll` passe sans ce test.
+- Le mod lit +0x8b8 lui-même (`CorpseVisuals`), après l'avoir comparé au pointeur
+  rendu par le jeu sur un agent vivant.
