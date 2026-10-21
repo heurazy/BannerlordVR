@@ -637,6 +637,25 @@ namespace BannerlordVR.VR.Physics
             // ragdoll is, while the engine's limbs stay with the hidden agent:
             // a swing through empty air hit an enemy a metre away. Such bodies
             // are tested on their drawn bones only.
+            // The drawn capsules answer first for every tracked body: the
+            // engine's limbs are a second body, off the drawn one.
+            Agent drawnBest = null; float drawnDistance = float.MaxValue; sbyte drawnBone = -1;
+            bool anyDrawn = false;
+            foreach (EnemyBody body in Bodies)
+            {
+                if (body?.Agent == null || body.Agent.Index == excluded || Filed(body)) continue;
+                if (!DrawnBody.Cast(body.Agent, from, to, thickness, out float d, out sbyte b, out bool hit)) continue;
+                anyDrawn = true;
+                if (hit && d < drawnDistance) { drawnBest = body.Agent; drawnDistance = d; drawnBone = b; }
+            }
+            if (anyDrawn)
+            {
+                Agent corpse = CastFiled(from, to, excluded, thickness, out float cd, out sbyte cb);
+                if (corpse != null && cd < drawnDistance) { drawnBest = corpse; drawnDistance = cd; drawnBone = cb; }
+                distance = drawnBest == null ? 0 : drawnDistance; bone = drawnBone;
+                if (drawnBest != null) LastCastMethod = "drawn_capsules";
+                return drawnBest;
+            }
             Agent agent = _mission.RayCastForClosestAgentsLimbs(from, to, excluded, thickness, out distance, out bone);
             if (agent != null && bone >= 0)
             {
@@ -667,6 +686,26 @@ namespace BannerlordVR.VR.Physics
                 }
             }
             distance = best == null ? 0 : bestDistance; bone = bestBone;
+            return best;
+        }
+
+        // Filed corpses have no visuals left for BannerlordVR's capsules: their
+        // kept bone spheres.
+        private static Agent CastFiled(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
+        {
+            float length = (to - from).Length;
+            Agent best = null; distance = float.MaxValue; bone = -1;
+            if (length < 1e-5f) return null;
+            foreach (EnemyBody body in Bodies)
+            {
+                if (body?.Agent == null || body.Agent.Index == excluded || !Filed(body)) continue;
+                for (int i = 0; i < body.Count; i++)
+                {
+                    BodyPoint point = body.Points[i];
+                    if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + thickness, out float t)) continue;
+                    if (t * length < distance) { best = body.Agent; distance = t * length; bone = point.Bone; }
+                }
+            }
             return best;
         }
 

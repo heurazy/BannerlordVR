@@ -55,6 +55,7 @@ namespace BannerlordVR.VR.Physics
         // releaseArmSpring/Damper act on RagdollPart.Type.*Arm | *Hand.
         private bool[] _armBody = new bool[0];
         private readonly bool[] _limpHandle = new bool[2];
+        private readonly int[] _limpTop = { -1, -1 };
         private struct GrabSlot
         {
             public bool Active, HasBase; public sbyte Bone; public GrabHandle Kind; public Vec3 Local;
@@ -238,7 +239,11 @@ namespace BannerlordVR.VR.Physics
                 for (int i = 0; i < count; i++)
                 {
                     BoneBodyPartType part = agent.AgentVisuals.GetBoneTypeData(_bone[i]).BodyPartType;
-                    _armBody[i] = part == BoneBodyPartType.ArmLeft || part == BoneBodyPartType.ArmRight;
+                    // Bannerlord types the upper arm Shoulder*, the forearm Arm*: the
+                    // B&S arm part is both. With the upper arm still pinned the
+                    // limp forearm only swung about a fixed elbow.
+                    _armBody[i] = part == BoneBodyPartType.ArmLeft || part == BoneBodyPartType.ArmRight ||
+                        part == BoneBodyPartType.ShoulderLeft || part == BoneBodyPartType.ShoulderRight;
                 }
             }
             catch (Exception) { Array.Clear(_armBody, 0, _armBody.Length); }
@@ -557,7 +562,18 @@ namespace BannerlordVR.VR.Physics
             for (int h = 0; h < _grabBody.Length; h++)
             {
                 int grabbed = _grabBody[h];
-                if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active || _limpHandle[h]) continue;
+                if (grabbed < 0 || grabbed >= _drive.Count || !_grabs[h].Active) continue;
+                if (_limpHandle[h])
+                {
+                    // The limp arm reaches by its joints; the body it hangs
+                    // from leans after it by share, as for any held part.
+                    Vec3 pull = _grabTarget[h] - _position[grabbed];
+                    if (!InteractionMath.IsFinite(pull)) continue;
+                    int above = _drive.Parent(_limpTop[h]);
+                    for (int level = 1; level < ReachShare.Length && above >= 0 && above != _pelvisBody; level++, above = _drive.Parent(above))
+                        _target[above] += pull * ReachShare[level];
+                    continue;
+                }
                 // A standing body is not levered by the blade: its pins carried
                 // the whole body round with the blade (launched at 8.8 m/s in the
                 // logs); the B&S hand turns the weapon in the grip instead.
@@ -631,7 +647,7 @@ namespace BannerlordVR.VR.Physics
                 while (_drive.Parent(top) >= 0 && _armBody[_drive.Parent(top)]) top = _drive.Parent(top);
                 for (int i = 0; i < _drive.Count; i++)
                     if (_armBody[i] && _drive.InSubtree(i, top)) _drive.SetPartScale(i, 0);
-                _limpHandle[h] = true;
+                _limpHandle[h] = true; _limpTop[h] = top;
             }
         }
         private static Vec3 Cross(Vec3 a, Vec3 b) => new Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
