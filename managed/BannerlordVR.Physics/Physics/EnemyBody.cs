@@ -53,11 +53,10 @@ namespace BannerlordVR.VR.Physics
         {
             Agent = agent;
             Skeleton = agent.AgentVisuals?.GetSkeleton();
-            if (Skeleton != null) CorpseVisuals.Verify(agent);
+            if (Skeleton != null) { CorpseVisuals.Verify(agent); CorpseVisuals.Remember(agent, agent.AgentVisuals.GetEntity(), Skeleton); }
             // A filed corpse's visuals stop answering; its body lives on.
             else if (IsCorpse) Skeleton = CorpseVisuals.Skeleton(agent);
-            LastFailure = "no_skeleton";
-            if (Skeleton == null) return false;
+            if (Skeleton == null) { LastFailure = "no_skeleton " + CorpseVisuals.Describe(agent); return false; }
             LastFailure = "no_bones";
             Count = 0; _sampled = false;
             LastHitLeft = LastHitRight = -10;
@@ -87,12 +86,14 @@ namespace BannerlordVR.VR.Physics
             var visuals = Agent.AgentVisuals;
             var entity = visuals?.GetEntity();
             Skeleton current;
-            if (entity != null) { Frame = entity.GetGlobalFrame(); current = visuals.GetSkeleton(); }
+            if (entity != null)
+            {
+                Frame = entity.GetGlobalFrame(); current = visuals.GetSkeleton();
+                CorpseVisuals.Remember(Agent, entity, current);
+            }
             else if (IsCorpse)
             {
-                WeakGameEntity corpse = CorpseVisuals.Entity(Agent);
-                if (!corpse.IsValid) { LastFailure = "no_entity"; return false; }
-                Frame = corpse.GetGlobalFrame(); current = corpse.Skeleton;
+                if (!CorpseVisuals.Pose(Agent, out Frame, out current)) { LastFailure = "no_entity " + CorpseVisuals.Describe(Agent); return false; }
             }
             else { LastFailure = "no_entity"; return false; }
             if (Agent.IsFadingOut()) { LastFailure = "fading_out"; return false; }

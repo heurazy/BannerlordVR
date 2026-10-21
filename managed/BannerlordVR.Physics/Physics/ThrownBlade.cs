@@ -171,8 +171,10 @@ namespace BannerlordVR.VR.Physics
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "THROWN_BLADE {0} item={1} agent={2} speed={3:F2} point_dot={4:F2}",
                 what, id, body?.Agent?.Index ?? -1, velocity.Length, dot));
 
+        // Live or a filed corpse (whose visuals no longer hand out a skeleton).
         private static MatrixFrame BoneWorld(Agent agent, sbyte bone) =>
-            agent.AgentVisuals.GetGlobalFrame().TransformToParent(agent.AgentVisuals.GetSkeleton().GetBoneEntitialFrameWithIndex(bone));
+            CorpseVisuals.Pose(agent, out MatrixFrame frame, out TaleWorlds.Engine.Skeleton skeleton) && bone < skeleton.GetBoneCount()
+                ? frame.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone)) : new MatrixFrame(Mat3.Identity, new Vec3(float.NaN, 0, 0));
 
         // A planted blade follows its bone and never rests long enough to
         // glide home; drawing the weapon again ends its flight in VrThrow.

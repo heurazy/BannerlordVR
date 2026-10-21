@@ -57,8 +57,59 @@ namespace BannerlordVR.VR.Physics
 
         public static Skeleton Skeleton(Agent agent)
         {
+            if (Cached(agent, out _, out Skeleton cached)) return cached;
             WeakGameEntity entity = Entity(agent);
             return entity.IsValid ? entity.Skeleton : null;
+        }
+
+        // The body's own entity and skeleton, kept while the game still hands
+        // them out: these managed handles hold their native objects, so a
+        // filed corpse is still reachable through them.
+        private sealed class Body { public GameEntity Entity; public Skeleton Skeleton; }
+        private static readonly System.Collections.Generic.Dictionary<Agent, Body> Bodies =
+            new System.Collections.Generic.Dictionary<Agent, Body>();
+        public static void Remember(Agent agent, GameEntity entity, Skeleton skeleton)
+        {
+            if (agent == null || entity == null || skeleton == null) return;
+            if (!Bodies.TryGetValue(agent, out Body body)) Bodies[agent] = body = new Body();
+            body.Entity = entity; body.Skeleton = skeleton;
+        }
+        public static bool Cached(Agent agent, out GameEntity entity, out Skeleton skeleton)
+        {
+            entity = null; skeleton = null;
+            if (agent == null || !Bodies.TryGetValue(agent, out Body body)) return false;
+            if (agent.State == AgentState.Deleted) { Bodies.Remove(agent); return false; }
+            entity = body.Entity; skeleton = body.Skeleton;
+            return true;
+        }
+        public static void Forget() => Bodies.Clear();
+
+        // Frame and skeleton of any agent's body, live or filed.
+        public static bool Pose(Agent agent, out MatrixFrame frame, out Skeleton skeleton)
+        {
+            frame = MatrixFrame.Identity; skeleton = null;
+            MBAgentVisuals visuals = agent?.AgentVisuals;
+            GameEntity live = visuals?.GetEntity();
+            if (live != null) { frame = live.GetGlobalFrame(); skeleton = visuals.GetSkeleton(); return skeleton != null; }
+            if (Cached(agent, out GameEntity entity, out skeleton)) { frame = entity.GetGlobalFrame(); return true; }
+            WeakGameEntity weak = Entity(agent);
+            if (!weak.IsValid) return false;
+            frame = weak.GetGlobalFrame(); skeleton = weak.Skeleton;
+            return skeleton != null;
+        }
+
+        public static string Describe(Agent agent)
+        {
+            try
+            {
+                MBAgentVisuals visuals = agent?.AgentVisuals;
+                WeakGameEntity weak = Entity(agent);
+                return "visuals=" + (visuals == null ? "none" : visuals.IsValid() ? "valid" : "filed") +
+                    " cached=" + Cached(agent, out _, out _) + " offset=" + _verified +
+                    " entity=" + (weak.IsValid ? "0x" + ((ulong)weak.Pointer).ToString("x") : "none") +
+                    " entity_skeleton=" + (weak.IsValid && weak.Skeleton != null);
+            }
+            catch (Exception ex) { return "describe_failed " + ex.GetType().Name; }
         }
 
         private static UIntPtr Read(UIntPtr visuals) =>

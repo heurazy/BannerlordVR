@@ -155,6 +155,8 @@ namespace BannerlordVR.VR.Physics
                 if (blocked != null) { Reset(); return; }
                 if (_mission != mission || _player != player)
                 {
+                    // A new mission: the kept body handles belong to the old one.
+                    if (_mission != mission) CorpseVisuals.Forget();
                     Reset(); _mission = mission; _player = player;
                     _living = mission.GetMissionBehavior<LivingRagdollMissionLogic>();
                     _bleeding = mission.GetMissionBehavior<BleedingMissionLogic>();

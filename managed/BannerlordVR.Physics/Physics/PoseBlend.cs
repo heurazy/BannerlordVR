@@ -31,7 +31,14 @@ namespace BannerlordVR.VR.Physics
             for (sbyte b = 0; b < _count; b++)
             {
                 sbyte parent = skeleton.GetParentBoneIndex(b);
-                _head[b] = (skeleton.GetBoneName(b) ?? "") == "head" || (parent >= 0 && parent < b && _head[parent]);
+                // Only the limbs blend. The spine, neck and head take the
+                // animated pose outright: the helmet follows the animated
+                // head, and a blended head or neck went through it.
+                string name = skeleton.GetBoneName(b) ?? "";
+                bool limb = name.Contains("clavicle") || name.Contains("upperarm") || name.Contains("forearm") || name.Contains("hand") ||
+                    name.Contains("finger") || name.Contains("thumb") || name.Contains("thigh") || name.Contains("calf") ||
+                    name.Contains("foot") || name.Contains("toe");
+                _head[b] = !limb && !(parent >= 0 && parent < b && !_head[parent]);
             }
             for (sbyte b = 0; b < _count; b++)
             {
@@ -59,15 +66,7 @@ namespace BannerlordVR.VR.Physics
             {
                 MatrixFrame anim = skeleton.GetBoneEntitialFrameWithIndex(b);
                 _anim[b] = anim;
-                // The head keeps its animated pose on the blended neck,
-                // rigidly: blended itself the face went through the helmet,
-                // left at the animated pose the neck twisted every way.
-                sbyte up = skeleton.GetParentBoneIndex(b);
-                if (_head[b] && up >= 0 && up < b)
-                {
-                    _blended[b] = _blended[up].TransformToParent(_anim[up].TransformToLocalNonOrthogonal(anim));
-                    continue;
-                }
+                if (_head[b]) { _blended[b] = anim; continue; }
                 MatrixFrame rag = entity.TransformToLocalNonOrthogonal(_world[b]);
                 _blended[b] = PoseMath.Blend(anim, rag, w);
             }
