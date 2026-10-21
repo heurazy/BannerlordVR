@@ -43,7 +43,9 @@ namespace BannerlordVR.VR.Physics
         public const int MaxHandles = 2;
         // The grip joint acts alone on its body once the pins follow the hand
         // (see ActiveRagdollBody.ReachTargets): omega*h = 0.31, c*h = 0.5.
-        public const float HandNaturalFrequency = 28, HandDampingRate = 45;
+        // 20 rad/s with 45/s damping is past critical: at 28 a pierced 1 kg arm
+        // shook on the controller's own tremor.
+        public const float HandNaturalFrequency = 20, HandDampingRate = 45;
         private readonly int[] _handleBody = { -1, -1 };
         private readonly Vec3[] _handleTarget = new Vec3[MaxHandles], _lastHandleTarget = new Vec3[MaxHandles];
         private readonly bool[] _handleSampled = new bool[MaxHandles];

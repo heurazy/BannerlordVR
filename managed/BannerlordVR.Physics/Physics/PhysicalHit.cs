@@ -122,8 +122,11 @@ namespace BannerlordVR.VR.Physics
         {
             if (victim == null || !victim.IsActive() || !InteractionMath.IsFinite(contact) || !InteractionMath.IsFinite(damage) || damage < .5f) return 0;
             var point = new BodyPoint { Bone = bone, Part = part, World = contact };
+            // The blow's magnitude is what Bannerlord throws a killed body
+            // with: at the 100+ held damage of a withdrawn stab it flung the
+            // corpse away. The damage stands; the magnitude is a touch.
             return Deliver(source, victim, point, contact, -Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
-                null, type, damage, Math.Max(1, Math.Min(500, (int)Math.Round(damage))), 0, type == DamageTypes.Pierce, false, PushEffect.None);
+                null, type, Math.Min(damage, 1), Math.Max(1, Math.Min(500, (int)Math.Round(damage))), 0, type == DamageTypes.Pierce, false, PushEffect.None);
         }
 
         public static void ApplyBloodLoss(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, int dose)

@@ -626,36 +626,43 @@ namespace BannerlordVR.VR.Physics
         public static PushEffect EvaluateThrownPush(EnemyBody body, BodyPoint point, Vec3 velocity) =>
             body.IsCorpse || _living == null ? PushEffect.None : _living.EvaluatePush(body, point, velocity, PushMaterial.Pierce);
 
+        // Tested on its drawn bones: a filed corpse (no engine limbs) or a
+        // body whose ragdoll the physics drives.
+        private static bool DrawnOnly(EnemyBody body) => Filed(body) || (_living != null && _living.HasLease(body.Agent));
         private static bool Filed(EnemyBody body) => body.IsCorpse && (body.Agent.AgentVisuals == null || !body.Agent.AgentVisuals.IsValid());
 
         private static Agent CastLimbs(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
         {
+            // A body that is physical (struck, held, pierced) is drawn where its
+            // ragdoll is, while the engine's limbs stay with the hidden agent:
+            // a swing through empty air hit an enemy a metre away. Such bodies
+            // are tested on their drawn bones only.
             Agent agent = _mission.RayCastForClosestAgentsLimbs(from, to, excluded, thickness, out distance, out bone);
-            if (agent != null && bone >= 0) { LastCastMethod = "closest_limbs"; return agent; }
+            if (agent != null && bone >= 0)
+            {
+                EnemyBody hitBody = null;
+                foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { hitBody = candidate; break; }
+                if (hitBody == null || !DrawnOnly(hitBody)) { LastCastMethod = "closest_limbs"; return agent; }
+            }
             float length = (to - from).Length;
             Agent best = null; float bestDistance = float.MaxValue; sbyte bestBone = -1;
             foreach (EnemyBody body in Bodies)
             {
                 if (body?.Agent == null || body.Agent.Index == excluded) continue;
-                // A filed corpse has no limbs for the engine any more (it read
-                // through a null and crashed): its bone spheres stand in below.
-                if (Filed(body)) continue;
-                if (_mission.RayCastForGivenAgentsLimbs(from, to, body.Agent.Index, thickness, out float d, out sbyte b) &&
-                    b >= 0 && InteractionMath.IsFinite(d) && d < bestDistance)
-                { best = body.Agent; bestDistance = d; bestBone = b; LastCastMethod = "given_limbs"; }
-            }
-            if (best == null && length > 1e-5f)
-            {
-                foreach (EnemyBody body in Bodies)
+                if (!DrawnOnly(body))
                 {
-                    if (body?.Agent == null || body.Agent.Index == excluded) continue;
-                    for (int i = 0; i < body.Count; i++)
-                    {
-                        BodyPoint point = body.Points[i];
-                        if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + thickness, out float t)) continue;
-                        float d = t * length;
-                        if (d < bestDistance) { best = body.Agent; bestDistance = d; bestBone = point.Bone; LastCastMethod = "bone_spheres"; }
-                    }
+                    if (_mission.RayCastForGivenAgentsLimbs(from, to, body.Agent.Index, thickness, out float d, out sbyte b) &&
+                        b >= 0 && InteractionMath.IsFinite(d) && d < bestDistance)
+                    { best = body.Agent; bestDistance = d; bestBone = b; LastCastMethod = "given_limbs"; }
+                    continue;
+                }
+                if (length < 1e-5f) continue;
+                for (int i = 0; i < body.Count; i++)
+                {
+                    BodyPoint point = body.Points[i];
+                    if (!InteractionMath.SegmentSphere(from, to, point.World, point.Radius + thickness, out float t)) continue;
+                    float d = t * length;
+                    if (d < bestDistance) { best = body.Agent; bestDistance = d; bestBone = point.Bone; LastCastMethod = "bone_spheres"; }
                 }
             }
             distance = best == null ? 0 : bestDistance; bone = bestBone;
