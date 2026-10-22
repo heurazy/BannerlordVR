@@ -86,6 +86,15 @@ namespace BannerlordVR.VR.Physics
             Vec3 b0 = blade.GripWorld, b1 = blade.TipWorld;
             float reach = blade.Radius + PlayerRadius;
             bool known = Enemy.TryGetValue(agent.Index, out Last last) && now - last.At < Stopwatch.Frequency / 4;
+            // A parried swing's recoil animation whips the blade back at 20-35
+            // m/s some 0.6 s later, through the guard that stopped it: it
+            // knocked the player's sword 17 cm aside after every parry. The
+            // recoiling blade is not solid.
+            if (Parried(agent))
+            {
+                Enemy[agent.Index] = new Last { Point = b1, At = now, Normal = last.Normal, Grip = b0, Tip = b1 };
+                return false;
+            }
             Closest(a0, a1, b0, b1, out Vec3 mine, out Vec3 theirs);
             Vec3 gap = mine - theirs;
             // The side the blade was on last frame (a fast blade can cross
