@@ -52,6 +52,9 @@ void input_sync(XrSession session, XrSpace baseSpace, XrTime displayTime);
 /* The most recently synced state. Returns false if input never came up. */
 bool input_read(BvrInputState* out);
 
+/* Thread-safe mailbox; OpenXR feedback is consumed on input_sync's render thread. */
+bool input_haptic(int hand, float amplitude, float durationSeconds);
+
 void input_destroy();
 
 } // namespace bvr

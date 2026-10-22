@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace BannerlordVR.VR
 {
@@ -16,6 +18,13 @@ namespace BannerlordVR.VR
         private static readonly object Gate = new object();
         private static string _path;
         private static bool _failed;
+        // Opening and closing the file per line cost milliseconds on the
+        // mission thread (an 18.5 ms spike when three bodies activated at
+        // once). Info and Warn lines are queued for a background writer; an
+        // Error drains the queue synchronously so a crash keeps its context.
+        private static readonly ConcurrentQueue<string> Pending = new ConcurrentQueue<string>();
+        private static readonly AutoResetEvent Signal = new AutoResetEvent(false);
+        private static Thread _writer;
 
         public static string Path => _path;
 
@@ -51,6 +60,12 @@ namespace BannerlordVR.VR
                     "=== BannerlordVR log opened " +
                     DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) +
                     " ===" + Environment.NewLine, Encoding.UTF8);
+                if (_writer == null)
+                {
+                    _writer = new Thread(WriterLoop) { IsBackground = true, Name = "BannerlordVR log" };
+                    _writer.Start();
+                    AppDomain.CurrentDomain.ProcessExit += (s, e) => Flush();
+                }
             }
             catch
             {
@@ -69,14 +84,32 @@ namespace BannerlordVR.VR
         {
             if (_failed || _path == null)
                 return;
+            Pending.Enqueue(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) +
+                " [" + level + "] " + message + Environment.NewLine);
+            if (level == "ERROR" || _writer == null) Flush();
+            else Signal.Set();
+        }
 
+        private static void WriterLoop()
+        {
+            while (!_failed)
+            {
+                Signal.WaitOne(250);
+                Flush();
+            }
+        }
+
+        public static void Flush()
+        {
+            if (_failed || _path == null || Pending.IsEmpty)
+                return;
             try
             {
                 lock (Gate)
                 {
-                    File.AppendAllText(_path,
-                        DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) +
-                        " [" + level + "] " + message + Environment.NewLine, Encoding.UTF8);
+                    var text = new StringBuilder();
+                    while (Pending.TryDequeue(out string line)) text.Append(line);
+                    if (text.Length > 0) File.AppendAllText(_path, text.ToString(), Encoding.UTF8);
                 }
             }
             catch

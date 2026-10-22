@@ -16,6 +16,7 @@ dist/
 
 # tooling scratch
 tools/__pycache__/
+.analysis/
 
 # Research notes kept out of the public repo: static RE of the engine, and
 # technique notes on other VR mods. They stay on disk; they are not published.
