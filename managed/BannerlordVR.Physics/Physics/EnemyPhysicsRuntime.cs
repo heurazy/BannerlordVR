@@ -111,6 +111,19 @@ namespace BannerlordVR.VR.Physics
         public static void ApplyLivingImpact(EnemyBody body, BodyPoint point, Vec3 velocity,
             PushEffect push = PushEffect.None, float hitMass = 2, bool fist = false)
         { if (!body.IsCorpse) _living?.Impact(body, point, velocity, push, hitMass, fist); }
+        // A parried attacker: the attack stops (BrainModuleMelee) and the hand
+        // holding the weapon is thrown back with the impact (TryPush Parry).
+        public static void Parried(Agent agent, Vec3 impact)
+        {
+            if (_living == null || agent == null) return;
+            EnemyBody body = null;
+            foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
+            if (body == null || body.IsCorpse || !_living.Parry(body, impact.Length)) return;
+            sbyte bone = agent.Monster.MainHandItemBoneIndex;
+            if (bone < 0 || bone >= body.Skeleton.GetBoneCount()) return;
+            BodyPoint hand = body.ReadContact(bone);
+            if (hand.Part != BoneBodyPartType.None) _living.Impact(body, hand, impact, PushEffect.StaggerMedium, 3);
+        }
         public static void RecordWound(Agent source, EnemyBody body, BodyPoint point, Vec3 contact,
             DamageTypes type, float healthLost, bool drawCut)
         { _bleeding?.Record(source, body, point, contact, type, healthLost, drawCut); }

@@ -282,6 +282,10 @@ namespace BannerlordVR.VR.Physics
                     if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
                         ShieldBlock.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
                         __result = true;
+                    // So does an enemy's blade (B&S weapons are rigidbodies).
+                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
+                        BladeClash.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
+                        __result = true;
                     s.Shown = world;
                 }
                 catch (Exception ex)
