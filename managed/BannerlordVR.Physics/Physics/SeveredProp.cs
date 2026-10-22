@@ -123,30 +123,44 @@ namespace BannerlordVR.VR.Physics
     internal static class HelmetHide
     {
         private static bool _logged;
-        // A helmet's cloth (coif, aventail) is simulated apart: it kept the
-        // head's old shape about a second after the palette collapsed. Held to
-        // its skinned position (max distance 0) and reset, it follows at once.
-        public static int Cloth(Agent victim, bool reset)
+        // A helmet with a padded coif is not a mesh of the skeleton: the whole
+        // helmet is one cloth simulator component (none of the skeleton's
+        // meshes matched it, three cloth components did). The cloth pipeline
+        // draws its own simulated vertices, not the skinning palette, so the
+        // head vanished at once while such a helmet stayed until the body was
+        // knocked; a helmet without cloth vanished with the head. The helmet's
+        // cloth is hidden; any other cloth is left to simulate.
+        public static int Cloth(Agent victim, bool reset) => Cloth(victim, reset, null);
+        private static int Cloth(Agent victim, bool reset, System.Text.StringBuilder names)
         {
             int n = 0;
             try
             {
-                Skeleton skeleton = victim?.AgentVisuals?.GetSkeleton();
-                GameEntity entity = victim?.AgentVisuals?.GetEntity();
+                string helmet = victim?.SpawnEquipment[EquipmentIndex.Head].Item?.MultiMeshName;
+                if (string.IsNullOrEmpty(helmet)) return 0;
+                Skeleton skeleton = victim.AgentVisuals?.GetSkeleton();
+                GameEntity entity = victim.AgentVisuals?.GetEntity();
                 if (skeleton != null)
                     for (int i = 0; i < skeleton.GetComponentCount(GameEntity.ComponentType.ClothSimulator); i++)
-                        if (skeleton.GetComponentAtIndex(GameEntity.ComponentType.ClothSimulator, i) is ClothSimulatorComponent c) { Pin(c, reset); n++; }
+                        if (skeleton.GetComponentAtIndex(GameEntity.ComponentType.ClothSimulator, i) is ClothSimulatorComponent c) n += HideCloth(c, helmet, reset, names);
                 if (entity != null)
                     for (int i = 0; i < entity.GetComponentCount(GameEntity.ComponentType.ClothSimulator); i++)
-                        if (entity.GetComponentAtIndex(i, GameEntity.ComponentType.ClothSimulator) is ClothSimulatorComponent c) { Pin(c, reset); n++; }
+                        if (entity.GetComponentAtIndex(i, GameEntity.ComponentType.ClothSimulator) is ClothSimulatorComponent c) n += HideCloth(c, helmet, reset, names);
             }
             catch (Exception) { }
             return n;
         }
-        private static void Pin(ClothSimulatorComponent cloth, bool reset)
+        private static int HideCloth(ClothSimulatorComponent cloth, string helmet, bool reset, System.Text.StringBuilder names)
         {
+            MetaMesh mesh = cloth.GetFirstMetaMesh();
+            string name = mesh?.GetName() ?? "";
+            names?.Append(' ').Append(name);
+            if (mesh == null || name.IndexOf(helmet, StringComparison.OrdinalIgnoreCase) < 0) return 0;
+            mesh.SetVisibilityMask((VisibilityMaskFlags)0);
             cloth.SetMaxDistanceMultiplier(0);
             if (reset) cloth.SetResetRequired();
+            names?.Append("(hidden)");
+            return 1;
         }
         public static void Hide(Agent victim, sbyte head)
         {
@@ -215,8 +229,9 @@ namespace BannerlordVR.VR.Physics
                     skinned.Append("(hidden)");
                     hidden++;
                 }
-                int cloth = Cloth(victim, true);
-                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + " cloth=" + cloth + "; skinned:" + skinned +
+                var clothNames = new System.Text.StringBuilder();
+                int cloth = Cloth(victim, true, clothNames);
+                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + " helmet cloth=" + cloth + "; cloth:" + clothNames + "; skinned:" + skinned +
                     (_logged ? "" : "; skeleton components meta=" + count + " cloth=" + skeleton.GetComponentCount(GameEntity.ComponentType.ClothSimulator) +
                     " composite=" + skeleton.GetComponentCount(GameEntity.ComponentType.CompositeComponent) +
                     "; entity cloth=" + (entity?.GetComponentCount(GameEntity.ComponentType.ClothSimulator) ?? 0) +

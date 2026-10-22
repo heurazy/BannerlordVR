@@ -125,6 +125,21 @@ namespace
         float* entry = reinterpret_cast<float*>(entries + static_cast<size_t>(slot) * 64);
         return readable(entry, 64) ? entry : nullptr;
     }
+
+    // A frozen skeleton (flag 8 at +0xa8: a ragdoll at rest) is drawn from a
+    // snapshot of its palette, 64 matrices at [+0xd0] indexed by bone, that
+    // the frame's slot allocation (0x35cb20) copies back every frame; no
+    // palette writer runs, so no hook either. A body frozen before the cut
+    // kept drawing its head until knocked awake. The snapshot is collapsed too.
+    void collapse_snapshot(uint8_t* skeleton, int32_t bone, const float* at)
+    {
+        if (bone < 0 || bone >= 64 || !readable(skeleton + 0xd0, 8)) return;
+        auto snapshot = *reinterpret_cast<uint8_t**>(skeleton + 0xd0);
+        if (!snapshot || !readable(snapshot + bone * 64, 64)) return;
+        auto entry = reinterpret_cast<float*>(snapshot + bone * 64);
+        for (int k = 0; k < 12; k++) entry[k] = 0;
+        entry[12] = at[0]; entry[13] = at[1]; entry[14] = at[2];
+    }
 }
 
 // The engine's own follow-up to a record write: the bone's palette matrix.
@@ -147,6 +162,8 @@ int32_t BVR_CALL bvr_skeleton_collapse_bone(uintptr_t skeleton_value, int32_t bo
     if (!record_of(skeleton_value, bone)) return -21;
     auto skeleton = reinterpret_cast<uint8_t*>(skeleton_value);
     reinterpret_cast<RefreshBone>(module + RefreshRva)(skeleton, static_cast<int8_t>(bone));
+    const float at[3] = { x, y, z };
+    collapse_snapshot(skeleton, bone, at);
     float* entry = palette_entry(module, skeleton, bone);
     if (!entry) return -24;
     for (int k = 0; k < 12; k++) entry[k] = 0;
@@ -221,9 +238,11 @@ namespace
             if (bone == severed[i].root) sink_root(value, severed[i]);
             uint8_t* module = engine_base();
             uint8_t* root = module ? record_of(value, severed[i].root) : nullptr;
-            float* entry = root ? palette_entry(module, static_cast<uint8_t*>(skeleton), bone) : nullptr;
-            if (!entry) return;
+            if (!root) return;
             const float* p = reinterpret_cast<const float*>(root + 0x14);
+            collapse_snapshot(static_cast<uint8_t*>(skeleton), bone, p);
+            float* entry = palette_entry(module, static_cast<uint8_t*>(skeleton), bone);
+            if (!entry) return;
             for (int k = 0; k < 12; k++) entry[k] = 0;
             entry[12] = p[0]; entry[13] = p[1]; entry[14] = p[2];
             return;
