@@ -32,6 +32,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly Dictionary<int, Last> Enemy = new Dictionary<int, Last>();
         private static readonly Dictionary<int, long> ContactAt = new Dictionary<int, long>();
         private static readonly Dictionary<Agent, float> ParriedUntil = new Dictionary<Agent, float>();
+        private static readonly Dictionary<Agent, int> ParriedAttack = new Dictionary<Agent, int>();
         // An attacking blade seen within NearReach of the guard: the engine's
         // hit can come the same frame the blades meet, before a frame shows
         // them touching (thrusts landed, the contact logged 2 ms after).
@@ -56,7 +57,10 @@ namespace BannerlordVR.VR.Physics
             // like any other. The window held over it, so it could neither be
             // parried nor do damage (its hit bounced).
             Agent.ActionStage stage = attacker.GetCurrentActionStage(1);
-            if (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease)
+            // The parried swing itself, held still on the blade before its
+            // recoil, is not a new one.
+            bool same = ParriedAttack.TryGetValue(attacker, out int action) && attacker.GetCurrentAction(1).Index == action;
+            if (!same && (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease))
             {
                 ParriedUntil.Remove(attacker);
                 return false;
@@ -226,6 +230,7 @@ namespace BannerlordVR.VR.Physics
             if (attacking && (speed > RecoilMinWeaponSpeed || pressed) && !Parried(agent))
             {
                 ParriedUntil[agent] = mission.CurrentTime + BounceSeconds;
+                ParriedAttack[agent] = agent.GetCurrentAction(1).Index;
                 // A slow push still recoils the blade away from the player's.
                 EnemyPhysicsRuntime.Parried(agent, speed > RecoilMinWeaponSpeed ? impact : -shift.NormalizedCopy() * 2);
             }
@@ -453,6 +458,7 @@ namespace BannerlordVR.VR.Physics
                             parried = true;
                             Mission mission = Mission.Current;
                             ParriedUntil[attacker] = mission.CurrentTime + BounceSeconds;
+                            ParriedAttack[attacker] = attacker.GetCurrentAction(1).Index;
                             if (impact.LengthSquared < 1e-4f) impact = (collisionData.CollisionGlobalPosition - attacker.Position).NormalizedCopy() * 5;
                             EnemyPhysicsRuntime.Parried(attacker, impact);
                             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,

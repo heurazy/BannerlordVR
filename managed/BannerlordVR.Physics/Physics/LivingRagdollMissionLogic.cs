@@ -494,7 +494,17 @@ namespace BannerlordVR.VR.Physics
             // same attack straight back up.
             string attack = agent.GetCurrentAction(1).GetName();
             ActionIndexCache blocked = BlockedAction(attack);
-            agent.SetActionChannel(1, blocked, ignorePriority: true);
+            // B&S: the swinging weapon is a rigidbody and stops on the blade it
+            // meets, then the creature recoils. The swing stops where the
+            // blades met (the animation held still) for ParryStop, then the
+            // blocked recoil plays from there. Switched at once, the recoil
+            // blended over the rest of the swing: the blade seemed to finish
+            // its blow through the player's.
+            if (!_parryStops.ContainsKey(agent))
+            {
+                agent.SetCurrentActionSpeed(1, 0);
+                _parryStops[agent] = new ParryStopState { Until = now + ParryStop, Blocked = blocked, Attack = attack };
+            }
             // The recoil push only once per parryRecoilCooldown.
             if (_lastParry.TryGetValue(agent, out float last) && now - last <= ParryRecoilCooldown)
             {
@@ -506,6 +516,29 @@ namespace BannerlordVR.VR.Physics
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PARRY agent={0} stage={1} weapon_speed={2:F2} time={3:F3} attack {4} -> {5}",
                 agent.Index, stage, weaponSpeed, now, attack, blocked.Index >= 0 ? blocked.GetName() : "act_none"));
             return true;
+        }
+        public const float ParryStop = .12f;
+        private struct ParryStopState { public float Until; public ActionIndexCache Blocked; public string Attack; }
+        private readonly Dictionary<Agent, ParryStopState> _parryStops = new Dictionary<Agent, ParryStopState>();
+        private readonly List<Agent> _stopsDone = new List<Agent>();
+        private void ParryStops()
+        {
+            if (_parryStops.Count == 0) return;
+            _stopsDone.Clear();
+            foreach (KeyValuePair<Agent, ParryStopState> stop in _parryStops) if (Mission.CurrentTime >= stop.Value.Until) _stopsDone.Add(stop.Key);
+            foreach (Agent agent in _stopsDone)
+            {
+                ParryStopState stop = _parryStops[agent];
+                _parryStops.Remove(agent);
+                if (agent == null || !agent.IsActive()) continue;
+                agent.SetCurrentActionSpeed(1, 1);
+                bool played = stop.Blocked.Index >= 0 &&
+                    agent.SetActionChannel(1, stop.Blocked, ignorePriority: true, blendInPeriod: .06f);
+                if (!played) played = agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true, blendInPeriod: .1f);
+                PhysicsLog.Info("PARRY agent=" + agent.Index + " stopped " + (ParryStop * 1000).ToString("F0", CultureInfo.InvariantCulture) +
+                    " ms on the blade, then " + (stop.Blocked.Index >= 0 ? stop.Blocked.GetName() : "act_none") + (played ? "" : " (refused by the engine)") +
+                    "; now " + agent.GetCurrentAction(1).GetName());
+            }
         }
         private static ActionIndexCache BlockedAction(string attack)
         {
@@ -740,6 +773,7 @@ namespace BannerlordVR.VR.Physics
             long started = Stopwatch.GetTimestamp();
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
             try { DropDue(); } catch (Exception ex) { _drops.Clear(); PhysicsLog.Error("A dying enemy could not drop its weapons.", ex); }
+            try { ParryStops(); } catch (Exception ex) { _parryStops.Clear(); PhysicsLog.Error("A parried swing could not recoil.", ex); }
             try { AlignRises(); } catch (Exception ex) { _rises.Clear(); PhysicsLog.Error("Aligning an animated rise failed.", ex); }
             try { ApplyBlends(); } catch (Exception ex) { _blends.Clear(); PhysicsLog.Error("Blending a released pose failed.", ex); }
             try { ReleaseWatch.Tick(); } catch (Exception ex) { PhysicsLog.Error("Release watch failed.", ex); }
