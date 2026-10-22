@@ -226,7 +226,8 @@ namespace BannerlordVR.VR.Physics
             if (attacking && (speed > RecoilMinWeaponSpeed || pressed) && !Parried(agent))
             {
                 ParriedUntil[agent] = mission.CurrentTime + BounceSeconds;
-                EnemyPhysicsRuntime.Parried(agent, impact);
+                // A slow push still recoils the blade away from the player's.
+                EnemyPhysicsRuntime.Parried(agent, speed > RecoilMinWeaponSpeed ? impact : -shift.NormalizedCopy() * 2);
             }
             if (ContactAt.TryGetValue(agent.Index, out long last) && now - last < Stopwatch.Frequency * ContactCooldown) return;
             ContactAt[agent.Index] = now;
