@@ -158,7 +158,11 @@ namespace BannerlordVR.VR.Physics
             // B&S: a blow under the first push level (effect None) does not
             // move a fighting creature at all; it fights on. The engine's own
             // 0.2 s flinch on every such touch broke its attacks and the duel.
-            bool shrug = push == PushEffect.None && victim.Controller == AgentControllerType.AI && !victim.IsPaused;
+            // Only a touch under minimumDamageToCancelAttack (5 % of its
+            // health) is shrugged off: a real cut that drew no reaction at
+            // all looked like a blow that never landed.
+            bool shrug = push == PushEffect.None && victim.Controller == AgentControllerType.AI && !victim.IsPaused &&
+                !bloodLoss && damage < victim.HealthLimit * .05f;
             float stun = bloodLoss || shrug ? 0 : push == PushEffect.None || push == PushEffect.Destabilize ? .2f : PushReaction.Recoil(push);
             BlowFlags flags = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff : shrug ? BlowFlags.ShrugOff :
                 push == PushEffect.StaggerMedium || push == PushEffect.StaggerFull ? BlowFlags.KnockBack : BlowFlags.None;
@@ -201,14 +205,10 @@ namespace BannerlordVR.VR.Physics
             if (mission == null || mission != Mission.Current || mission.IsFinalized ||
                 mission.FindAgentWithIndex(victimIndex) != victim || !victim.IsActive()) return 0;
             float lost = before - victim.Health;
-            // BrainModuleMelee minimumDamageToCancelAttack: 5 % of its health
-            // stops the creature's attack even when the blow does not push it.
-            if (shrug && InteractionMath.IsFinite(lost) && lost >= victim.HealthLimit * .05f)
-            {
-                Agent.ActionStage stage = victim.GetCurrentActionStage(1);
-                if (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease)
-                    victim.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
-            }
+            if (EnemyPhysicsSettings.Trace && !bloodLoss)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "HIT agent={0} part={1} type={2} damage={3} lost={4:F0} push={5} shrugged={6} stun={7:F2} health={8:F0}",
+                    victimIndex, point.Part, damageType, damage, lost, push, shrug, stun, victim.Health));
             return InteractionMath.IsFinite(lost) ? Math.Max(0, lost) : 0;
         }
     }
