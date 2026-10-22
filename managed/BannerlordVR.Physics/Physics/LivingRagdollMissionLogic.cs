@@ -364,6 +364,12 @@ namespace BannerlordVR.VR.Physics
                 // to its pose; the head snaps, the torso rocks.
                 bool destabilize = push == PushEffect.Destabilize;
                 if (!destabilize && !EnemyPhysicsSettings.HitPhysics) return;
+                // A lease pauses the AI for the whole hold (about a second): a
+                // fighting enemy froze at every touch and every parry. B&S
+                // keeps its creature animated under the physics; here an
+                // enemy whose AI is running keeps it, with the engine's own
+                // flinch, and only a blow that floors it hands it over.
+                if (!destabilize && body.Agent.Controller == AgentControllerType.AI && !body.Agent.IsPaused) return;
                 if (!KeepHeld(body, true, destabilize)) return;
                 entry = Find(body.Agent);
                 if (entry == null) return;
