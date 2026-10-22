@@ -38,6 +38,8 @@ namespace BannerlordVR.VR.Physics
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_limb_sever(UIntPtr skeleton, int root, ulong bones);
         [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int bvr_limb_sever_sunk(UIntPtr skeleton, int root, ulong bones, int parent, int grand, float sink);
+        [DllImport("BannerlordVR.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern int bvr_limb_forget(UIntPtr skeleton);
         private static Mission _mission;
 
@@ -78,7 +80,11 @@ namespace BannerlordVR.VR.Physics
                 if (kind == SliceJoint.Neck) HelmetHide.Hide(agent, bone);
                 ulong mask = 0;
                 foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;
-                int sever = bvr_limb_sever(skeleton.Pointer, bone, mask);
+                // A head is also sunk into the chest in its record, natively
+                // after every engine pose (a helmet's coif follows the record).
+                int sever = kind == SliceJoint.Neck
+                    ? bvr_limb_sever_sunk(skeleton.Pointer, bone, mask, parent, skeleton.GetParentBoneIndex(parent), HeadSink)
+                    : bvr_limb_sever(skeleton.Pointer, bone, mask);
                 PhysicsLog.Info("LIMB_TUCK sever hook status=" + sever + (sever == 0 ? "" : " (the limb is collapsed from the mission tick only)"));
                 _mission = Mission.Current;
                 Cuts.Add(new Cut { Agent = agent, Skeleton = skeleton, Kind = kind, Root = bone, Parent = parent,
@@ -132,7 +138,6 @@ namespace BannerlordVR.VR.Physics
                     // A neck cut also sinks the head into the chest in the record:
                     // the helmet follows the bone's frame there, not the palette,
                     // and stayed drawn a second while the head was gone.
-                    if (cut.Kind == SliceJoint.Neck) Fold(cut);
                     Collapse(cut);
                     if (late) Bleed(cut, now);
                     if (cut.Kind == SliceJoint.Neck && now - cut.Started < 1.5f) HelmetHide.Cloth(cut.Agent, true);

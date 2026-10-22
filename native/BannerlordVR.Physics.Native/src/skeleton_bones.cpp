@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <intrin.h>
 #include <cstring>
+#include <cmath>
 
 namespace
 {
@@ -172,12 +173,42 @@ namespace
         volatile uintptr_t skeleton;   // 0 = free
         volatile int32_t root;
         volatile uint64_t bones;       // bit per bone index < 64
+        volatile int32_t parent, grand; // the stump's bone and the one above
+        volatile float sink;           // > 0: the root is sunk this far down the stump
     };
     constexpr int MaxSevered = 32;
     Severed severed[MaxSevered];
     RefreshBone original_refresh = nullptr;
     uint8_t* trampoline = nullptr;
     bool hooked = false;
+
+    // The root's drawn position sunk down the stump's axis, in its record
+    // (under its lock): what follows the bone rather than the palette (a
+    // helmet's simulated coif, skinned from the record) goes into the chest
+    // with it. Rewritten after every engine pose, which reposes the head.
+    void sink_root(uintptr_t skeleton, const Severed& s)
+    {
+        if (s.sink <= 0) return;
+        uint8_t* root = record_of(skeleton, s.root);
+        uint8_t* parent = record_of(skeleton, s.parent);
+        uint8_t* grand = s.grand >= 0 ? record_of(skeleton, s.grand) : nullptr;
+        if (!root || !parent) return;
+        const float* p = reinterpret_cast<const float*>(parent + 0x14);
+        float ux = 0, uy = 0, uz = 1;
+        if (grand)
+        {
+            const float* g = reinterpret_cast<const float*>(grand + 0x14);
+            float dx = p[0] - g[0], dy = p[1] - g[1], dz = p[2] - g[2];
+            float n = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (n > 1e-3f) { ux = dx / n; uy = dy / n; uz = dz / n; }
+        }
+        const float target[3] = { p[0] - ux * s.sink, p[1] - uy * s.sink, p[2] - uz * s.sink };
+        auto lock = reinterpret_cast<volatile long*>(root);
+        int spins = 0;
+        while (_interlockedbittestandset(lock, 0)) { _mm_pause(); if (++spins > 100000) return; }
+        std::memcpy(root + 0x14, target, sizeof target);
+        _InterlockedExchange(lock, 0);
+    }
 
     // Collapses one bone's palette matrix onto its severed limb's root.
     void collapse_severed(void* skeleton, int8_t bone)
@@ -187,6 +218,7 @@ namespace
         for (int i = 0; i < MaxSevered; i++)
         {
             if (severed[i].skeleton != value || !(severed[i].bones & (1ull << bone))) continue;
+            if (bone == severed[i].root) sink_root(value, severed[i]);
             uint8_t* module = engine_base();
             uint8_t* root = module ? record_of(value, severed[i].root) : nullptr;
             float* entry = root ? palette_entry(module, static_cast<uint8_t*>(skeleton), bone) : nullptr;
@@ -287,19 +319,33 @@ namespace
 // A severed limb: these bones of this skeleton are collapsed onto the root
 // bone's drawn position each time the engine refreshes them. Installs the
 // hook on first use.
+int32_t BVR_CALL bvr_limb_sever_sunk(uintptr_t skeleton_value, int32_t root, uint64_t bones, int32_t parent, int32_t grand, float sink);
 int32_t BVR_CALL bvr_limb_sever(uintptr_t skeleton_value, int32_t root, uint64_t bones)
 {
+    return bvr_limb_sever_sunk(skeleton_value, root, bones, -1, -1, 0);
+}
+
+// As bvr_limb_sever, and the root also sunk `sink` metres down the stump
+// (parent bone, along grand -> parent) in its record each time it is drawn.
+int32_t BVR_CALL bvr_limb_sever_sunk(uintptr_t skeleton_value, int32_t root, uint64_t bones, int32_t parent, int32_t grand, float sink)
+{
+    if (sink > 0 && !record_of(skeleton_value, parent)) sink = 0;
     if (!record_of(skeleton_value, root)) return -21;
     if (!install_hook()) return -25;
     int free_slot = -1;
     for (int i = 0; i < MaxSevered; i++)
     {
-        if (severed[i].skeleton == skeleton_value && severed[i].root == root) { severed[i].bones = bones; return BVR_OK; }
+        if (severed[i].skeleton == skeleton_value && severed[i].root == root)
+        {
+            severed[i].parent = parent; severed[i].grand = grand; severed[i].sink = sink; severed[i].bones = bones;
+            return BVR_OK;
+        }
         if (severed[i].skeleton == 0 && free_slot < 0) free_slot = i;
     }
     if (free_slot < 0) return -26;
     severed[free_slot].root = root;
     severed[free_slot].bones = bones;
+    severed[free_slot].parent = parent; severed[free_slot].grand = grand; severed[free_slot].sink = sink;
     _InterlockedExchange64(reinterpret_cast<volatile long long*>(&severed[free_slot].skeleton), static_cast<long long>(skeleton_value));
     return BVR_OK;
 }
