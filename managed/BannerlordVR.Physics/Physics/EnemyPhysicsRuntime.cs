@@ -911,8 +911,16 @@ namespace BannerlordVR.VR.Physics
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
             {
-                hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
-                if (hand.Penetration.Body != null) StopEngineAttack(player);
+                // A slash through a fighting enemy is dealt without the
+                // physical cut: its drag leased the body and stopped the AI
+                // half a second on every cut.
+                bool fighting = !hit.IsCorpse && hit.Agent.Controller == AgentControllerType.AI && !hit.Agent.IsPaused &&
+                    !EnemyPhysicsRuntime.HasLivingLease(hit.Agent);
+                if (thrust || !fighting)
+                {
+                    hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
+                    if (hand.Penetration.Body != null) StopEngineAttack(player);
+                }
             }
             if (usage == null)
             {

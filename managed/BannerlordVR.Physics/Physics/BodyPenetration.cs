@@ -143,7 +143,7 @@ namespace BannerlordVR.VR.Physics
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
             Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _bladeSampled = false; _bladeVelocity = Vec3.Zero; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
-            _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1;
+            _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1; _prevSigned = float.NaN;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
             _hasLocalAxis = false; _cut = false;
@@ -151,7 +151,7 @@ namespace BannerlordVR.VR.Physics
         }
         // Damage that would kill while the blade is still inside is held back
         // and dealt when it leaves the body: the victim dies on withdrawal.
-        private float _pending, _woundLost, _depthBase = -1, _maxDepth;
+        private float _pending, _woundLost, _depthBase = -1, _maxDepth, _prevSigned = float.NaN;
         private bool _lockedLogged;
         private float _maxSeparation;
         private const float MaxShove = .1f, LateralLoss = 2.5f, WithdrawDrag = 300, PushInDrag = 300, SlideBrake = 1500, WithdrawMargin = .03f;
@@ -277,7 +277,7 @@ namespace BannerlordVR.VR.Physics
                 WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
             Release();
         }
-        private const float NeckDeepDepth = .02f, WholeBodyBrakeMinPartMass = 5;
+        private const float NeckDeepDepth = .02f, WholeBodyBrakeMinPartMass = 5, NearOut = .03f, FastOut = 1;
         private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
@@ -429,6 +429,12 @@ namespace BannerlordVR.VR.Physics
             // stabs held 14 s and could not be drawn out.
             float signedDepth = bladeLength - along - _depthBase;
             if ((_maxDepth > .02f || _age > .2f) && signedDepth < -WithdrawMargin) { End("withdrawn", -signedDepth); return false; }
+            // Drawn out fast and all but out: a blade 6 mm from its entry
+            // and leaving at 2.6 m/s was still in, and the next tick the arm,
+            // yanked by the hand, rode up it 73 cm towards the player.
+            float leaving = float.IsNaN(_prevSigned) || dt <= 0 ? 0 : (_prevSigned - signedDepth) / dt;
+            _prevSigned = signedDepth;
+            if (_maxDepth > .05f && signedDepth < NearOut && leaving > FastOut) { End("withdrawn_fast", leaving); return false; }
             // Joint zMotion Limited at penetrationVelocityMaxDepth, and never
             // past the hilt: beyond it the stopped blade carries the part.
             float limit = Math.Min(_depthLimit, Math.Max(0, bladeLength - .02f - _depthBase));
