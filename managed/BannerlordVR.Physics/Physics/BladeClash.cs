@@ -188,7 +188,7 @@ namespace BannerlordVR.VR.Physics
         }
 
         // Creature_PlayerDefault forcePositionSpringDamper.x / forceRotationSpringDamper.x.
-        private const float PositionSpring = 5000, RotationSpring = 1000, MaxTurn = .6f;
+        private const float PositionSpring = 5000, RotationSpring = 1000, MaxTurn = .6f, PressDepth = .015f;
         private static Vec3 Rotate(Vec3 v, Vec3 axis, float angle)
         {
             float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
@@ -219,7 +219,11 @@ namespace BannerlordVR.VR.Physics
             // Every meeting of an attacking blade is judged, whatever touched
             // just before: a guard contact a moment earlier held the parry
             // back for the sound's cooldown and the swing came through.
-            if (attacking && speed > RecoilMinWeaponSpeed && !Parried(agent))
+            // The player's blade laid on the side of the swinging one and
+            // pushing it away is a parry too, however slowly it meets it: the
+            // solid enemy blade held the sword back and the swing went on.
+            bool pressed = shift.Length > PressDepth;
+            if (attacking && (speed > RecoilMinWeaponSpeed || pressed) && !Parried(agent))
             {
                 ParriedUntil[agent] = mission.CurrentTime + BounceSeconds;
                 EnemyPhysicsRuntime.Parried(agent, impact);
