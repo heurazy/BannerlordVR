@@ -179,9 +179,9 @@ namespace
     uint8_t* trampoline = nullptr;
     bool hooked = false;
 
-    void __fastcall refresh_hook(void* skeleton, int8_t bone)
+    // Collapses one bone's palette matrix onto its severed limb's root.
+    void collapse_severed(void* skeleton, int8_t bone)
     {
-        original_refresh(skeleton, bone);
         const auto value = reinterpret_cast<uintptr_t>(skeleton);
         if (bone < 0 || bone >= 64) return;
         for (int i = 0; i < MaxSevered; i++)
@@ -198,32 +198,59 @@ namespace
         }
     }
 
-    bool install_hook()
+    void __fastcall refresh_hook(void* skeleton, int8_t bone)
     {
-        if (hooked) return true;
-        uint8_t* module = engine_base();
-        if (!module) return false;
-        uint8_t* target = module + RefreshRva;
-        if ((reinterpret_cast<uintptr_t>(target) & 15) != 0) return false;
-        trampoline = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-        if (!trampoline) return false;
-        std::memcpy(trampoline, target, 12);
-        // jmp qword ptr [rip+0] ; target + 12
-        const uint8_t back[] = { 0xff, 0x25, 0, 0, 0, 0 };
-        std::memcpy(trampoline + 12, back, sizeof back);
-        const uintptr_t resume = reinterpret_cast<uintptr_t>(target) + 12;
-        std::memcpy(trampoline + 18, &resume, 8);
-        FlushInstructionCache(GetCurrentProcess(), trampoline, 64);
-        original_refresh = reinterpret_cast<RefreshBone>(trampoline);
+        original_refresh(skeleton, bone);
+        collapse_severed(skeleton, bone);
+    }
+
+    // The other palette writer: 0x35e450(skeleton, frame, flag) poses every
+    // bone of an animated skeleton and fills their palette matrices itself,
+    // without 0x361010. A beheaded body still in its death animation was drawn
+    // with its helmet until something (the player's blade) moved it into the
+    // ragdoll path. Three register arguments, no stack argument, one return.
+    using PoseBones = void(__fastcall*)(void* skeleton, void* frame, uint8_t flag);
+    const uint8_t PoseCode[] = { 0x48, 0x8b, 0xc4, 0x55, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d, 0xa8, 0x08, 0xfc, 0xff, 0xff };
+    constexpr uintptr_t PoseRva = 0x35e450;
+    PoseBones original_pose = nullptr;
+    bool pose_hooked = false;
+
+    void __fastcall pose_hook(void* skeleton, void* frame, uint8_t flag)
+    {
+        original_pose(skeleton, frame, flag);
+        const auto value = reinterpret_cast<uintptr_t>(skeleton);
+        for (int i = 0; i < MaxSevered; i++)
+        {
+            if (severed[i].skeleton != value) continue;
+            const uint64_t bones = severed[i].bones;
+            for (int b = 0; b < 64; b++) if (bones & (1ull << b)) collapse_severed(skeleton, static_cast<int8_t>(b));
+        }
+    }
+
+    // Detour: copy `copy` bytes of position-independent prologue to a
+    // trampoline that jumps back, then swap the 16-byte-aligned head for
+    // mov rax, hook / jmp rax in one compare-exchange.
+    uint8_t* detour(uint8_t* target, size_t copy, const void* hook)
+    {
+        if ((reinterpret_cast<uintptr_t>(target) & 15) != 0 || copy < 12 || copy > 16) return nullptr;
+        auto tramp = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+        if (!tramp) return nullptr;
+        std::memcpy(tramp, target, copy);
+        const uint8_t back[] = { 0xff, 0x25, 0, 0, 0, 0 }; // jmp qword ptr [rip+0]
+        std::memcpy(tramp + copy, back, sizeof back);
+        const uintptr_t resume = reinterpret_cast<uintptr_t>(target) + copy;
+        std::memcpy(tramp + copy + sizeof back, &resume, 8);
+        FlushInstructionCache(GetCurrentProcess(), tramp, 64);
 
         alignas(16) uint8_t patch[16];
         std::memcpy(patch, target, 16);
         patch[0] = 0x48; patch[1] = 0xb8;   // mov rax, imm64
-        const uintptr_t hook = reinterpret_cast<uintptr_t>(&refresh_hook);
-        std::memcpy(patch + 2, &hook, 8);
+        const uintptr_t address = reinterpret_cast<uintptr_t>(hook);
+        std::memcpy(patch + 2, &address, 8);
         patch[10] = 0xff; patch[11] = 0xe0; // jmp rax
+        for (size_t k = 12; k < copy; k++) patch[k] = 0xcc;
         DWORD old = 0;
-        if (!VirtualProtect(target, 16, PAGE_EXECUTE_READWRITE, &old)) return false;
+        if (!VirtualProtect(target, 16, PAGE_EXECUTE_READWRITE, &old)) { VirtualFree(tramp, 0, MEM_RELEASE); return nullptr; }
         alignas(16) long long expected[2], desired[2];
         std::memcpy(expected, target, 16);
         std::memcpy(desired, patch, 16);
@@ -232,7 +259,27 @@ namespace
         DWORD ignored = 0;
         VirtualProtect(target, 16, old, &ignored);
         FlushInstructionCache(GetCurrentProcess(), target, 16);
-        hooked = swapped;
+        if (!swapped) { VirtualFree(tramp, 0, MEM_RELEASE); return nullptr; }
+        return tramp;
+    }
+
+    bool install_hook()
+    {
+        uint8_t* module = engine_base();
+        if (!module) return false;
+        if (!hooked)
+        {
+            trampoline = detour(module + RefreshRva, 12, reinterpret_cast<const void*>(&refresh_hook));
+            if (!trampoline) return false;
+            original_refresh = reinterpret_cast<RefreshBone>(trampoline);
+            hooked = true;
+        }
+        if (!pose_hooked && readable(module + PoseRva, sizeof PoseCode) &&
+            std::memcmp(module + PoseRva, PoseCode, sizeof PoseCode) == 0)
+        {
+            uint8_t* tramp = detour(module + PoseRva, 16, reinterpret_cast<const void*>(&pose_hook));
+            if (tramp) { original_pose = reinterpret_cast<PoseBones>(tramp); pose_hooked = true; }
+        }
         return hooked;
     }
 }
