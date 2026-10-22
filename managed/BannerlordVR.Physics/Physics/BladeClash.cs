@@ -79,6 +79,14 @@ namespace BannerlordVR.VR.Physics
                     if (!VrBlade.TryGetEnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
                     moved |= Push(mission, player, agent, slot, ref world, previous, gripLocal, tipLocal, blade, ref total, now);
                 }
+                if (role == HandRole.Main)
+                {
+                    // The guard as shown this frame, for the engine's hit test.
+                    _guard0 = world.TransformToParent(gripLocal); _guard1 = world.TransformToParent(tipLocal); _guardAt = now;
+                    // The shield hand may have no learnt blade, and then never
+                    // came here: its contacts are tested with the sword's.
+                    if (player.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true) ShieldContacts(mission, player, now);
+                }
                 return moved;
             }
             catch (Exception ex)
@@ -203,19 +211,87 @@ namespace BannerlordVR.VR.Physics
                 if (slot == EquipmentIndex.None || agent.Equipment[slot].CurrentUsageItem?.IsMeleeWeapon != true) continue;
                 if (!VrBlade.TryGetEnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
                 int key = -1 - agent.Index;
-                Vec3 tip = blade.TipWorld;
+                Vec3 grip = blade.GripWorld, tip = blade.TipWorld;
                 bool known = Enemy.TryGetValue(key, out Last last) && now - last.At < Stopwatch.Frequency / 4;
                 Vec3 velocity = known ? (tip - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
-                Enemy[key] = new Last { Point = tip, At = now };
-                for (int i = 0; i <= 8; i++)
+                Enemy[key] = new Last { Point = tip, At = now, Grip = grip, Tip = tip };
+                // The blade now and its sweep since last frame.
+                if (InPlate(plate, n, grip, tip, blade.Radius, out Vec3 at) ||
+                    (known && SweepInPlate(plate, n, last.Grip, last.Tip, grip, tip, blade.Radius, out at)))
+                    Contact(mission, player, agent, slot, at, Vec3.Zero, velocity, now, true);
+            }
+        }
+
+        private static bool InPlate(VrBlade.Plate plate, Vec3 n, Vec3 grip, Vec3 tip, float pad, out Vec3 at)
+        {
+            for (int i = 0; i <= 8; i++)
+            {
+                at = grip + (tip - grip) * (i / 8f);
+                Vec3 d = at - plate.Centre;
+                if (Math.Abs(InteractionMath.Dot(d, n)) <= plate.HalfN + pad &&
+                    Math.Abs(InteractionMath.Dot(d, plate.A)) <= plate.HalfA + pad * .5f && Math.Abs(InteractionMath.Dot(d, plate.B)) <= plate.HalfB + pad * .5f)
+                    return true;
+            }
+            at = Vec3.Zero;
+            return false;
+        }
+        private static bool SweepInPlate(VrBlade.Plate plate, Vec3 n, Vec3 grip0, Vec3 tip0, Vec3 grip1, Vec3 tip1, float pad, out Vec3 at)
+        {
+            for (int k = 1; k < 4; k++)
+            {
+                float t = k / 4f;
+                if (InPlate(plate, n, grip0 + (grip1 - grip0) * t, tip0 + (tip1 - tip0) * t, pad, out at)) return true;
+            }
+            at = Vec3.Zero;
+            return false;
+        }
+
+        // The guard shown last frame (sword) for the engine's hit test.
+        private static Vec3 _guard0, _guard1;
+        private static long _guardAt;
+        private const float LateReachPad = .04f;
+
+        // At the engine's hit on the player: the striking blade had to come
+        // through the guard to reach the body. The engine can register the
+        // hit before a frame shows the two blades touching (a fast blow, or
+        // both in one frame), and the blow went through sword and shield.
+        // Tested: the blade now and its sweep since the last frame, and the
+        // line from its grip to the struck point, against the sword (a
+        // little wider than for the per-frame contact) and the shield plate.
+        private static bool ThroughGuard(Agent attacker, Vec3 struck, out Vec3 impact)
+        {
+            impact = Vec3.Zero;
+            Agent player = Mission.Current?.MainAgent;
+            EquipmentIndex slot = attacker.GetPrimaryWieldedItemIndex();
+            if (player == null || slot == EquipmentIndex.None) return false;
+            if (!VrBlade.TryGetEnemyBlade(attacker, slot, out VrBlade.Segment blade) || !blade.Valid) return false;
+            long now = Stopwatch.GetTimestamp();
+            Vec3 b0 = blade.GripWorld, b1 = blade.TipWorld;
+            bool known = Enemy.TryGetValue(attacker.Index, out Last last) && now - last.At < Stopwatch.Frequency / 4;
+            impact = known ? (b1 - last.Tip) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : (struck - b0);
+            if (impact.Length < 5) impact = impact.NormalizedCopy() * 5;
+            bool strikeLine = InteractionMath.IsFinite(struck) && (struck - b0).Length > .05f;
+            if (_guardAt != 0 && now - _guardAt < Stopwatch.Frequency / 6)
+            {
+                float reach = blade.Radius + PlayerRadius + LateReachPad;
+                Closest(_guard0, _guard1, b0, b1, out Vec3 m, out Vec3 q);
+                if ((m - q).Length <= reach) return true;
+                if (known && Sweeps(_guard0, _guard1, last.Grip, last.Tip, b0, b1, reach)) return true;
+                if (strikeLine) { Closest(_guard0, _guard1, b0, struck, out m, out q); if ((m - q).Length <= reach) return true; }
+            }
+            if (player.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true && OwnPlate != null)
+            {
+                object[] args = { player, null };
+                if ((bool)OwnPlate.Invoke(null, args) && args[1] is VrBlade.Plate plate && plate.Valid)
                 {
-                    Vec3 d = blade.GripWorld + (tip - blade.GripWorld) * (i / 8f) - plate.Centre;
-                    if (Math.Abs(InteractionMath.Dot(d, n)) > plate.HalfN + blade.Radius ||
-                        Math.Abs(InteractionMath.Dot(d, plate.A)) > plate.HalfA || Math.Abs(InteractionMath.Dot(d, plate.B)) > plate.HalfB) continue;
-                    Contact(mission, player, agent, slot, plate.Centre + d, Vec3.Zero, velocity, now, true);
-                    break;
+                    Vec3 n = plate.N.NormalizedCopy();
+                    float pad = blade.Radius + LateReachPad;
+                    if (InPlate(plate, n, b0, b1, pad, out _)) return true;
+                    if (known && SweepInPlate(plate, n, last.Grip, last.Tip, b0, b1, pad, out _)) return true;
+                    if (strikeLine && InPlate(plate, n, b0, struck, pad, out _)) return true;
                 }
             }
+            return false;
         }
 
         // Closest points between segments p0-p1 and q0-q1.
@@ -256,10 +332,31 @@ namespace BannerlordVR.VR.Physics
             public static bool Prepare() => EnemyPhysicsSettings.SolidWeapons && Target != null;
             public static MethodBase TargetMethod() => Target;
             [HarmonyPriority(Priority.First)]
-            public static bool Prefix(Agent attacker, Agent victim, ref MeleeCollisionReaction colReaction, ref HitParticleResultData hitParticleResultData)
+            public static bool Prefix(ref AttackCollisionData collisionData, Agent attacker, Agent victim, ref MeleeCollisionReaction colReaction, ref HitParticleResultData hitParticleResultData)
             {
-                if (victim == null || attacker == null || !victim.IsMainAgent) return true;
+                if (victim == null || attacker == null || !victim.IsMainAgent || collisionData.IsMissile) return true;
+                // The engine's own block or parry (the VR guard) stands as it is.
+                if (collisionData.AttackBlockedWithShield || collisionData.CollisionResult == CombatCollisionResult.Blocked ||
+                    collisionData.CollisionResult == CombatCollisionResult.Parried || collisionData.CollisionResult == CombatCollisionResult.ChamberBlocked)
+                    return true;
                 bool parried = Parried(attacker);
+                if (!parried)
+                {
+                    try
+                    {
+                        if (ThroughGuard(attacker, collisionData.CollisionGlobalPosition, out Vec3 impact))
+                        {
+                            parried = true;
+                            Mission mission = Mission.Current;
+                            ParriedUntil[attacker] = mission.CurrentTime + BounceSeconds;
+                            EnemyPhysicsRuntime.Parried(attacker, impact);
+                            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                                "LATE_PARRY agent={0} action={1}: the blow came through the guard; parried at the engine's hit",
+                                attacker.Index, attacker.GetCurrentAction(1).GetName()));
+                        }
+                    }
+                    catch (Exception ex) { PhysicsLog.Error("Late parry test failed.", ex); }
+                }
                 if (EnemyPhysicsSettings.Trace)
                     PhysicsLog.Info("ENEMY_HIT on the player by agent " + attacker.Index + " action=" + attacker.GetCurrentAction(1).GetName() +
                         " stage=" + attacker.GetCurrentActionStage(1) + (parried ? " -> bounced (parried)" : " -> lands"));
