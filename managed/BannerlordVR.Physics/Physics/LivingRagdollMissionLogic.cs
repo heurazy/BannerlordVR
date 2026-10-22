@@ -503,7 +503,8 @@ namespace BannerlordVR.VR.Physics
             if (!_parryStops.ContainsKey(agent))
             {
                 agent.SetCurrentActionSpeed(1, 0);
-                _parryStops[agent] = new ParryStopState { Until = now + ParryStop, Blocked = blocked, Attack = attack };
+                _parryStops[agent] = new ParryStopState { Since = now, Until = now + ParryStop, Blocked = blocked, Attack = attack,
+                    Action = agent.GetCurrentAction(1).Index, Progress = agent.GetCurrentActionProgress(1) };
             }
             // The recoil push only once per parryRecoilCooldown.
             if (_lastParry.TryGetValue(agent, out float last) && now - last <= ParryRecoilCooldown)
@@ -517,28 +518,39 @@ namespace BannerlordVR.VR.Physics
                 agent.Index, stage, weaponSpeed, now, attack, blocked.Index >= 0 ? blocked.GetName() : "act_none"));
             return true;
         }
-        public const float ParryStop = .12f;
-        private struct ParryStopState { public float Until; public ActionIndexCache Blocked; public string Attack; }
+        // Held still ParryStop on the blade, the swing is then run backwards
+        // for RewindSeconds over up to RewindProgress of its animation: the
+        // blade leaves the way it came, away from the player's. The engine's
+        // blocked recoil starts from its own pose, further along the swing,
+        // and its blend carried the blade through the sword.
+        public const float ParryStop = .08f, RewindSeconds = .25f, RewindProgress = .35f;
+        private struct ParryStopState { public float Since, Until; public ActionIndexCache Blocked; public string Attack; public int Action; public float Progress; }
         private readonly Dictionary<Agent, ParryStopState> _parryStops = new Dictionary<Agent, ParryStopState>();
         private readonly List<Agent> _stopsDone = new List<Agent>();
         private void ParryStops()
         {
             if (_parryStops.Count == 0) return;
+            float now = Mission.CurrentTime;
             _stopsDone.Clear();
-            foreach (KeyValuePair<Agent, ParryStopState> stop in _parryStops) if (Mission.CurrentTime >= stop.Value.Until) _stopsDone.Add(stop.Key);
-            foreach (Agent agent in _stopsDone)
+            foreach (KeyValuePair<Agent, ParryStopState> pair in _parryStops)
             {
-                ParryStopState stop = _parryStops[agent];
-                _parryStops.Remove(agent);
-                if (agent == null || !agent.IsActive()) continue;
+                Agent agent = pair.Key;
+                ParryStopState stop = pair.Value;
+                if (agent == null || !agent.IsActive()) { _stopsDone.Add(agent); continue; }
+                // Another action took over (hit, death, the engine's own block).
+                if (agent.GetCurrentAction(1).Index != stop.Action) { agent.SetCurrentActionSpeed(1, 1); _stopsDone.Add(agent); continue; }
+                if (now < stop.Until) continue;
+                float back = Math.Min(1, (now - stop.Until) / RewindSeconds);
+                agent.SetCurrentActionProgress(1, Math.Max(0, stop.Progress - back * RewindProgress));
+                if (back < 1 && stop.Progress - back * RewindProgress > 0) continue;
                 agent.SetCurrentActionSpeed(1, 1);
-                bool played = stop.Blocked.Index >= 0 &&
-                    agent.SetActionChannel(1, stop.Blocked, ignorePriority: true, blendInPeriod: .06f);
-                if (!played) played = agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true, blendInPeriod: .1f);
-                PhysicsLog.Info("PARRY agent=" + agent.Index + " stopped " + (ParryStop * 1000).ToString("F0", CultureInfo.InvariantCulture) +
-                    " ms on the blade, then " + (stop.Blocked.Index >= 0 ? stop.Blocked.GetName() : "act_none") + (played ? "" : " (refused by the engine)") +
-                    "; now " + agent.GetCurrentAction(1).GetName());
+                bool played = agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true, blendInPeriod: .2f);
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "PARRY agent={0} held {1:F0} ms on the blade, swung back from {2:F2} to {3:F2} of {4}, then guard{5}",
+                    agent.Index, ParryStop * 1000, stop.Progress, Math.Max(0, stop.Progress - RewindProgress), stop.Attack, played ? "" : " (refused)"));
+                _stopsDone.Add(agent);
             }
+            foreach (Agent agent in _stopsDone) _parryStops.Remove(agent);
         }
         private static ActionIndexCache BlockedAction(string attack)
         {
