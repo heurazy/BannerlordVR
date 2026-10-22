@@ -76,7 +76,7 @@ namespace BannerlordVR.VR.Physics
                 {
                     EquipmentIndex slot = agent.GetPrimaryWieldedItemIndex();
                     if (slot == EquipmentIndex.None || agent.Equipment[slot].CurrentUsageItem?.IsMeleeWeapon != true) continue;
-                    if (!VrBlade.TryGetEnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
+                    if (!EnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
                     moved |= Push(mission, player, agent, slot, ref world, previous, gripLocal, tipLocal, blade, ref total, now);
                 }
                 if (role == HandRole.Main)
@@ -244,7 +244,7 @@ namespace BannerlordVR.VR.Physics
             {
                 EquipmentIndex slot = agent.GetPrimaryWieldedItemIndex();
                 if (slot == EquipmentIndex.None || agent.Equipment[slot].CurrentUsageItem?.IsMeleeWeapon != true) continue;
-                if (!VrBlade.TryGetEnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
+                if (!EnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
                 int key = -1 - agent.Index;
                 Vec3 grip = blade.GripWorld, tip = blade.TipWorld;
                 bool known = Enemy.TryGetValue(key, out Last last) && now - last.At < Stopwatch.Frequency / 4;
@@ -299,7 +299,7 @@ namespace BannerlordVR.VR.Physics
             Agent player = Mission.Current?.MainAgent;
             EquipmentIndex slot = attacker.GetPrimaryWieldedItemIndex();
             if (player == null || slot == EquipmentIndex.None) return false;
-            if (!VrBlade.TryGetEnemyBlade(attacker, slot, out VrBlade.Segment blade) || !blade.Valid) return false;
+            if (!EnemyBlade(attacker, slot, out VrBlade.Segment blade) || !blade.Valid) return false;
             long now = Stopwatch.GetTimestamp();
             Vec3 b0 = blade.GripWorld, b1 = blade.TipWorld;
             bool known = Enemy.TryGetValue(attacker.Index, out Last last) && now - last.At < Stopwatch.Frequency / 4;
@@ -327,6 +327,47 @@ namespace BannerlordVR.VR.Physics
                 }
             }
             return false;
+        }
+
+        // The enemy blade as drawn: its weapon entity's own box, along its
+        // longest side, from the end at the hand to the far one. VrBlade's
+        // segment comes from the item frame and the class's length or from a
+        // fit of the engine's contacts: a few degrees or centimetres off at
+        // the hand were 10-20 cm at the tip, and the tip went through.
+        private static readonly Dictionary<string, bool> Measured = new Dictionary<string, bool>();
+        private static bool EnemyBlade(Agent agent, EquipmentIndex slot, out VrBlade.Segment segment)
+        {
+            bool fitted = VrBlade.TryGetEnemyBlade(agent, slot, out segment) && segment.Valid;
+            try
+            {
+                WeakGameEntity entity = agent.GetWeaponEntityFromEquipmentSlot(slot);
+                if (!entity.IsValid) return fitted;
+                BoundingBox box = entity.GetLocalBoundingBox();
+                Vec3 size = box.max - box.min;
+                if (!InteractionMath.IsFinite(size)) return fitted;
+                int k = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
+                float length = k == 0 ? size.x : k == 1 ? size.y : size.z;
+                if (length < .3f || length > 3.5f) return fitted;
+                Vec3 centre = (box.min + box.max) * .5f, e0 = centre, e1 = centre;
+                if (k == 0) { e0.x = box.min.x; e1.x = box.max.x; } else if (k == 1) { e0.y = box.min.y; e1.y = box.max.y; } else { e0.z = box.min.z; e1.z = box.max.z; }
+                MatrixFrame frame = entity.GetGlobalFrame();
+                Vec3 w0 = frame.TransformToParent(e0), w1 = frame.TransformToParent(e1);
+                // The grip is the end at the hand holding it.
+                Vec3 hand = fitted ? segment.World.origin : agent.Position;
+                if ((w1 - hand).LengthSquared < (w0 - hand).LengthSquared) { Vec3 t = w0; w0 = w1; w1 = t; }
+                string item = agent.Equipment[slot].Item?.StringId ?? "?";
+                if (!Measured.ContainsKey(item))
+                {
+                    Measured[item] = true;
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "CLASH enemy blade {0}: drawn {1:F2} m long; the fitted tip was {2:F2} m off the drawn one",
+                        item, (w1 - w0).Length, fitted ? (segment.TipWorld - w1).Length : -1f));
+                }
+                float radius = fitted ? segment.Radius : .05f;
+                segment = new VrBlade.Segment { Valid = true, World = MatrixFrame.Identity, Grip = w0, Tip = w1, Radius = radius, FromFrame = true };
+                return true;
+            }
+            catch (Exception) { return fitted; }
         }
 
         // Closest points between segments p0-p1 and q0-q1.
