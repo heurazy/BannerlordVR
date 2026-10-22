@@ -27,7 +27,11 @@ namespace BannerlordVR.VR.Physics
     internal static class BladeClash
     {
         public const float MaxLag = .6f, PlayerRadius = .015f, RecoilMinWeaponSpeed = 1, ContactCooldown = .25f;
-        public const float BounceSeconds = .8f;
+        // The parried swing's hold and rewind (LivingRagdollMissionLogic
+        // ParryStop + RewindSeconds), then a little: no longer. Held 0.8 s,
+        // the window covered a combo's second blow, often the same animation,
+        // taken for the parried one: not solid, it went through the sword.
+        public const float BounceSeconds = .36f;
         private struct Last { public Vec3 Point; public long At; public Vec3 Normal; public Vec3 Grip, Tip; }
         private static readonly Dictionary<int, Last> Enemy = new Dictionary<int, Last>();
         private static readonly Dictionary<int, long> ContactAt = new Dictionary<int, long>();
