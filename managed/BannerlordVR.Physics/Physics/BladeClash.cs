@@ -329,45 +329,51 @@ namespace BannerlordVR.VR.Physics
             return false;
         }
 
-        // The enemy blade as drawn: its weapon entity's own box, along its
-        // longest side, from the end at the hand to the far one. VrBlade's
-        // segment comes from the item frame and the class's length or from a
-        // fit of the engine's contacts: a few degrees or centimetres off at
-        // the hand were 10-20 cm at the tip, and the tip went through.
-        private static readonly Dictionary<string, bool> Measured = new Dictionary<string, bool>();
+        // The enemy blade. VrBlade gives a fit of the engine's contacts per
+        // weapon class, which the VR log measured 0.14-0.21 m (worst 0.30 m)
+        // off the contacts it came from and 11 deg off the item's own frame:
+        // its tip went through the player's blade. The item frame on its bone
+        // (the weapon's own axis and length) is the other candidate. Each
+        // engine hit on the player scores both against the struck point; per
+        // weapon class the closer one is used, the frame until they are known.
+        private sealed class Score { public float Fit, Frame; public int Count; }
+        private static readonly Dictionary<WeaponClass, Score> Scores = new Dictionary<WeaponClass, Score>();
+        private static bool Candidates(Agent agent, EquipmentIndex slot, out VrBlade.Segment fit, out VrBlade.Segment frame)
+        {
+            frame = default(VrBlade.Segment);
+            if (!VrBlade.TryGetEnemyBlade(agent, slot, out fit) || !fit.Valid) return false;
+            WeaponComponentData usage = agent.Equipment[slot].CurrentUsageItem;
+            if (usage == null) return false;
+            // VrBlade.FrameBlade: the item frame's origin and its up axis.
+            Vec3 grip = usage.Frame.origin, tip = grip + usage.Frame.rotation.u.NormalizedCopy() * (usage.WeaponLength * .01f);
+            frame = fit; frame.Grip = grip; frame.Tip = tip; frame.FromFrame = true;
+            return true;
+        }
         private static bool EnemyBlade(Agent agent, EquipmentIndex slot, out VrBlade.Segment segment)
         {
-            bool fitted = VrBlade.TryGetEnemyBlade(agent, slot, out segment) && segment.Valid;
-            try
-            {
-                WeakGameEntity entity = agent.GetWeaponEntityFromEquipmentSlot(slot);
-                if (!entity.IsValid) return fitted;
-                BoundingBox box = entity.GetLocalBoundingBox();
-                Vec3 size = box.max - box.min;
-                if (!InteractionMath.IsFinite(size)) return fitted;
-                int k = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
-                float length = k == 0 ? size.x : k == 1 ? size.y : size.z;
-                if (length < .3f || length > 3.5f) return fitted;
-                Vec3 centre = (box.min + box.max) * .5f, e0 = centre, e1 = centre;
-                if (k == 0) { e0.x = box.min.x; e1.x = box.max.x; } else if (k == 1) { e0.y = box.min.y; e1.y = box.max.y; } else { e0.z = box.min.z; e1.z = box.max.z; }
-                MatrixFrame frame = entity.GetGlobalFrame();
-                Vec3 w0 = frame.TransformToParent(e0), w1 = frame.TransformToParent(e1);
-                // The grip is the end at the hand holding it.
-                Vec3 hand = fitted ? segment.World.origin : agent.Position;
-                if ((w1 - hand).LengthSquared < (w0 - hand).LengthSquared) { Vec3 t = w0; w0 = w1; w1 = t; }
-                string item = agent.Equipment[slot].Item?.StringId ?? "?";
-                if (!Measured.ContainsKey(item))
-                {
-                    Measured[item] = true;
-                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                        "CLASH enemy blade {0}: drawn {1:F2} m long; the fitted tip was {2:F2} m off the drawn one",
-                        item, (w1 - w0).Length, fitted ? (segment.TipWorld - w1).Length : -1f));
-                }
-                float radius = fitted ? segment.Radius : .05f;
-                segment = new VrBlade.Segment { Valid = true, World = MatrixFrame.Identity, Grip = w0, Tip = w1, Radius = radius, FromFrame = true };
-                return true;
-            }
-            catch (Exception) { return fitted; }
+            if (!Candidates(agent, slot, out VrBlade.Segment fit, out VrBlade.Segment frame)) { segment = fit; return fit.Valid; }
+            WeaponClass type = agent.Equipment[slot].CurrentUsageItem.WeaponClass;
+            bool useFit = Scores.TryGetValue(type, out Score score) && score.Count >= 3 && score.Fit < score.Frame;
+            segment = useFit ? fit : frame;
+            return true;
+        }
+        private static void ScoreHit(Agent attacker, Vec3 struck)
+        {
+            EquipmentIndex slot = attacker.GetPrimaryWieldedItemIndex();
+            if (slot == EquipmentIndex.None || !InteractionMath.IsFinite(struck)) return;
+            if (!Candidates(attacker, slot, out VrBlade.Segment fit, out VrBlade.Segment frame)) return;
+            WeaponClass type = attacker.Equipment[slot].CurrentUsageItem.WeaponClass;
+            if (!Scores.TryGetValue(type, out Score score)) Scores[type] = score = new Score();
+            Closest(struck, struck, fit.GripWorld, fit.TipWorld, out _, out Vec3 onFit);
+            Closest(struck, struck, frame.GripWorld, frame.TipWorld, out _, out Vec3 onFrame);
+            float a = (struck - onFit).Length, b = (struck - onFrame).Length;
+            // A running mean that follows the recent hits.
+            float w = score.Count < 10 ? 1f / (score.Count + 1) : .1f;
+            score.Fit += (a - score.Fit) * w; score.Frame += (b - score.Frame) * w; score.Count++;
+            if (score.Count <= 3 || score.Count % 10 == 0)
+                PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                    "CLASH enemy blade {0}: struck point {1:F2} m off the fit, {2:F2} m off the item frame (means over {3}: fit {4:F2}, frame {5:F2}) -> {6}",
+                    type, a, b, score.Count, score.Fit, score.Frame, score.Count >= 3 && score.Fit < score.Frame ? "fit" : "frame"));
         }
 
         // Closest points between segments p0-p1 and q0-q1.
@@ -415,6 +421,7 @@ namespace BannerlordVR.VR.Physics
                 if (collisionData.AttackBlockedWithShield || collisionData.CollisionResult == CombatCollisionResult.Blocked ||
                     collisionData.CollisionResult == CombatCollisionResult.Parried || collisionData.CollisionResult == CombatCollisionResult.ChamberBlocked)
                     return true;
+                try { ScoreHit(attacker, collisionData.CollisionGlobalPosition); } catch (Exception) { }
                 bool parried = Parried(attacker);
                 if (!parried)
                 {
