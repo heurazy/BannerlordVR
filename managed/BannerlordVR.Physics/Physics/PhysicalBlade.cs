@@ -36,6 +36,7 @@ namespace BannerlordVR.VR.Physics
             public float AngleLimit, AlongMin;
             // Offset still shown after the blade came out, glided away.
             public Vec3 Residual; public long ResidualAt;
+            public Vec3 Held; public bool Holding; // a shield's or a blade's hold on the hand
             // A grabbing hand: offset from the controller hand to the
             // grabbed point, set by the physics each tick.
             public Vec3 Grip; public long GripAt;
@@ -279,13 +280,24 @@ namespace BannerlordVR.VR.Physics
                     }
                     // A shield stops the weapon and the hand (B&S), where
                     // VrCollide only turned the weapon about the grip.
+                    Vec3 free = world.origin;
+                    bool held = false;
                     if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
                         ShieldBlock.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
-                        __result = true;
+                        __result = held = true;
                     // So does an enemy's blade (B&S weapons are rigidbodies).
                     if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
                         BladeClash.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
-                        __result = true;
+                        __result = held = true;
+                    // Let go by the shield or the blade, the hand glides back to
+                    // the controller (the B&S hand joint catches up) instead of
+                    // snapping there in one frame.
+                    if (held) { s.Held = world.origin - free; s.Holding = true; }
+                    else if (s.Holding)
+                    {
+                        s.Holding = false;
+                        if (s.Held.Length > .01f && s.ResidualAt == 0) { s.Residual = s.Held; s.ResidualAt = now; world.origin += s.Residual; __result = true; }
+                    }
                     s.Shown = world;
                 }
                 catch (Exception ex)

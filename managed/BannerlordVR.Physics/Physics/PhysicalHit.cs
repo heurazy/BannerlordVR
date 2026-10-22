@@ -155,8 +155,12 @@ namespace BannerlordVR.VR.Physics
             // B&S staggers play as Bannerlord knockbacks; their recoil amount
             // (0.2 / 0.6 / 1) becomes the stun period. A destabilization is
             // handed to the physical body instead of a knockdown animation.
-            float stun = bloodLoss ? 0 : push == PushEffect.None || push == PushEffect.Destabilize ? .2f : PushReaction.Recoil(push);
-            BlowFlags flags = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff :
+            // B&S: a blow under the first push level (effect None) does not
+            // move a fighting creature at all; it fights on. The engine's own
+            // 0.2 s flinch on every such touch broke its attacks and the duel.
+            bool shrug = push == PushEffect.None && victim.Controller == AgentControllerType.AI && !victim.IsPaused;
+            float stun = bloodLoss || shrug ? 0 : push == PushEffect.None || push == PushEffect.Destabilize ? .2f : PushReaction.Recoil(push);
+            BlowFlags flags = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff : shrug ? BlowFlags.ShrugOff :
                 push == PushEffect.StaggerMedium || push == PushEffect.StaggerFull ? BlowFlags.KnockBack : BlowFlags.None;
             Mission mission = Mission.Current;
             int victimIndex = victim.Index;
@@ -197,6 +201,14 @@ namespace BannerlordVR.VR.Physics
             if (mission == null || mission != Mission.Current || mission.IsFinalized ||
                 mission.FindAgentWithIndex(victimIndex) != victim || !victim.IsActive()) return 0;
             float lost = before - victim.Health;
+            // BrainModuleMelee minimumDamageToCancelAttack: 5 % of its health
+            // stops the creature's attack even when the blow does not push it.
+            if (shrug && InteractionMath.IsFinite(lost) && lost >= victim.HealthLimit * .05f)
+            {
+                Agent.ActionStage stage = victim.GetCurrentActionStage(1);
+                if (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease)
+                    victim.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
+            }
             return InteractionMath.IsFinite(lost) ? Math.Max(0, lost) : 0;
         }
     }
