@@ -69,6 +69,8 @@ namespace BannerlordVR.VR.Physics
         // records (LimbHide): the head sinks into the chest, a forearm, hand,
         // calf or foot is laid onto the bone above it.
         public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
+        // A weapon is carried by whichever hands hold it, each where it took hold.
+        public static readonly bool FreeHold = VrConfig.Bool("enemy_physics_free_hold", true);
         // The free hand can take a one-handed weapon by its blade (half-sword).
         public static readonly bool HalfSword = VrConfig.Bool("enemy_physics_half_sword", true);
         // A blunt blow to the head knocks the enemy out (B&S Discombobulate).
