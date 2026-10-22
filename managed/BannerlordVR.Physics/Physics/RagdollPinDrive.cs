@@ -139,7 +139,7 @@ namespace BannerlordVR.VR.Physics
         // it drag the weapon down; here, by choice, the arm is stronger: at
         // 2500 N/m a 100-115 kg body sagged 45 cm, pulled the shown sword
         // down with it and threw the stab into chaos.
-        public const float CarrySpring = 4000, CarryMaxForce = 2500;
+        public const float CarrySpring = 4000, CarryMaxForce = 2500, CarryMaxSpeed = 1.5f, CarryWeightRatio = 1.25f;
         private readonly bool[] _carry = new bool[MaxHandles];
         public void SetCarry(int h, bool carry) { if (h >= 0 && h < MaxHandles) _carry[h] = carry; }
         public void SetSpread(int h, int body, float weight)
@@ -241,13 +241,18 @@ namespace BannerlordVR.VR.Physics
                 // HandDamper x 4 (80 N.s/m) a 15 kg part was at 0.2 and a body
                 // carried whole at 0.09, and they bounced on the blade.
                 float c = Math.Min(Math.Max(HandDamper * 4, 1.4f * (float)Math.Sqrt(k * moved)), moved * HandDampingRate);
+                // Carrying a body that hangs on the blade: the grip holds its
+                // weight, not more, and drags it no faster than CarryMaxSpeed.
+                // At 2500 N and the hand's own speed, a stab pulled out fast
+                // flung the 90 kg body at 4 m/s onto the player and up the
+                // blade to the hilt; pushed in, it threw it back.
                 Vec3 grip = (_handleTarget[h] - position[i]) * k -
-                    (velocity - InteractionMath.ClampMagnitude(handVelocity, 12)) * c;
+                    (velocity - InteractionMath.ClampMagnitude(handVelocity, carry ? CarryMaxSpeed : 12)) * c;
                 Vec3 axis = _handleAxis[h];
                 if (axis.LengthSquared > 0) grip -= axis * InteractionMath.Dot(grip, axis);
                 Vec3 pushOnly = _pushOnlyAxis[h];
                 if (pushOnly.LengthSquared > 0 && InteractionMath.Dot(grip, pushOnly) < 0) grip -= pushOnly * InteractionMath.Dot(grip, pushOnly);
-                grip = InteractionMath.ClampMagnitude(grip, carry ? CarryMaxForce : HandMaxForce);
+                grip = InteractionMath.ClampMagnitude(grip, carry ? Math.Min(CarryMaxForce, moved * 9.81f * CarryWeightRatio) : HandMaxForce);
                 if (spread == null) force[i] += grip;
                 else for (int j = 0; j < Count; j++) if (spread[j] > 0) force[j] += grip * (_mass[j] * spread[j] / weighted);
                 _lastHandleTarget[h] = _handleTarget[h]; _handleSampled[h] = true;
