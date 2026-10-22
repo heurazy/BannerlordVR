@@ -174,6 +174,7 @@ namespace BannerlordVR.VR.Physics
                 }
                 float now = mission.CurrentTime;
                 DismemberFx.Tick();
+                WoundFlow.Tick();
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
                 _time = now;

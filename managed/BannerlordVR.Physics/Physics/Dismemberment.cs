@@ -54,19 +54,17 @@ namespace BannerlordVR.VR.Physics
                 CheckSlice(sliceAxis, bladeUp, bladeForward, contactDistance);
         }
 
-        // DamageModifier_Blunt allowKnockout rows (Flesh 4, Leather 14,
-        // Chainmail 14, Plate 13 m/s); light blunts and punches disallow it.
-        public static bool KnocksOut(PushMaterial material, PenetrationMaterial armour, BodyZone zone, float speed)
+        // The DamageModifier knockout rows are no longer read by ThunderRoad:
+        // only SkillDiscombobulate knocks a creature out. CheckStunConditions:
+        // a Blunt blow (fists, kicks, maces, pommels and flats) to the Head
+        // part at impactVelocity 5 m/s or more, whatever the armour; the
+        // creature is out for stunTime 6 s. A blow that kills does not stun.
+        public const float KnockoutMinVelocity = 5, KnockoutSeconds = 6;
+        public static bool KnocksOut(PushMaterial material, BodyZone zone, float speed)
         {
-            if (material != PushMaterial.Blunt || zone != BodyZone.Head || !InteractionMath.IsFinite(speed)) return false;
-            float min;
-            switch (armour)
-            {
-                case PenetrationMaterial.Flesh: min = 4; break;
-                case PenetrationMaterial.Plate: min = 13; break;
-                default: min = 14; break;
-            }
-            return speed >= min;
+            bool blunt = material == PushMaterial.Blunt || material == PushMaterial.BluntLight ||
+                material == PushMaterial.Punch || material == PushMaterial.Kick;
+            return blunt && zone == BodyZone.Head && InteractionMath.IsFinite(speed) && speed >= KnockoutMinVelocity;
         }
     }
 }

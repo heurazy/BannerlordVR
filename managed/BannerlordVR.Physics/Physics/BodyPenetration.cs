@@ -271,8 +271,13 @@ namespace BannerlordVR.VR.Physics
                     reason, value, _age, _maxDepth, Locked, PhysicalBlade.Separation(Role), _maxSeparation, _maxAxial));
             // One spill as the blade leaves a living body (UnPenetrate).
             if (Body != null && !Body.IsCorpse && _pending < .5f && _maxDepth > .02f) BloodFx.Burst(BloodFx.Kind.Exit, _lastAnchor, Vec3.Up);
+            // PenetrationDeepBleeding: a neck stab past its deep depth (Neck
+            // penetrationPierceDeepDepth 0.02 m) pours once the blade is out.
+            if (Body != null && !Body.IsCorpse && _part == BoneBodyPartType.Neck && _maxDepth > NeckDeepDepth)
+                WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
             Release();
         }
+        private const float NeckDeepDepth = .02f;
         private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;

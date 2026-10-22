@@ -55,6 +55,13 @@ namespace BannerlordVR.VR.Physics
                 throw;
             }
         }
+        // A knocked-out body must lie out its stun, settle and rise before the
+        // ceiling: it is pushed back to cover that, never past 20 s.
+        public void ExtendUntil(float until)
+        {
+            if (Occupied && !_ended && InteractionMath.IsFinite(until))
+                MaxSeconds = Math.Min(20, Math.Max(MaxSeconds, until - _started));
+        }
         public void KeepHeld(float now, float graceSeconds = .12f)
         {
             if (Occupied && !_ended && InteractionMath.IsFinite(now) && InteractionMath.IsFinite(graceSeconds))

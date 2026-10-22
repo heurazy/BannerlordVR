@@ -10,12 +10,12 @@ namespace BannerlordVR.VR.Physics
     // (particle_systems2.xml). Bursts are rate limited per kind.
     internal static class BloodFx
     {
-        public enum Kind { Enter, Inside, Exit, Drip }
+        public enum Kind { Enter, Inside, Exit, Drip, Flow }
         private static readonly string[] Names =
-            { "psys_game_blood_sword_enter", "psys_game_blood_sword_inside", "psys_game_blood_sword_exit", "psys_game_blood_1" };
-        private static readonly float[] MinInterval = { .05f, .15f, .1f, .25f };
-        private static readonly int[] Ids = { int.MinValue, int.MinValue, int.MinValue, int.MinValue };
-        private static readonly float[] Last = { -1, -1, -1, -1 };
+            { "psys_game_blood_sword_enter", "psys_game_blood_sword_inside", "psys_game_blood_sword_exit", "psys_game_blood_1", "psys_game_blood_1" };
+        private static readonly float[] MinInterval = { .05f, .15f, .1f, .25f, .05f };
+        private static readonly int[] Ids = { int.MinValue, int.MinValue, int.MinValue, int.MinValue, int.MinValue };
+        private static readonly float[] Last = { -1, -1, -1, -1, -1 };
 
         public static void Burst(Kind kind, Vec3 position, Vec3 direction)
         {

@@ -23,7 +23,12 @@ namespace BannerlordVR.VR.Physics
         private const float Life = 60, Mass = 2.5f, Radius = .13f;
         private static bool _broken;
 
-        public static void ThrowHelmet(Agent victim, MatrixFrame boneEntitial, MatrixFrame restEntitial, Vec3 velocity)
+        // Ragdoll.SliceCoroutine: the severed part keeps its velocity times
+        // sliceVelocityMultiplier (0.5) and gets sliceSeparationForce (Head
+        // 3.5) as a velocity change along the slice direction, away from the
+        // stump. Thrown along the blade at a third of its speed it flew metres.
+        private const float SliceVelocityMultiplier = .5f, HeadSeparation = 3.5f;
+        public static void ThrowHelmet(Agent victim, MatrixFrame boneEntitial, MatrixFrame restEntitial, Vec3 stumpEntitial)
         {
             if (!EnemyPhysicsSettings.SeveredProps || _broken || victim?.AgentVisuals == null) return;
             try
@@ -47,7 +52,9 @@ namespace BannerlordVR.VR.Physics
                 entity.AddBodyFlags(BodyFlags.Moveable | BodyFlags.DroppedItem, false);
                 // The sphere sits on the head, in the mesh's own (bind) space.
                 entity.AddSphereAsBody(restEntitial.origin, Radius, BodyFlags.Moveable);
-                Vec3 throwVelocity = InteractionMath.ClampMagnitude(velocity * .35f + Vec3.Up * 1.5f, 8);
+                Vec3 away = global.rotation.TransformToParent(boneEntitial.origin - stumpEntitial);
+                away = away.LengthSquared > 1e-6f ? away.NormalizedCopy() : Vec3.Up;
+                Vec3 throwVelocity = InteractionMath.ClampMagnitude(victim.Velocity * SliceVelocityMultiplier + away * HeadSeparation, 8);
                 Vec3 spin = new Vec3(MBRandom.RandomFloatRanged(-8, 8), MBRandom.RandomFloatRanged(-8, 8), MBRandom.RandomFloatRanged(-4, 4));
                 entity.AddPhysics(Mass, restEntitial.origin, null, throwVelocity, spin, Material(), false, -1);
                 entity.SetPhysicsStateOnlyVariable(true, true);

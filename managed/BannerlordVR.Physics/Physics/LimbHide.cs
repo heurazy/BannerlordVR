@@ -61,7 +61,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly byte[] Buffer = new byte[RecordBytes];
         private static readonly float[] Values = new float[4];
 
-        public static void Begin(Agent agent, sbyte bone, sbyte parent, SliceJoint kind, Vec3 cutVelocity = default(Vec3))
+        public static void Begin(Agent agent, sbyte bone, sbyte parent, SliceJoint kind)
         {
             if (!EnemyPhysicsSettings.LimbHide || _broken || agent?.AgentVisuals == null) return;
             try
@@ -76,7 +76,8 @@ namespace BannerlordVR.VR.Physics
                 float now = Mission.Current?.CurrentTime ?? 0;
                 // The helmet flies before the head is folded away.
                 if (kind == SliceJoint.Neck && bvr_skeleton_bone_record(skeleton.Pointer, bone, Buffer, RecordBytes) == RecordBytes)
-                    SeveredProp.ThrowHelmet(agent, skeleton.GetBoneEntitialFrameWithIndex(bone), RestFrame(), cutVelocity);
+                    SeveredProp.ThrowHelmet(agent, skeleton.GetBoneEntitialFrameWithIndex(bone), RestFrame(),
+                        skeleton.GetBoneEntitialFrameWithIndex(parent).origin);
                 if (kind == SliceJoint.Neck) HelmetHide.Hide(agent, bone);
                 ulong mask = 0;
                 foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;

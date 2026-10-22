@@ -131,7 +131,7 @@ namespace BannerlordVR.VR.Physics
             Vec3 cutDirection = player != null ? at - player.Position : Vec3.Zero;
             cutDirection.z = 0;
             if (cutDirection.Length > 1e-3f) cutDirection.Normalize();
-            LimbHide.Begin(victim, bone, parent, kind, cutDirection * speed);
+            LimbHide.Begin(victim, bone, parent, kind);
             // The cut itself sprays.
             BloodFx.Burst(BloodFx.Kind.Enter, at, cutDirection);
             BloodFx.Burst(BloodFx.Kind.Inside, at, Vec3.Up);

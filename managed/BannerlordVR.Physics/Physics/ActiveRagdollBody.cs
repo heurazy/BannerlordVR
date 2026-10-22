@@ -145,6 +145,21 @@ namespace BannerlordVR.VR.Physics
         // the blade's joint holding it. Standing pinned at 1 point, the body
         // fought the blade, was flung (7 m/s) or rose 2 m off its pose.
         public bool Dying { get; private set; }
+
+        // SkillDiscombobulate.StunCreature: the brain is switched off until
+        // StunWakeTime; a destabilized body goes Inert (no pins) and cannot
+        // stand up before it wakes. A later stun only ever extends it.
+        private float _knockedUntil = -1;
+        public bool KnockedOut => _knockedUntil > _lastRootSample;
+        public void KnockOut(float now, float seconds)
+        {
+            if (!InteractionMath.IsFinite(now) || seconds <= 0) return;
+            _knockedUntil = Math.Max(_knockedUntil, now + seconds);
+            Destabilize();
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ACTIVE_RAGDOLL knocked out until {0:F2} ({1:F1} s) phase={2}", _knockedUntil, _knockedUntil - now, _cycle.Phase));
+        }
+
         public void Die()
         {
             if (Dying || !_configured) return;
@@ -156,7 +171,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Clear()
         {
-            Dying = false;
+            Dying = false; _knockedUntil = -1;
             _cycle.Stop(); _gate.Reset(); _drive.ResetVelocity();
             _captureValid = _configured = _destabilizeOnStart = false;
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
@@ -472,7 +487,8 @@ namespace BannerlordVR.VR.Physics
             // turn over a few grabs in the logs).
             if (EnemyPhysicsSettings.GrabBodyTurn) TurnBody(mission.MainAgent, now);
             ActiveRagdollPhase before = _cycle.Phase;
-            _cycle.Tick(sampleDt, _nearGround, RootSpeed, Grabbed);
+            bool knocked = now < _knockedUntil;
+            _cycle.Tick(sampleDt, _nearGround, RootSpeed, Grabbed || knocked);
             if (before == ActiveRagdollPhase.Destabilized && _cycle.Phase == ActiveRagdollPhase.StandingUp) { ReanchorUnderHips(); RiseRequested = true; }
             if (_cycle.Phase != before)
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
@@ -507,7 +523,7 @@ namespace BannerlordVR.VR.Physics
             // The death blow lands as the last blade leaves; a body that lived
             // through it falls and gets up instead of staying inert for good.
             if (Dying && !Grabbed) Dying = false;
-            if (Dying) _drive.State = PinState.Inert;
+            if (Dying || knocked) _drive.State = PinState.Inert;
             if (!_drive.Tick(_position, _target, Math.Min(dt, .1f), _force)) { _lastApplied = now; return; }
             ApplyRotationPins(agent, skeleton, mission, Math.Min(dt, .1f));
             ApplyHit(now, Math.Min(dt, .1f));

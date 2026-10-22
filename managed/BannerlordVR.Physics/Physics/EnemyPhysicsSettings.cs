@@ -69,6 +69,10 @@ namespace BannerlordVR.VR.Physics
         // records (LimbHide): the head sinks into the chest, a forearm, hand,
         // calf or foot is laid onto the bone above it.
         public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
+        // The free hand can take a one-handed weapon by its blade (half-sword).
+        public static readonly bool HalfSword = VrConfig.Bool("enemy_physics_half_sword", true);
+        // A blunt blow to the head knocks the enemy out (B&S Discombobulate).
+        public static readonly bool Knockout = VrConfig.Bool("enemy_physics_knockout", true);
         // A severed head's helmet flies off as a physical object.
         public static readonly bool SeveredProps = VrConfig.Bool("enemy_physics_severed_props", true);
         // Only watch the cut bone's record instead of folding it (in-game probe).

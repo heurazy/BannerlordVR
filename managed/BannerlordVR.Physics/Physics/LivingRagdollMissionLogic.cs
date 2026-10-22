@@ -370,6 +370,17 @@ namespace BannerlordVR.VR.Physics
             }
             else if (push == PushEffect.Destabilize) entry.Active.Destabilize();
             if (entry.Lease.Phase == LivingRagdollPhase.Recovering) return;
+            // The stun judged for this very blow (EvaluatePush, just before).
+            if (_knockouts.TryGetValue(body.Agent, out float judged) && Mission.CurrentTime - judged < .25f)
+            {
+                _knockouts.Remove(body.Agent);
+                if (body.Agent.IsActive())
+                {
+                    entry.Active.KnockOut(Mission.CurrentTime, Dismemberment.KnockoutSeconds);
+                    // Out 6 s, then the 3 s ground settle and the 3 s rise.
+                    entry.Lease.ExtendUntil(Mission.CurrentTime + Dismemberment.KnockoutSeconds + 7);
+                }
+            }
             // The blow just registered started its knock-back: stop it before
             // its root motion walks the hidden agent off the physical body.
             ClearHitReaction(body.Agent);
@@ -457,14 +468,27 @@ namespace BannerlordVR.VR.Physics
         // while an attack is readied or released, guarding otherwise; a recent
         // stagger escalates the next push.
         private readonly Dictionary<Agent, Stagger> _staggers = new Dictionary<Agent, Stagger>();
+        private readonly Dictionary<Agent, float> _knockouts = new Dictionary<Agent, float>();
         private struct Stagger { public float Until; public PushEffect Effect; }
         public PushEffect EvaluatePush(EnemyBody body, BodyPoint point, Vec3 velocity, PushMaterial material)
         {
             Agent agent = body.Agent;
             if (agent == null || !agent.IsActive()) return PushEffect.None;
             Entry held = Find(agent);
-            if (held != null && held.Active.Phase == ActiveRagdollPhase.Destabilized) return PushEffect.None;
             float now = Mission.CurrentTime;
+            bool knockout = EnemyPhysicsSettings.Knockout &&
+                Dismemberment.KnocksOut(material, BodyPenetration.ZoneFor(body, point), velocity.Length);
+            if (knockout) _knockouts[agent] = now;
+            if (held != null && held.Active.Phase == ActiveRagdollPhase.Destabilized)
+            {
+                // Hit again while down: the stun is extended (StunWakeTime).
+                if (knockout && held.Active.KnockedOut)
+                {
+                    held.Active.KnockOut(now, Dismemberment.KnockoutSeconds);
+                    held.Lease.ExtendUntil(now + Dismemberment.KnockoutSeconds + 7);
+                }
+                return PushEffect.None;
+            }
             PushContext context = ContextOf(agent, now);
             PushBodyZone zone = point.Part == BoneBodyPartType.Head || point.Part == BoneBodyPartType.Neck ||
                 point.Part == BoneBodyPartType.Legs ? PushBodyZone.HeadOrLeg : PushBodyZone.Torso;
@@ -473,11 +497,8 @@ namespace BannerlordVR.VR.Physics
                 ? PunchImpact.PushLevel(velocity.Length, PunchImpact.For(BodyPenetration.MaterialFor(agent, point.Part)))
                 : PushReaction.Level(material, velocity.Length);
             PushEffect effect = PushReaction.HitEffect(level, zone, context);
-            // DamageModifier knockout: a hard blunt blow to the head floors the
-            // creature whatever its stance (knockoutDuration 0 in the brains).
-            if (Dismemberment.KnocksOut(material, BodyPenetration.MaterialFor(agent, point.Part),
-                    BodyPenetration.ZoneFor(body, point), velocity.Length))
-                effect = PushEffect.Destabilize;
+            // StunCreature: a stunned creature goes limp whatever its stance.
+            if (knockout) effect = PushEffect.Destabilize;
             if (effect == PushEffect.Destabilize && (!Available || !EnemyPhysicsSettings.ActiveRagdoll))
                 effect = PushEffect.StaggerFull;
             if (effect != PushEffect.None && effect != PushEffect.Destabilize)

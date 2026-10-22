@@ -26,11 +26,13 @@ internal static class DismembermentTests
         check(!Dismemberment.CheckSlice(neck, blade, swing, .2f), "Contact outside sliceWidth does not slice");
         check(!Dismemberment.CheckSlice(Vec3.Zero, blade, swing, 0) && !Dismemberment.CheckSlice(neck, blade, swing, float.NaN),
             "Degenerate slice input refused");
-        check(Dismemberment.KnocksOut(PushMaterial.Blunt, PenetrationMaterial.Flesh, BodyZone.Head, 4) &&
-              !Dismemberment.KnocksOut(PushMaterial.Blunt, PenetrationMaterial.Plate, BodyZone.Head, 12) &&
-              Dismemberment.KnocksOut(PushMaterial.Blunt, PenetrationMaterial.Plate, BodyZone.Head, 13) &&
-              !Dismemberment.KnocksOut(PushMaterial.Punch, PenetrationMaterial.Flesh, BodyZone.Head, 30) &&
-              !Dismemberment.KnocksOut(PushMaterial.Blunt, PenetrationMaterial.Flesh, BodyZone.Torso, 30),
-            "Knockout follows DamageModifier_Blunt per armour; punches and body blows never knock out");
+        check(Dismemberment.KnocksOut(PushMaterial.Blunt, BodyZone.Head, 5) &&
+              Dismemberment.KnocksOut(PushMaterial.Punch, BodyZone.Head, 6) &&
+              Dismemberment.KnocksOut(PushMaterial.Kick, BodyZone.Head, 5) &&
+              !Dismemberment.KnocksOut(PushMaterial.Punch, BodyZone.Head, 4.9f) &&
+              !Dismemberment.KnocksOut(PushMaterial.Slash, BodyZone.Head, 30) &&
+              !Dismemberment.KnocksOut(PushMaterial.Blunt, BodyZone.Torso, 30) &&
+              !Dismemberment.KnocksOut(PushMaterial.Punch, BodyZone.Head, float.NaN),
+            "Knockout follows SkillDiscombobulate: a blunt blow or a punch to the head at 5 m/s, never a blade or a body blow");
     }
 }
