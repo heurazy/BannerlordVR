@@ -200,8 +200,23 @@ namespace BannerlordVR.VR.Physics
                         if (!_logged) names.Append(" [head bone] ").Append(mesh.GetName());
                         mesh.SetVisibilityMask((VisibilityMaskFlags)0); hidden++;
                     }
+                // The skeleton's own meshes, the skin included: the helmet's
+                // pieces are here, not among its components. Each is hidden
+                // unless it is the shared resource (every agent would lose it).
+                var skinned = new System.Text.StringBuilder();
+                foreach (Mesh mesh in skeleton.GetAllMeshes())
+                {
+                    string name = mesh?.Name ?? "";
+                    skinned.Append(' ').Append(name);
+                    if (name.IndexOf(helmet, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    Mesh shared = Mesh.GetFromResource(name);
+                    if (shared != null && shared.Pointer == mesh.Pointer) { skinned.Append("(shared)"); continue; }
+                    mesh.SetVisibilityMask((VisibilityMaskFlags)0);
+                    skinned.Append("(hidden)");
+                    hidden++;
+                }
                 int cloth = Cloth(victim, true);
-                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + " cloth=" + cloth +
+                PhysicsLog.Info("SEVERED helmet " + helmet + " meshes hidden=" + hidden + " cloth=" + cloth + "; skinned:" + skinned +
                     (_logged ? "" : "; skeleton components meta=" + count + " cloth=" + skeleton.GetComponentCount(GameEntity.ComponentType.ClothSimulator) +
                     " composite=" + skeleton.GetComponentCount(GameEntity.ComponentType.CompositeComponent) +
                     "; entity cloth=" + (entity?.GetComponentCount(GameEntity.ComponentType.ClothSimulator) ?? 0) +
