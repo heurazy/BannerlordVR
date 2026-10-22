@@ -39,7 +39,17 @@ namespace BannerlordVR.VR.Physics
         public static bool Parried(Agent attacker)
         {
             Mission mission = Mission.Current;
-            return attacker != null && mission != null && ParriedUntil.TryGetValue(attacker, out float until) && mission.CurrentTime <= until;
+            if (attacker == null || mission == null || !ParriedUntil.TryGetValue(attacker, out float until) || mission.CurrentTime > until) return false;
+            // A chained second swing is a new attack: parryable and landing
+            // like any other. The window held over it, so it could neither be
+            // parried nor do damage (its hit bounced).
+            Agent.ActionStage stage = attacker.GetCurrentActionStage(1);
+            if (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease)
+            {
+                ParriedUntil.Remove(attacker);
+                return false;
+            }
+            return true;
         }
 
         public static bool Apply(HandRole role, ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal)
