@@ -252,6 +252,12 @@ namespace BannerlordVR.VR.Physics
             [HarmonyPostfix]
             public static void Postfix(HandRole role, ref MatrixFrame world, MatrixFrame __state, ref bool __result)
             {
+                long perf = Perf.Start();
+                try { Pose(role, ref world, __state, ref __result); }
+                finally { Perf.Stop(Perf.Section.BladePose, perf); }
+            }
+            private static void Pose(HandRole role, ref MatrixFrame world, MatrixFrame __state, ref bool __result)
+            {
                 try
                 {
                     State s = States[(int)role];

@@ -1,6 +1,4 @@
 using System;
-using System.Reflection;
-using HarmonyLib;
 using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
 
@@ -15,62 +13,45 @@ namespace BannerlordVR.VR.Physics
     // In B&S the colliders that stop a blade are the ones it damages.
     internal static class DrawnBody
     {
-        private static bool _ready, _broken;
-        private static MethodInfo _bodyOf;
-        private static FieldInfo _count, _capsules, _a, _b, _radius, _bone;
-        private static FieldInfo _agent;
-
-        private static bool Ready()
-        {
-            if (_ready || _broken) return _ready;
-            try
-            {
-                Type combat = AccessTools.TypeByName("BannerlordVR.VR.VrPhysicalCombat");
-                Type body = AccessTools.Inner(combat, "Body"), capsule = AccessTools.Inner(combat, "Capsule");
-                _bodyOf = AccessTools.Method(combat, "BodyOf", new[] { typeof(Agent) });
-                _count = AccessTools.Field(body, "Count"); _capsules = AccessTools.Field(body, "Capsules"); _agent = AccessTools.Field(body, "Agent");
-                _a = AccessTools.Field(capsule, "A"); _b = AccessTools.Field(capsule, "B");
-                _radius = AccessTools.Field(capsule, "Radius"); _bone = AccessTools.Field(capsule, "Bone");
-                _ready = _bodyOf != null && _count != null && _capsules != null && _a != null && _b != null && _radius != null && _bone != null;
-                if (!_ready) { _broken = true; PhysicsLog.Info("DRAWN_BODY BannerlordVR capsules not found; hits use the engine limbs."); }
-            }
-            catch (Exception ex) { _broken = true; PhysicsLog.Error("DRAWN_BODY setup failed; hits use the engine limbs.", ex); }
-            return _ready;
-        }
+        private static bool _broken, _logged;
+        // VrPhysicalCombat.Body holds 65 capsules.
+        private static readonly Vec3[] A = new Vec3[65], B = new Vec3[65];
+        private static readonly float[] Radius = new float[65];
+        private static readonly sbyte[] Bone = new sbyte[65];
 
         // True when the drawn capsules answered for this agent (hit or not);
         // false sends the caller back to its other tests.
         public static bool Cast(Agent agent, Vec3 from, Vec3 to, float thickness, out float distance, out sbyte bone, out bool hit)
         {
             distance = 0; bone = -1; hit = false;
-            if (!EnemyPhysicsSettings.DrawnHits || !Ready() || agent == null || !agent.IsActive() || agent.AgentVisuals == null) return false;
+            if (!EnemyPhysicsSettings.DrawnHits || _broken || agent == null || !agent.IsActive() || agent.AgentVisuals == null) return false;
+            if (FastAccess.Capsules == null)
+            {
+                if (!_logged) { _logged = true; PhysicsLog.Info("DRAWN_BODY BannerlordVR capsules not found; hits use the engine limbs."); }
+                return false;
+            }
             try
             {
                 // BodyOf keeps 16 bodies in a ring, reused within the same tick
-                // when VrCollide asks for more agents: a body kept here could
-                // hold another agent's capsules by now. Asked each time (BodyOf
-                // answers from its ring) and checked to be this agent's.
-                object body = _bodyOf.Invoke(null, new object[] { agent });
-                if (body != null && _agent != null && (int)_agent.GetValue(body) != agent.Index) return false;
-                if (body == null) return false;
-                int count = (int)_count.GetValue(body);
-                var capsules = (Array)_capsules.GetValue(body);
+                // when VrCollide asks for more agents: asked each time, and
+                // checked to be this agent's (-1 otherwise).
+                int count = FastAccess.Capsules(agent, A, B, Radius, Bone);
+                if (count < 0) return false;
                 float length = (to - from).Length;
-                if (count <= 0 || length < 1e-5f) return count > 0;
+                if (count == 0 || length < 1e-5f) return count > 0;
                 float best = float.MaxValue;
-                for (int i = 0; i < count && i < capsules.Length; i++)
+                for (int i = 0; i < count; i++)
                 {
-                    object c = capsules.GetValue(i);
-                    float t = First(from, to, (Vec3)_a.GetValue(c), (Vec3)_b.GetValue(c), (float)_radius.GetValue(c) + thickness);
+                    float t = First(from, to, A[i], B[i], Radius[i] + thickness);
                     if (t < 0 || t * length >= best) continue;
-                    best = t * length; bone = (sbyte)_bone.GetValue(c);
+                    best = t * length; bone = Bone[i];
                 }
                 hit = bone >= 0; distance = hit ? best : 0;
                 return true;
             }
             catch (Exception ex)
             {
-                _broken = true; _ready = false;
+                _broken = true;
                 PhysicsLog.Error("DRAWN_BODY cast failed; hits use the engine limbs.", ex);
                 return false;
             }

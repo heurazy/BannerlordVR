@@ -37,7 +37,6 @@ namespace BannerlordVR.VR.Physics
             depth = PressDepth[agent];
             return InteractionMath.IsFinite(depth) && depth.Length > 1e-4f;
         }
-        private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
         private static bool _broken;
         private static int _logs;
 
@@ -62,10 +61,9 @@ namespace BannerlordVR.VR.Physics
                     float side = InteractionMath.Dot(eye - plate.Centre, plate.N.NormalizedCopy()) >= 0 ? 1 : -1;
                     moved |= Push(ref world, previous, gripLocal, tipLocal, plate, ref total, agent.Index, side);
                 }
-                if (role == HandRole.Main && OwnPlate != null)
+                if (role == HandRole.Main && FastAccess.OwnPlate != null)
                 {
-                    object[] args = { player, null };
-                    if ((bool)OwnPlate.Invoke(null, args) && args[1] is VrBlade.Plate own && own.Valid)
+                    if (FastAccess.OwnPlate(player, out VrBlade.Plate own) && own.Valid)
                         moved |= Push(ref world, previous, gripLocal, tipLocal, own, ref total, -1, 0);
                 }
                 if (moved) BlockedAt[(int)role] = System.Diagnostics.Stopwatch.GetTimestamp();

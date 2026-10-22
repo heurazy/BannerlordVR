@@ -74,6 +74,12 @@ namespace BannerlordVR.VR.Physics
 
         public static bool Apply(HandRole role, ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal)
         {
+            long perf = Perf.Start();
+            try { return ApplyCore(role, ref world, previous, gripLocal, tipLocal); }
+            finally { Perf.Stop(Perf.Section.Clash, perf); }
+        }
+        private static bool ApplyCore(HandRole role, ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal)
+        {
             if (_broken || !EnemyPhysicsSettings.SolidWeapons) return false;
             try
             {
@@ -277,12 +283,9 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
-        private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
         private static void ShieldContacts(Mission mission, Agent player, long now)
         {
-            if (OwnPlate == null) return;
-            object[] args = { player, null };
-            if (!(bool)OwnPlate.Invoke(null, args) || !(args[1] is VrBlade.Plate plate) || !plate.Valid) return;
+            if (FastAccess.OwnPlate == null || !FastAccess.OwnPlate(player, out VrBlade.Plate plate) || !plate.Valid) return;
             Vec3 n = plate.N.NormalizedCopy();
             foreach (Agent agent in EnemyPhysicsRuntime.TrackedLiving())
             {
@@ -359,10 +362,9 @@ namespace BannerlordVR.VR.Physics
                 if (known && Sweeps(_guard0, _guard1, last.Grip, last.Tip, b0, b1, reach)) return true;
                 if (strikeLine) { Closest(_guard0, _guard1, b0, struck, out m, out q); if ((m - q).Length <= reach) return true; }
             }
-            if (player.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true && OwnPlate != null)
+            if (player.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true && FastAccess.OwnPlate != null)
             {
-                object[] args = { player, null };
-                if ((bool)OwnPlate.Invoke(null, args) && args[1] is VrBlade.Plate plate && plate.Valid)
+                if (FastAccess.OwnPlate(player, out VrBlade.Plate plate) && plate.Valid)
                 {
                     Vec3 n = plate.N.NormalizedCopy();
                     float pad = blade.Radius + LateReachPad;

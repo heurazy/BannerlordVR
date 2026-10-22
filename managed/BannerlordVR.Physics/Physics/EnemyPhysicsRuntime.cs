@@ -154,6 +154,13 @@ namespace BannerlordVR.VR.Physics
         private static void Once(ref bool done, string message) { if (!done) { done = true; PhysicsLog.Info(message); } }
         public static void Tick(Mission mission, float dt)
         {
+            Perf.Frame();
+            long perf = Perf.Start();
+            try { TickCore(mission, dt); }
+            finally { Perf.Stop(Perf.Section.Runtime, perf); }
+        }
+        private static void TickCore(Mission mission, float dt)
+        {
             bool measured = false;
             try
             {

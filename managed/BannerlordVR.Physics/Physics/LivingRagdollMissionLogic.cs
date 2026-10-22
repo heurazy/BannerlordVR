@@ -782,6 +782,12 @@ namespace BannerlordVR.VR.Physics
         }
         public override void OnMissionTick(float dt)
         {
+            long perf = Perf.Start();
+            try { TickCore(dt); }
+            finally { Perf.Stop(Perf.Section.Ragdoll, perf); }
+        }
+        private void TickCore(float dt)
+        {
             long started = Stopwatch.GetTimestamp();
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
             try { DropDue(); } catch (Exception ex) { _drops.Clear(); PhysicsLog.Error("A dying enemy could not drop its weapons.", ex); }

@@ -117,6 +117,12 @@ namespace BannerlordVR.VR.Physics
 
         private static void Pass(bool late)
         {
+            long perf = Perf.Start();
+            try { PassCore(late); }
+            finally { Perf.Stop(Perf.Section.Limbs, perf); }
+        }
+        private static void PassCore(bool late)
+        {
             if (Cuts.Count == 0 || _broken) return;
             // A new mission: the old skeletons are gone, their pointers may be reused.
             if (Mission.Current != _mission) { foreach (Cut old in Cuts) Forget(old); Cuts.Clear(); return; }
