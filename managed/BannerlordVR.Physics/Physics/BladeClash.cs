@@ -258,7 +258,12 @@ namespace BannerlordVR.VR.Physics
             [HarmonyPriority(Priority.First)]
             public static bool Prefix(Agent attacker, Agent victim, ref MeleeCollisionReaction colReaction, ref HitParticleResultData hitParticleResultData)
             {
-                if (victim == null || attacker == null || !victim.IsMainAgent || !Parried(attacker)) return true;
+                if (victim == null || attacker == null || !victim.IsMainAgent) return true;
+                bool parried = Parried(attacker);
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info("ENEMY_HIT on the player by agent " + attacker.Index + " action=" + attacker.GetCurrentAction(1).GetName() +
+                        " stage=" + attacker.GetCurrentActionStage(1) + (parried ? " -> bounced (parried)" : " -> lands"));
+                if (!parried) return true;
                 colReaction = MeleeCollisionReaction.Bounced;
                 hitParticleResultData.Reset();
                 if (EnemyPhysicsSettings.Trace) PhysicsLog.Info("CLASH engine hit of parried agent " + attacker.Index + " bounced");
