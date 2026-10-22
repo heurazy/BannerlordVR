@@ -129,6 +129,23 @@ namespace BannerlordVR.VR.Physics
                 Enemy[agent.Index] = new Last { Point = b1, At = now, Normal = last.Normal, Grip = b0, Tip = b1 };
                 return false;
             }
+            // A slash sweeps its blade sideways at 15-50 m/s at the tip, 20-40
+            // cm a frame: by the frame the blades were seen touching it was
+            // already through the sword, and the parry held it on the far
+            // side. Its motion is carried on a frame and a half ahead; a
+            // swing whose path cuts the sword is parried now, before it crosses.
+            if (known && Attacking(agent))
+            {
+                Vec3 g = b0 + (b0 - last.Grip) * Lookahead, t = b1 + (b1 - last.Tip) * Lookahead;
+                if (Sweeps(a0, a1, b0, b1, g, t, reach))
+                {
+                    Vec3 v = (b1 - last.Tip) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At));
+                    Closest(a0, a1, b0, b1, out _, out Vec3 near);
+                    Enemy[agent.Index] = new Last { Point = near, At = now, Normal = last.Normal, Grip = b0, Tip = b1 };
+                    Contact(mission, player, agent, slot, near, Vec3.Zero, v, now, false);
+                    if (Parried(agent)) return false;
+                }
+            }
             Closest(a0, a1, b0, b1, out Vec3 mine, out Vec3 theirs);
             Vec3 gap = mine - theirs;
             // The side the blade was on last frame (a fast blade can cross
@@ -192,7 +209,7 @@ namespace BannerlordVR.VR.Physics
         }
 
         // Creature_PlayerDefault forcePositionSpringDamper.x / forceRotationSpringDamper.x.
-        private const float PositionSpring = 5000, RotationSpring = 1000, MaxTurn = .6f, PressDepth = .015f;
+        private const float PositionSpring = 5000, RotationSpring = 1000, MaxTurn = .6f, PressDepth = .015f, Lookahead = 1.5f;
         private static Vec3 Rotate(Vec3 v, Vec3 axis, float angle)
         {
             float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
