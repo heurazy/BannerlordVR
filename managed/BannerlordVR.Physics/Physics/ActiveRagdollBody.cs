@@ -48,6 +48,10 @@ namespace BannerlordVR.VR.Physics
         // Ragdoll.physicEnabledDuration: a standing body untouched for 2 s
         // returns to animation.
         public const float PhysicEnabledDuration = 2;
+        // How long an untouched standing body stays physical: B&S's
+        // physicEnabledDuration, or much less for an enemy taken from the
+        // fight (its AI is paused for as long as the physics holds it).
+        public float HoldSeconds { get; set; } = PhysicEnabledDuration;
         private float _lastInteraction;
         private int[] _bodyOfBone = new int[0];
         private int _headBody = -1;
@@ -171,7 +175,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Clear()
         {
-            Dying = false; _knockedUntil = -1;
+            Dying = false; _knockedUntil = -1; HoldSeconds = PhysicEnabledDuration;
             _cycle.Stop(); _gate.Reset(); _drive.ResetVelocity();
             _captureValid = _configured = _destabilizeOnStart = false;
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
@@ -553,8 +557,12 @@ namespace BannerlordVR.VR.Physics
         private void ApplyRotationPins(Agent agent, Skeleton skeleton, Mission mission, float dt)
         {
             bool inert = _drive.State == PinState.Inert;
-            // An inert body has no pins, but the blade's joint still turns it.
-            if (!EnemyPhysicsSettings.RotationPins || !NativeRagdollBridge.TorquesAvailable || (inert && !Dying)) { _rotationSampled = false; return; }
+            // An inert body (dying on the blade, knocked out) has no pins,
+            // but its joints keep the damping of their spin: the engine's
+            // ragdoll joints have next to none, and a body hanging on a
+            // blade that moves had every limb spinning about its joint
+            // (Unity's character joints, under B&S's inert ragdoll, drag).
+            if (!EnemyPhysicsSettings.RotationPins || !NativeRagdollBridge.TorquesAvailable) { _rotationSampled = false; return; }
             int needed = _boneCount * 3;
             if (_torques.Length < needed) _torques = new float[needed];
             Array.Clear(_torques, 0, needed);
@@ -562,10 +570,10 @@ namespace BannerlordVR.VR.Physics
             float spring = standing ? 1 : _nearGround ? RagdollPinDrive.DestabilizedGroundSpringRotation : RagdollPinDrive.DestabilizedSpringRotation;
             float damper = standing ? 1 : RagdollPinDrive.DestabilizedDamperRotation;
             float multiplier = Math.Max(0, Math.Min(1, _cycle.PinMultiplier));
-            for (int i = 0; i < _drive.Count && !inert; i++)
+            for (int i = 0; i < _drive.Count; i++)
             {
                 if (!standing && i == _pelvisBody) continue;
-                bool limp = _drive.PartScale(i) <= 0;
+                bool limp = inert || _drive.PartScale(i) <= 0;
                 MatrixFrame posed = _root.TransformToParent(_captured[_bone[i]]);
                 posed.rotation.Orthonormalize();
                 Vec3 error = limp ? Vec3.Zero : RotationPin.Error(_rs[i], _rf[i], _ru[i], posed.rotation.s, posed.rotation.f, posed.rotation.u);
@@ -937,7 +945,7 @@ namespace BannerlordVR.VR.Physics
         // Ready to hand the body back to animation without a visible snap.
         public bool ReadyToRelease => _configured && LastPoseError < .25f && !Grabbed &&
             (_cycle.Phase == ActiveRagdollPhase.Recovered ||
-             (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > PhysicEnabledDuration) ||
+             (_cycle.Phase == ActiveRagdollPhase.Standing && _lastRootSample - _lastInteraction > HoldSeconds) ||
              (_cycle.Phase == ActiveRagdollPhase.Standing && !_touched && _hitHold > 0 && _hitBone < 0 &&
               _lastRootSample - _lastInteraction > _hitHold && LastPoseError < HitReleaseError && RootSpeed < HitReleaseSpeed));
         // Untouched long after physicEnabledDuration yet still off its pose
@@ -945,7 +953,7 @@ namespace BannerlordVR.VR.Physics
         // B&S returns parts to animation after the duration regardless. Close
         // poses are handed back, far ones fall and get up.
         public bool StuckOffPose => _configured && !Grabbed && _cycle.Phase == ActiveRagdollPhase.Standing &&
-            _lastRootSample - _lastInteraction > PhysicEnabledDuration + 1 && LastPoseError >= .25f;
+            _lastRootSample - _lastInteraction > HoldSeconds + 1 && LastPoseError >= .25f;
         public bool WantsHold => _configured && _cycle.Phase != ActiveRagdollPhase.Off && _cycle.Phase != ActiveRagdollPhase.Recovered;
     }
 }

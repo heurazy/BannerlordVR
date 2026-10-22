@@ -289,6 +289,9 @@ namespace BannerlordVR.VR.Physics
                 if (entry.Agent == agent && entry.Lease.OwnsPhysics) return true;
             return false;
         }
+        // A fighting enemy is handed back to its AI this soon after the last
+        // touch (a cut, a shield push, a stab pulled out).
+        public const float FightingHold = .4f;
         private static float LeaseSeconds => EnemyPhysicsSettings.ActiveRagdoll ? 14 : 6;
         public bool KeepHeld(EnemyBody body, bool allowBegin = false, bool destabilized = false)
         {
@@ -317,7 +320,12 @@ namespace BannerlordVR.VR.Physics
                 {
                     if (!NativeRagdollBridge.Preflight(entry.Agent, Mission, entry.Skeleton))
                     { _failed = true; entry.Clear(); return false; }
-                    if (entry.Lease.Begin(entry, Mission.CurrentTime, LeaseSeconds)) return true;
+                    bool fighting = body.Agent.Controller == AgentControllerType.AI && !body.Agent.IsPaused;
+                    if (entry.Lease.Begin(entry, Mission.CurrentTime, LeaseSeconds))
+                    {
+                        if (fighting) entry.Active.HoldSeconds = FightingHold;
+                        return true;
+                    }
                     entry.Clear(); return false;
                 }
                 catch (Exception ex)

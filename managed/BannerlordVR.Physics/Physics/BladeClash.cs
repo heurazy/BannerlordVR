@@ -52,6 +52,14 @@ namespace BannerlordVR.VR.Physics
                 if (player == null || (tipLocal - gripLocal).Length < .1f) return false;
                 if (mission != _mission) { Enemy.Clear(); ContactAt.Clear(); ParriedUntil.Clear(); _mission = mission; }
                 long now = Stopwatch.GetTimestamp();
+                // A shield is not pushed aside by the blades it stops (that
+                // carried it out of the swing it was blocking): a blade that
+                // meets it parries, as a weapon does (BrainModuleMelee).
+                if (role == HandRole.Off && player.WieldedOffhandWeapon.CurrentUsageItem?.IsShield == true)
+                {
+                    ShieldContacts(mission, player, now);
+                    return false;
+                }
                 Vec3 total = Vec3.Zero;
                 bool moved = false;
                 foreach (Agent agent in EnemyPhysicsRuntime.TrackedLiving())
@@ -124,19 +132,50 @@ namespace BannerlordVR.VR.Physics
             }
             try
             {
-                WeaponComponentData mine = player.WieldedWeapon.CurrentUsageItem, theirs = agent.Equipment[slot].CurrentUsageItem;
+                bool shield = shift == Vec3.Zero;
+                WeaponComponentData mine = shield ? player.WieldedOffhandWeapon.CurrentUsageItem : player.WieldedWeapon.CurrentUsageItem;
+                WeaponComponentData theirs = agent.Equipment[slot].CurrentUsageItem;
                 if (mine != null && theirs != null)
-                    VrCombatSound.Clash(mission, at, VrCombatSound.Material(mine, false), VrCombatSound.Material(theirs, false), player.Index, agent.Index);
+                    VrCombatSound.Clash(mission, at, VrCombatSound.Material(theirs, false), VrCombatSound.Material(mine, shield), agent.Index, player.Index);
             }
             catch (Exception) { }
             float strength = Math.Min(1, .3f + speed / 8);
-            PhysicsInterop.Haptic(VrHandSlots.MainController == VrHand.Left ? 0 : 1, strength, .04f);
+            VrHand hand = shift == Vec3.Zero ? VrHandSlots.OffController : VrHandSlots.MainController;
+            PhysicsInterop.Haptic(hand == VrHand.Left ? 0 : 1, strength, .04f);
             if (EnemyPhysicsSettings.Trace || _logs < 6)
             {
                 _logs++;
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                     "CLASH agent={0} stage={1} speed={2:F2} parried={3} hand_held_back={4:F3}", agent.Index, stage, speed,
                     attacking && speed > RecoilMinWeaponSpeed, shift.Length));
+            }
+        }
+
+        private static readonly MethodInfo OwnPlate = AccessTools.Method(typeof(VrBlade), "TryGetOwnPlate");
+        private static void ShieldContacts(Mission mission, Agent player, long now)
+        {
+            if (OwnPlate == null) return;
+            object[] args = { player, null };
+            if (!(bool)OwnPlate.Invoke(null, args) || !(args[1] is VrBlade.Plate plate) || !plate.Valid) return;
+            Vec3 n = plate.N.NormalizedCopy();
+            foreach (Agent agent in EnemyPhysicsRuntime.TrackedLiving())
+            {
+                EquipmentIndex slot = agent.GetPrimaryWieldedItemIndex();
+                if (slot == EquipmentIndex.None || agent.Equipment[slot].CurrentUsageItem?.IsMeleeWeapon != true) continue;
+                if (!VrBlade.TryGetEnemyBlade(agent, slot, out VrBlade.Segment blade) || !blade.Valid) continue;
+                int key = -1 - agent.Index;
+                Vec3 tip = blade.TipWorld;
+                bool known = Enemy.TryGetValue(key, out Last last) && now - last.At < Stopwatch.Frequency / 4;
+                Vec3 velocity = known ? (tip - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
+                Enemy[key] = new Last { Point = tip, At = now };
+                for (int i = 0; i <= 8; i++)
+                {
+                    Vec3 d = blade.GripWorld + (tip - blade.GripWorld) * (i / 8f) - plate.Centre;
+                    if (Math.Abs(InteractionMath.Dot(d, n)) > plate.HalfN + blade.Radius ||
+                        Math.Abs(InteractionMath.Dot(d, plate.A)) > plate.HalfA || Math.Abs(InteractionMath.Dot(d, plate.B)) > plate.HalfB) continue;
+                    Contact(mission, player, agent, slot, plate.Centre + d, Vec3.Zero, velocity, now);
+                    break;
+                }
             }
         }
 
