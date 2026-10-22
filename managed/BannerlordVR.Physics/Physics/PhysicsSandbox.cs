@@ -68,8 +68,11 @@ namespace BannerlordVR.VR.Physics
             foreach (Agent agent in Mission.Agents)
             {
                 if (agent == player || !agent.IsActive() || agent.IsMount || agent.IsPlayerControlled) continue;
-                if (_duelists.Contains(agent)) { Unleash(agent); continue; }
+                // While the physics holds a body it owns its pause: unpausing
+                // a duelist then made the lease let go at once, mid-capture,
+                // and left it standing frozen.
                 if (living != null && living.HasLease(agent)) { _leased.Add(agent); continue; }
+                if (_duelists.Contains(agent)) { _leased.Remove(agent); Unleash(agent, false); continue; }
                 // Back from the physics: it stands where the body was left.
                 if (_leased.Remove(agent)) _hold[agent] = agent.Position.AsVec2;
                 if (!_hold.TryGetValue(agent, out Vec2 at)) { at = agent.Position.AsVec2; _hold[agent] = at; }
@@ -141,7 +144,7 @@ namespace BannerlordVR.VR.Physics
                 duelist.TeleportToPosition(at);
                 duelist.LookDirection = -forward;
                 _duelists.Add(duelist);
-                Unleash(duelist);
+                Unleash(duelist, true);
                 PhysicsLog.Info("SANDBOX duelist " + duelist.Index + " (" + (duelist.WieldedWeapon.Item?.StringId ?? "unarmed") + ") " +
                     DuelDistance.ToString("F0", CultureInfo.InvariantCulture) + " m ahead, coming to attack the player");
             }
@@ -152,12 +155,14 @@ namespace BannerlordVR.VR.Physics
 
         // A duelist keeps its AI, out of its formation, alarmed: with every
         // other agent frozen, the player is the enemy it goes for.
-        private static void Unleash(Agent agent)
+        private static void Unleash(Agent agent, bool first)
         {
+            bool woke = agent.Controller != AgentControllerType.AI || agent.IsPaused;
             if (agent.Controller != AgentControllerType.AI) agent.Controller = AgentControllerType.AI;
             if (agent.IsPaused) agent.IsPaused = false;
-            agent.SetWatchState(Agent.WatchState.Alarmed);
+            if (first || woke) agent.SetWatchState(Agent.WatchState.Alarmed);
             if (agent.IsFormationFrameEnabled) agent.SetFormationFrameDisabled();
+            if (woke && !first) PhysicsLog.Info("SANDBOX duelist " + agent.Index + " back to its AI after the physics");
         }
 
         public override void OnAgentRemoved(Agent affectedAgent, Agent affectorAgent, AgentState agentState, KillingBlow blow)
