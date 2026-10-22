@@ -311,7 +311,9 @@ namespace BannerlordVR.VR.Physics
             agent.SetVelocityLimitsOnRagdoll(20, MaxAngularVelocity);
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "ACTIVE_RAGDOLL configured bodies={0} total_mass={1:F1} pelvis_body_bone={2} start={3} native_mass_ms={4:F3} arm_bodies={5}",
-                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds, Array.FindAll(_armBody, a => a).Length));
+                count, _drive.TotalMass, _bone[_pelvisBody], _cycle.Phase, NativeMassMilliseconds, Array.FindAll(_armBody, a => a).Length) +
+                " masses:" + string.Join(",", Array.ConvertAll(Enumerable(count), i => skeleton.GetBoneName(_bone[i]) + "=" +
+                    _drive.Mass(i).ToString("F1", CultureInfo.InvariantCulture))));
             return true;
         }
 
@@ -328,6 +330,8 @@ namespace BannerlordVR.VR.Physics
             if (monster != null) Parents[monster] = parents;
             return parents;
         }
+
+        private static int[] Enumerable(int count) { var a = new int[count]; for (int i = 0; i < count; i++) a[i] = i; return a; }
 
         public void Destabilize()
         {
@@ -753,10 +757,14 @@ namespace BannerlordVR.VR.Physics
                 // its own part and the chain above most. On the pierced part
                 // alone (2000 N on 15 kg of a limp 100 kg body) the joints
                 // stretched and the body broke apart on the blade.
+                // Every part is carried in proportion to its mass, as gravity
+                // pulls it: with the legs and the other arm carried at half,
+                // the body turned about the blade until its centre of mass
+                // hung under it, forwards or backwards with where the weapon
+                // and the shield weighed.
                 if (Dying && _grabs[h].Active && _grabs[h].Blade && grabbed >= 0 && grabbed < _drive.Count)
                 {
-                    for (int i = 0; i < _drive.Count; i++)
-                        _drive.SetSpread(h, i, _drive.InSubtree(i, grabbed) || _drive.InSubtree(grabbed, i) ? 1 : .5f);
+                    for (int i = 0; i < _drive.Count; i++) _drive.SetSpread(h, i, 1);
                     _drive.SetCarry(h, true);
                     continue;
                 }

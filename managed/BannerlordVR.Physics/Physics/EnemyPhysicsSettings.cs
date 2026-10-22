@@ -75,6 +75,8 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool LimbHide = VrConfig.Bool("enemy_physics_limb_hide", true);
         // The free hand can take a one-handed weapon by its blade (half-sword).
         public static readonly bool HalfSword = VrConfig.Bool("enemy_physics_half_sword", true);
+        // An enemy dying on the blade drops its weapon and shield (B&S).
+        public static readonly bool DropOnDeath = VrConfig.Bool("enemy_physics_drop_on_death", true);
         // A blunt blow to the head knocks the enemy out (B&S Discombobulate).
         public static readonly bool Knockout = VrConfig.Bool("enemy_physics_knockout", true);
         // A severed head's helmet flies off as a physical object.

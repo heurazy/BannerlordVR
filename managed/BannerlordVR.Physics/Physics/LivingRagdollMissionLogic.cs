@@ -419,7 +419,36 @@ namespace BannerlordVR.VR.Physics
             }
             return entry.Active.Handle(hand, point.Bone, kind, handWorld, boneWorld, contact);
         }
-        public void Die(EnemyBody body) => Find(body.Agent)?.Active.Die();
+        // BrainModuleDeath.DropGrabbedCoroutine: a dying creature lets go of
+        // what it holds after dropObjectsDelay (0 to 0.5 s).
+        private readonly Dictionary<Agent, float> _drops = new Dictionary<Agent, float>();
+        public void Die(EnemyBody body)
+        {
+            Entry entry = Find(body.Agent);
+            if (entry == null) return;
+            bool was = entry.Active.Dying;
+            entry.Active.Die();
+            if (!was && entry.Active.Dying && EnemyPhysicsSettings.DropOnDeath && !_drops.ContainsKey(body.Agent))
+                _drops[body.Agent] = Mission.CurrentTime + MBRandom.RandomFloatRanged(0, .5f);
+        }
+        private readonly List<Agent> _dropped = new List<Agent>();
+        private void DropDue()
+        {
+            if (_drops.Count == 0) return;
+            _dropped.Clear();
+            foreach (KeyValuePair<Agent, float> drop in _drops) if (Mission.CurrentTime >= drop.Value) _dropped.Add(drop.Key);
+            foreach (Agent agent in _dropped)
+            {
+                _drops.Remove(agent);
+                if (agent == null || !agent.IsActive()) continue;
+                foreach (EquipmentIndex slot in new[] { agent.GetOffhandWieldedItemIndex(), agent.GetPrimaryWieldedItemIndex() })
+                    if (slot != EquipmentIndex.None && !agent.Equipment[slot].IsEmpty)
+                    {
+                        PhysicsLog.Info("ACTIVE_RAGDOLL dying agent " + agent.Index + " drops " + (agent.Equipment[slot].Item?.StringId ?? "?"));
+                        agent.DropItem(slot);
+                    }
+            }
+        }
         public void ReleaseActive(EnemyBody body, int hand) => Find(body.Agent)?.Active.ReleaseHandle(hand);
         public bool PierceActive(EnemyBody body, int hand, sbyte bone, Vec3 bladePoint, Vec3 axis, bool axialLock,
             Vec3 localAxis, float angleLimit, MatrixFrame boneWorld, Vec3 contact)
@@ -459,14 +488,39 @@ namespace BannerlordVR.VR.Physics
             if (stage != Agent.ActionStage.AttackRelease && stage != Agent.ActionStage.AttackReady &&
                 stage != Agent.ActionStage.AttackQuickReady) return false;
             float now = Mission.CurrentTime;
-            if (_lastParry.TryGetValue(agent, out float last) && now - last <= ParryRecoilCooldown) return false;
+            // meleeModule.StopAttack on every parry: the swing ends in the
+            // engine's own blocked recoil for it (act_release_overswing_1h ->
+            // act_blocked_overswing_1h); act_none alone let the AI pick the
+            // same attack straight back up.
+            string attack = agent.GetCurrentAction(1).GetName();
+            ActionIndexCache blocked = BlockedAction(attack);
+            agent.SetActionChannel(1, blocked, ignorePriority: true);
+            // The recoil push only once per parryRecoilCooldown.
+            if (_lastParry.TryGetValue(agent, out float last) && now - last <= ParryRecoilCooldown)
+            {
+                PhysicsLog.Info("PARRY agent=" + agent.Index + " attack " + attack + " -> " + (blocked.Index >= 0 ? blocked.GetName() : "act_none") + " (recoil cooling down)");
+                return false;
+            }
             _lastParry[agent] = now;
-            // meleeModule.StopAttack, then the full-stagger recoil window.
-            agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true);
             _staggers[agent] = new Stagger { Until = now + .5f + PushReaction.Recoil(PushEffect.StaggerFull), Effect = PushEffect.StaggerFull };
-            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PARRY agent={0} stage={1} weapon_speed={2:F2} time={3:F3}",
-                agent.Index, stage, weaponSpeed, now));
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "PARRY agent={0} stage={1} weapon_speed={2:F2} time={3:F3} attack {4} -> {5}",
+                agent.Index, stage, weaponSpeed, now, attack, blocked.Index >= 0 ? blocked.GetName() : "act_none"));
             return true;
+        }
+        private static ActionIndexCache BlockedAction(string attack)
+        {
+            if (string.IsNullOrEmpty(attack)) return ActionIndexCache.act_none;
+            string rest = null;
+            foreach (string prefix in new[] { "act_quick_release_", "act_release_", "act_ready_" })
+                if (attack.StartsWith(prefix, StringComparison.Ordinal)) { rest = attack.Substring(prefix.Length); break; }
+            if (rest == null) return ActionIndexCache.act_none;
+            foreach (string candidate in new[] { rest, rest.Replace("_left_stance", ""), rest.Replace("_balanced", ""),
+                rest.Replace("_left_stance", "").Replace("_balanced", "") })
+            {
+                ActionIndexCache action = ActionIndexCache.Create("act_blocked_" + candidate);
+                if (action.Index >= 0) return action;
+            }
+            return ActionIndexCache.act_none;
         }
         public long PhysicsSteps => _clock.Running ? _clock.Steps : -1;
         public float PartMass(Agent agent, sbyte bone) => Find(agent)?.Active.PartMass(bone) ?? 5;
@@ -682,6 +736,7 @@ namespace BannerlordVR.VR.Physics
         {
             long started = Stopwatch.GetTimestamp();
             try { Reanimate(); } catch (Exception ex) { _reanimate.Clear(); PhysicsLog.Error("Re-animating a released agent failed.", ex); }
+            try { DropDue(); } catch (Exception ex) { _drops.Clear(); PhysicsLog.Error("A dying enemy could not drop its weapons.", ex); }
             try { AlignRises(); } catch (Exception ex) { _rises.Clear(); PhysicsLog.Error("Aligning an animated rise failed.", ex); }
             try { ApplyBlends(); } catch (Exception ex) { _blends.Clear(); PhysicsLog.Error("Blending a released pose failed.", ex); }
             try { ReleaseWatch.Tick(); } catch (Exception ex) { PhysicsLog.Error("Release watch failed.", ex); }
