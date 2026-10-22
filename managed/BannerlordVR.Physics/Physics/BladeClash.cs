@@ -32,6 +32,18 @@ namespace BannerlordVR.VR.Physics
         private static readonly Dictionary<int, Last> Enemy = new Dictionary<int, Last>();
         private static readonly Dictionary<int, long> ContactAt = new Dictionary<int, long>();
         private static readonly Dictionary<Agent, float> ParriedUntil = new Dictionary<Agent, float>();
+        // An attacking blade seen within NearReach of the guard: the engine's
+        // hit can come the same frame the blades meet, before a frame shows
+        // them touching (thrusts landed, the contact logged 2 ms after).
+        private static readonly Dictionary<Agent, long> NearAt = new Dictionary<Agent, long>();
+        private const float NearReach = .1f, NearSeconds = .12f;
+        private static bool Attacking(Agent agent)
+        {
+            Agent.ActionStage stage = agent.GetCurrentActionStage(1);
+            return stage == Agent.ActionStage.AttackRelease || stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady;
+        }
+        private static bool WasNear(Agent attacker) =>
+            NearAt.TryGetValue(attacker, out long at) && Stopwatch.GetTimestamp() - at < Stopwatch.Frequency * NearSeconds;
         private static Mission _mission;
         private static bool _broken;
         private static int _logs;
@@ -126,6 +138,7 @@ namespace BannerlordVR.VR.Physics
             }
             if (n.LengthSquared < .25f) return false;
             float depth = reach - InteractionMath.Dot(gap, n);
+            if (gap.Length < reach + NearReach && Attacking(agent)) NearAt[agent] = now;
             Vec3 point = theirs;
             Vec3 enemyVelocity = known ? (point - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
             if (depth <= 0)
@@ -251,6 +264,7 @@ namespace BannerlordVR.VR.Physics
                 Vec3 velocity = known ? (tip - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
                 Enemy[key] = new Last { Point = tip, At = now, Grip = grip, Tip = tip };
                 // The blade now and its sweep since last frame.
+                if (Attacking(agent) && InPlate(plate, n, grip, tip, blade.Radius + NearReach, out _)) NearAt[agent] = now;
                 if (InPlate(plate, n, grip, tip, blade.Radius, out Vec3 at) ||
                     (known && SweepInPlate(plate, n, last.Grip, last.Tip, grip, tip, blade.Radius, out at)))
                     Contact(mission, player, agent, slot, at, Vec3.Zero, velocity, now, true);
@@ -427,15 +441,18 @@ namespace BannerlordVR.VR.Physics
                 {
                     try
                     {
-                        if (ThroughGuard(attacker, collisionData.CollisionGlobalPosition, out Vec3 impact))
+                        bool near = WasNear(attacker);
+                        Vec3 impact = Vec3.Zero;
+                        if (near || ThroughGuard(attacker, collisionData.CollisionGlobalPosition, out impact))
                         {
                             parried = true;
                             Mission mission = Mission.Current;
                             ParriedUntil[attacker] = mission.CurrentTime + BounceSeconds;
+                            if (impact.LengthSquared < 1e-4f) impact = (collisionData.CollisionGlobalPosition - attacker.Position).NormalizedCopy() * 5;
                             EnemyPhysicsRuntime.Parried(attacker, impact);
                             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                                "LATE_PARRY agent={0} action={1}: the blow came through the guard; parried at the engine's hit",
-                                attacker.Index, attacker.GetCurrentAction(1).GetName()));
+                                "LATE_PARRY agent={0} action={1}: the blow came {2}; parried at the engine's hit",
+                                attacker.Index, attacker.GetCurrentAction(1).GetName(), near ? "within reach of the guard a moment before" : "through the guard"));
                         }
                     }
                     catch (Exception ex) { PhysicsLog.Error("Late parry test failed.", ex); }
