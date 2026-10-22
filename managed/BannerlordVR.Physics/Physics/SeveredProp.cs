@@ -16,7 +16,7 @@ namespace BannerlordVR.VR.Physics
     // a sphere body, AddPhysics, physics on.
     internal static class SeveredProp
     {
-        private struct Prop { public GameEntity Entity; public float Until; }
+        private struct Prop { public GameEntity Entity; public float Until, Born; public Vec3 Start; public bool Checked; }
         private static readonly List<Prop> Props = new List<Prop>();
         private static Mission _mission;
         private const int MaxProps = 10;
@@ -51,7 +51,14 @@ namespace BannerlordVR.VR.Physics
                 Vec3 spin = new Vec3(MBRandom.RandomFloatRanged(-8, 8), MBRandom.RandomFloatRanged(-8, 8), MBRandom.RandomFloatRanged(-4, 4));
                 entity.AddPhysics(Mass, restEntitial.origin, null, throwVelocity, spin, Material(), false, -1);
                 entity.SetPhysicsStateOnlyVariable(true, true);
-                Props.Add(new Prop { Entity = entity, Until = Mission.Current.CurrentTime + Life });
+                // A copy left asleep stayed where the helmet was drawn, on the
+                // corpse, until the blade knocked it: wake it and give it the
+                // throw as a velocity change.
+                entity.SetPhysicsState(true, true);
+                entity.EnableDynamicBody();
+                entity.ApplyForceToDynamicBody(throwVelocity, GameEntityPhysicsExtensions.ForceMode.VelocityChange);
+                float born = Mission.Current.CurrentTime;
+                Props.Add(new Prop { Entity = entity, Until = born + Life, Born = born, Start = entity.GlobalPosition });
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "SEVERED helmet {0} thrown from ({1:F2},{2:F2},{3:F2}) at {4:F1} m/s", helmet.StringId, head.x, head.y, head.z, throwVelocity.Length));
             }
@@ -68,7 +75,21 @@ namespace BannerlordVR.VR.Physics
             if (Mission.Current != _mission) { Props.Clear(); return; }
             float now = Mission.Current.CurrentTime;
             for (int i = Props.Count - 1; i >= 0; i--)
-                if (now > Props[i].Until) { Remove(Props[i]); Props.RemoveAt(i); }
+            {
+                Prop prop = Props[i];
+                if (!prop.Checked && now - prop.Born > .5f)
+                {
+                    prop.Checked = true; Props[i] = prop;
+                    try
+                    {
+                        float moved = (prop.Entity.GlobalPosition - prop.Start).Length;
+                        PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "SEVERED helmet copy moved {0:F2} m in 0.5 s (dynamic={1})", moved, prop.Entity.HasDynamicRigidBodyAndActiveSimulation()));
+                    }
+                    catch (Exception) { }
+                }
+                if (now > prop.Until) { Remove(prop); Props.RemoveAt(i); }
+            }
         }
 
         private static void Remove(Prop prop)
