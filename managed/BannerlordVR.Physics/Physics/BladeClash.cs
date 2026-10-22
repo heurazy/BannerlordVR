@@ -138,13 +138,48 @@ namespace BannerlordVR.VR.Physics
                 Enemy[agent.Index] = new Last { Point = point, At = now, Normal = gap.Length > 1e-4f ? gap.NormalizedCopy() : n, Grip = b0, Tip = b1 };
                 return false;
             }
-            Vec3 shift = n * depth;
+            // B&S: the weapon is a rigidbody on the hand, the hand on a joint to
+            // the controller, stiff in position (forcePositionSpringDamper 5000
+            // N/m) and soft in rotation (forceRotationSpringDamper 1000 N.m per
+            // rad). Pushed at the contact, the sword gives where it is softest:
+            // it turns in the hand about the grip, the farther out the more,
+            // and the hand gives the rest. Moved back whole, the hand felt like
+            // hitting a wall. The share of each is their compliance at the
+            // contact: L^2 / k_rot against 1 / k_pos.
+            Vec3 pivot = a0;
+            Vec3 lever = mine - pivot;
+            float l = lever.Length;
+            float turnCompliance = l * l / RotationSpring, slideCompliance = 1 / PositionSpring;
+            float turnShare = l > .1f ? turnCompliance / (turnCompliance + slideCompliance) : 0;
+            float angle = Math.Min(MaxTurn, depth * turnShare / Math.Max(.1f, l));
+            Vec3 axis = Vec3.CrossProduct(lever, n);
+            float turned = 0;
+            if (angle > 1e-4f && axis.Length > 1e-4f)
+            {
+                axis.Normalize();
+                world.rotation.s = Rotate(world.rotation.s, axis, angle);
+                world.rotation.f = Rotate(world.rotation.f, axis, angle);
+                world.rotation.u = Rotate(world.rotation.u, axis, angle);
+                world.origin = pivot + Rotate(world.origin - pivot, axis, angle);
+                turned = angle * l;
+            }
+            Vec3 shift = n * Math.Max(0, depth - turned);
             if ((total + shift).Length > MaxLag) { Enemy.Remove(agent.Index); return false; } // out of reach: it goes through
             total += shift;
             world.origin += shift;
+            // What the contact felt: the whole give, turned and slid.
+            shift = n * depth;
             Enemy[agent.Index] = new Last { Point = point, At = now, Normal = n, Grip = b0, Tip = b1 };
             Contact(mission, player, agent, slot, point, shift, enemyVelocity, now, false);
             return true;
+        }
+
+        // Creature_PlayerDefault forcePositionSpringDamper.x / forceRotationSpringDamper.x.
+        private const float PositionSpring = 5000, RotationSpring = 1000, MaxTurn = .6f;
+        private static Vec3 Rotate(Vec3 v, Vec3 axis, float angle)
+        {
+            float c = (float)Math.Cos(angle), s = (float)Math.Sin(angle);
+            return v * c + Vec3.CrossProduct(axis, v) * s + axis * (Vec3.DotProduct(axis, v) * (1 - c));
         }
 
         // The enemy blade's sweep from last frame to this one (sampled at
