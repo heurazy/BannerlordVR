@@ -277,7 +277,7 @@ namespace BannerlordVR.VR.Physics
                 WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
             Release();
         }
-        private const float NeckDeepDepth = .02f;
+        private const float NeckDeepDepth = .02f, WholeBodyBrakeMinPartMass = 5;
         private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
         private Vec3 _lastAnchor;
@@ -494,7 +494,9 @@ namespace BannerlordVR.VR.Physics
             // limp: held to 300 N too, a falling body slid down the blade
             // onto the player.
             bool dying = EnemyPhysicsRuntime.IsDying(Body);
-            float braked = dying ? Math.Max(_mass, EnemyPhysicsRuntime.BodyMass(Body)) : _mass;
+            // The whole body's brake only on a part that can carry it: on an
+            // upper arm (2.7 kg) it pulled 1500 N and stretched the arm.
+            float braked = dying && _mass >= WholeBodyBrakeMinPartMass ? Math.Max(_mass, EnemyPhysicsRuntime.BodyMass(Body)) : _mass;
             float c = Math.Min(damper, braked * RagdollPinDrive.MaxDampingRate);
             float bladeAxial = InteractionMath.Dot(targetVelocity, axis), partAxial = InteractionMath.Dot(p.Velocity, axis);
             float fromBlade = c * bladeAxial, fromPart = -c * partAxial;

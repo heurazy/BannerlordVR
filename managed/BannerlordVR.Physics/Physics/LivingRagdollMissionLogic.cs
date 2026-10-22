@@ -621,6 +621,9 @@ namespace BannerlordVR.VR.Physics
             Entry entry = Find(body.Agent);
             if (entry == null)
             {
+                // A fighting enemy keeps its guard animated: leased for the
+                // push, its AI stood paused a second on every blow it blocked.
+                if (body.Agent.Controller == AgentControllerType.AI && !body.Agent.IsPaused) return;
                 if (!KeepHeld(body, true)) return;
                 entry = Find(body.Agent);
                 if (entry == null) return;

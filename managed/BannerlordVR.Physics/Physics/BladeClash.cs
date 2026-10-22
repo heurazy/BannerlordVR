@@ -28,7 +28,7 @@ namespace BannerlordVR.VR.Physics
     {
         public const float MaxLag = .6f, PlayerRadius = .015f, RecoilMinWeaponSpeed = 1, ContactCooldown = .25f;
         public const float BounceSeconds = .8f;
-        private struct Last { public Vec3 Point; public long At; public Vec3 Normal; }
+        private struct Last { public Vec3 Point; public long At; public Vec3 Normal; public Vec3 Grip, Tip; }
         private static readonly Dictionary<int, Last> Enemy = new Dictionary<int, Last>();
         private static readonly Dictionary<int, long> ContactAt = new Dictionary<int, long>();
         private static readonly Dictionary<Agent, float> ParriedUntil = new Dictionary<Agent, float>();
@@ -85,9 +85,9 @@ namespace BannerlordVR.VR.Physics
             Vec3 a0 = world.TransformToParent(gripLocal), a1 = world.TransformToParent(tipLocal);
             Vec3 b0 = blade.GripWorld, b1 = blade.TipWorld;
             float reach = blade.Radius + PlayerRadius;
+            bool known = Enemy.TryGetValue(agent.Index, out Last last) && now - last.At < Stopwatch.Frequency / 4;
             Closest(a0, a1, b0, b1, out Vec3 mine, out Vec3 theirs);
             Vec3 gap = mine - theirs;
-            bool known = Enemy.TryGetValue(agent.Index, out Last last) && now - last.At < Stopwatch.Frequency / 4;
             // The side the blade was on last frame (a fast blade can cross
             // the other between two frames), else where it is now.
             Vec3 n = known ? last.Normal : gap.NormalizedCopy();
@@ -100,39 +100,59 @@ namespace BannerlordVR.VR.Physics
             if (n.LengthSquared < .25f) return false;
             float depth = reach - InteractionMath.Dot(gap, n);
             Vec3 point = theirs;
+            Vec3 enemyVelocity = known ? (point - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
             if (depth <= 0)
             {
-                Enemy[agent.Index] = new Last { Point = point, At = now, Normal = gap.Length > 1e-4f ? gap.NormalizedCopy() : n };
+                // A fast swing (20-25 m/s) moves the enemy blade 40 cm a frame:
+                // seen on one side then the other, never touching, its parry
+                // was missed. Its sweep since last frame counts as a meeting.
+                if (known && Sweeps(a0, a1, last.Grip, last.Tip, b0, b1, reach))
+                    Contact(mission, player, agent, slot, point, Vec3.Zero, enemyVelocity, now, false);
+                Enemy[agent.Index] = new Last { Point = point, At = now, Normal = gap.Length > 1e-4f ? gap.NormalizedCopy() : n, Grip = b0, Tip = b1 };
                 return false;
             }
             Vec3 shift = n * depth;
             if ((total + shift).Length > MaxLag) { Enemy.Remove(agent.Index); return false; } // out of reach: it goes through
             total += shift;
             world.origin += shift;
-            Vec3 enemyVelocity = known ? (point - last.Point) * (float)(Stopwatch.Frequency / (double)Math.Max(1, now - last.At)) : Vec3.Zero;
-            Enemy[agent.Index] = new Last { Point = point, At = now, Normal = n };
-            Contact(mission, player, agent, slot, point, shift, enemyVelocity, now);
+            Enemy[agent.Index] = new Last { Point = point, At = now, Normal = n, Grip = b0, Tip = b1 };
+            Contact(mission, player, agent, slot, point, shift, enemyVelocity, now, false);
             return true;
         }
 
-        private static void Contact(Mission mission, Agent player, Agent agent, EquipmentIndex slot, Vec3 at, Vec3 shift, Vec3 enemyVelocity, long now)
+        // The enemy blade's sweep from last frame to this one (sampled at
+        // quarters) passes within reach of the player's blade.
+        private static bool Sweeps(Vec3 a0, Vec3 a1, Vec3 grip0, Vec3 tip0, Vec3 grip1, Vec3 tip1, float reach)
         {
-            if (ContactAt.TryGetValue(agent.Index, out long last) && now - last < Stopwatch.Frequency * ContactCooldown) return;
-            ContactAt[agent.Index] = now;
+            for (int i = 1; i < 4; i++)
+            {
+                float t = i / 4f;
+                Closest(a0, a1, grip0 + (grip1 - grip0) * t, tip0 + (tip1 - tip0) * t, out Vec3 m, out Vec3 q);
+                if ((m - q).Length <= reach) return true;
+            }
+            return false;
+        }
+
+        private static void Contact(Mission mission, Agent player, Agent agent, EquipmentIndex slot, Vec3 at, Vec3 shift, Vec3 enemyVelocity, long now, bool shield)
+        {
             // The impact speed: the enemy blade's own and the player's into it.
             Vec3 impact = enemyVelocity - shift * 60;
             float speed = impact.Length;
             Agent.ActionStage stage = agent.GetCurrentActionStage(1);
             bool attacking = stage == Agent.ActionStage.AttackRelease || stage == Agent.ActionStage.AttackReady ||
                 stage == Agent.ActionStage.AttackQuickReady;
-            if (attacking && speed > RecoilMinWeaponSpeed)
+            // Every meeting of an attacking blade is judged, whatever touched
+            // just before: a guard contact a moment earlier held the parry
+            // back for the sound's cooldown and the swing came through.
+            if (attacking && speed > RecoilMinWeaponSpeed && !Parried(agent))
             {
                 ParriedUntil[agent] = mission.CurrentTime + BounceSeconds;
                 EnemyPhysicsRuntime.Parried(agent, impact);
             }
+            if (ContactAt.TryGetValue(agent.Index, out long last) && now - last < Stopwatch.Frequency * ContactCooldown) return;
+            ContactAt[agent.Index] = now;
             try
             {
-                bool shield = shift == Vec3.Zero;
                 WeaponComponentData mine = shield ? player.WieldedOffhandWeapon.CurrentUsageItem : player.WieldedWeapon.CurrentUsageItem;
                 WeaponComponentData theirs = agent.Equipment[slot].CurrentUsageItem;
                 if (mine != null && theirs != null)
@@ -140,7 +160,7 @@ namespace BannerlordVR.VR.Physics
             }
             catch (Exception) { }
             float strength = Math.Min(1, .3f + speed / 8);
-            VrHand hand = shift == Vec3.Zero ? VrHandSlots.OffController : VrHandSlots.MainController;
+            VrHand hand = shield ? VrHandSlots.OffController : VrHandSlots.MainController;
             PhysicsInterop.Haptic(hand == VrHand.Left ? 0 : 1, strength, .04f);
             if (EnemyPhysicsSettings.Trace || _logs < 6)
             {
@@ -173,7 +193,7 @@ namespace BannerlordVR.VR.Physics
                     Vec3 d = blade.GripWorld + (tip - blade.GripWorld) * (i / 8f) - plate.Centre;
                     if (Math.Abs(InteractionMath.Dot(d, n)) > plate.HalfN + blade.Radius ||
                         Math.Abs(InteractionMath.Dot(d, plate.A)) > plate.HalfA || Math.Abs(InteractionMath.Dot(d, plate.B)) > plate.HalfB) continue;
-                    Contact(mission, player, agent, slot, plate.Centre + d, Vec3.Zero, velocity, now);
+                    Contact(mission, player, agent, slot, plate.Centre + d, Vec3.Zero, velocity, now, true);
                     break;
                 }
             }
