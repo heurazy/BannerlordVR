@@ -12,7 +12,10 @@ namespace BannerlordVR.VR.Physics
     // battle starts the player is put on foot, every AI agent is frozen where
     // it stands, and five enemy foot soldiers are lined up in front of the
     // player as passive dummies. The physics leases them normally; they stay
-    // paused afterwards instead of rejoining the fight.
+    // paused afterwards instead of rejoining the fight. With
+    // enemy_physics_sandbox_duelists (1 by default) that many more enemies
+    // are put further out, straight ahead, and left to their AI: they come
+    // and attack the player (the only one fighting), to block and parry.
     internal sealed class PhysicsSandbox : MissionLogic
     {
         public const int Dummies = 5;
@@ -20,6 +23,8 @@ namespace BannerlordVR.VR.Physics
         private bool _placed, _gaveUp;
         private float _began = -1, _nextHold;
         private readonly List<Agent> _dummies = new List<Agent>();
+        private readonly HashSet<Agent> _duelists = new HashSet<Agent>();
+        private const float DuelDistance = 6;
         private readonly Dictionary<Agent, Vec2> _hold = new Dictionary<Agent, Vec2>();
 
         public override void OnMissionTick(float dt)
@@ -63,6 +68,7 @@ namespace BannerlordVR.VR.Physics
             foreach (Agent agent in Mission.Agents)
             {
                 if (agent == player || !agent.IsActive() || agent.IsMount || agent.IsPlayerControlled) continue;
+                if (_duelists.Contains(agent)) { Unleash(agent); continue; }
                 if (living != null && living.HasLease(agent)) { _leased.Add(agent); continue; }
                 // Back from the physics: it stands where the body was left.
                 if (_leased.Remove(agent)) _hold[agent] = agent.Position.AsVec2;
@@ -125,13 +131,38 @@ namespace BannerlordVR.VR.Physics
                 _hold[dummy] = at.AsVec2;
                 _dummies.Add(dummy);
             }
+            int duelists = Math.Min(EnemyPhysicsSettings.SandboxDuelists, Math.Max(0, candidates.Count - _dummies.Count));
+            for (int i = 0; i < duelists; i++)
+            {
+                Agent duelist = candidates[_dummies.Count + i];
+                Vec3 at = player.Position + forward * DuelDistance + side * ((i - (duelists - 1) * .5f) * Spacing);
+                at.z = Mission.Scene.GetGroundHeightAtPosition(at);
+                if (!InteractionMath.IsFinite(at)) continue;
+                duelist.TeleportToPosition(at);
+                duelist.LookDirection = -forward;
+                _duelists.Add(duelist);
+                Unleash(duelist);
+                PhysicsLog.Info("SANDBOX duelist " + duelist.Index + " (" + (duelist.WieldedWeapon.Item?.StringId ?? "unarmed") + ") " +
+                    DuelDistance.ToString("F0", CultureInfo.InvariantCulture) + " m ahead, coming to attack the player");
+            }
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "SANDBOX ready: {0} enemy dummies {1:F1} m in front of the player, {2:F1} m apart; all AI frozen. Punch, grab, stab, cut.",
                 _dummies.Count, Distance, Spacing));
         }
 
+        // A duelist keeps its AI, out of its formation, alarmed: with every
+        // other agent frozen, the player is the enemy it goes for.
+        private static void Unleash(Agent agent)
+        {
+            if (agent.Controller != AgentControllerType.AI) agent.Controller = AgentControllerType.AI;
+            if (agent.IsPaused) agent.IsPaused = false;
+            agent.SetWatchState(Agent.WatchState.Alarmed);
+            if (agent.IsFormationFrameEnabled) agent.SetFormationFrameDisabled();
+        }
+
         public override void OnAgentRemoved(Agent affectedAgent, Agent affectorAgent, AgentState agentState, KillingBlow blow)
         {
+            if (_duelists.Remove(affectedAgent)) PhysicsLog.Info("SANDBOX duelist " + affectedAgent.Index + " is down (" + agentState + ").");
             if (_dummies.Remove(affectedAgent))
                 PhysicsLog.Info("SANDBOX dummy " + affectedAgent.Index + " is down (" + agentState + "); " + _dummies.Count + " left.");
             _hold.Remove(affectedAgent);
