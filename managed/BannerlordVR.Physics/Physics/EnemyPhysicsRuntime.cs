@@ -49,7 +49,7 @@ namespace BannerlordVR.VR.Physics
             _refusals.Clear();
             BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
             ShieldBlock.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
-            LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission();
+            LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission(); Choke.ForgetMission();
         }
         public static bool Tracks(Agent agent)
         {
@@ -251,6 +251,7 @@ namespace BannerlordVR.VR.Physics
                 { ClearHands(); return; }
                 UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
                 UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
+                if (EnemyPhysicsSettings.Choke) Choke.Tick(player, Hands[0].Grab, Hands[1].Grab, now);
                 if (now - _lastLog > 10)
                 {
                     _lastLog = now;

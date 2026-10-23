@@ -135,6 +135,19 @@ namespace BannerlordVR.VR.Physics
                 null, type, Math.Min(damage, 1), Math.Max(1, Math.Min(500, (int)Math.Round(damage))), 0, type == DamageTypes.Pierce, true, PushEffect.None);
         }
 
+        // SkillForceChoke's strangling blow: quiet, no reaction, and not held
+        // back while the victim is held (it is held by the throat).
+        public static void Strangle(Agent source, Agent victim, sbyte bone, Vec3 contact, float damage)
+        {
+            if (victim == null || !victim.IsActive() || damage <= 0 || !InteractionMath.IsFinite(contact)) return;
+            var point = new BodyPoint { Bone = bone, Part = BoneBodyPartType.Neck, World = contact };
+            float lost = Deliver(source, victim, point, contact, Vec3.Up, MissionWeapon.Invalid, EquipmentIndex.None,
+                null, DamageTypes.Blunt, 0, Math.Max(1, (int)Math.Round(damage)), 0, false, true, PushEffect.None);
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "CHOKE agent={0} strangled for {1:F0} health={2:F0}", victim.Index, lost, victim.IsActive() ? victim.Health : 0));
+        }
+
         public static void ApplyBloodLoss(Agent source, Agent victim, sbyte bone, BoneBodyPartType part, Vec3 contact, int dose)
         {
             if (victim == null || !victim.IsActive() || dose <= 0 || !InteractionMath.IsFinite(contact)) return;
