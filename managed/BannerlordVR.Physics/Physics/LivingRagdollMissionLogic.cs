@@ -812,7 +812,7 @@ namespace BannerlordVR.VR.Physics
             if ((EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll)) || EnemyPhysicsSettings.LivingRagdolls)
                 NativeRagdollBridge.BindMissionTick(Mission);
-            if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && Mission.Mode == MissionMode.Battle)
+            if ((EnemyPhysicsSettings.ActiveBalance || EnemyPhysicsSettings.ActiveRagdoll) && EnemyPhysicsSettings.Fighting(Mission.Mode))
                 _clock.Ensure(Mission);
             if (EnemyPhysicsSettings.RuntimeProbe && !EnemyPhysicsSettings.WoundProbe &&
                 (!EnemyPhysicsSettings.CadenceProbe || EnemyPhysicsSettings.CadenceRagdoll))

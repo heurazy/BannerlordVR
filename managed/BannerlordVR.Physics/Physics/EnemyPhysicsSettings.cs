@@ -1,4 +1,5 @@
 using System;
+using TaleWorlds.Core;
 
 namespace BannerlordVR.VR.Physics
 {
@@ -16,6 +17,10 @@ namespace BannerlordVR.VR.Physics
         // grabs of the head or a hand); a ragdoll is never started in the
         // saddle: a destabilizing blow or a hard pull unseats them instead.
         public static readonly bool Riders = VrConfig.Bool("enemy_physics_riders", true);
+        // Every mission mode with melee in it: field battles, but also
+        // tournaments, duels and hideout stealth, the game's and mods' alike.
+        public static bool Fighting(MissionMode mode) =>
+            mode == MissionMode.Battle || mode == MissionMode.Duel || mode == MissionMode.Tournament || mode == MissionMode.Stealth;
         public static readonly float Spring = Read("enemy_physics_grab_spring", 180, 10, 500);
         public static readonly float Damping = Read("enemy_physics_grab_damping", 22, 1, 80);
         public static readonly float MaxForce = Read("enemy_physics_max_force", 350, 20, 800);

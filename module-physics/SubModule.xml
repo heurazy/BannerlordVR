@@ -14,6 +14,15 @@
     <DependedModule Id="BannerlordVR" />
   </DependedModules>
 
+  <!-- Loads after the combat and framework mods it can meet (BLSE and the
+       launcher read this order; none is required). -->
+  <DependedModuleMetadatas>
+    <DependedModuleMetadata id="Bannerlord.ButterLib" order="LoadBeforeThis" optional="true" />
+    <DependedModuleMetadata id="Bannerlord.UIExtenderEx" order="LoadBeforeThis" optional="true" />
+    <DependedModuleMetadata id="Bannerlord.MBOptionScreen" order="LoadBeforeThis" optional="true" />
+    <DependedModuleMetadata id="RBM" order="LoadBeforeThis" optional="true" />
+  </DependedModuleMetadatas>
+
   <SubModules>
     <SubModule>
       <Name value="BannerlordVR.Physics" />
@@ -26,15 +35,12 @@
     </SubModule>
   </SubModules>
 
-  <!-- bvr_severed_head: the meshless head armour a beheaded agent wears. -->
+  <!-- bvr_severed_head: the meshless head armour a beheaded agent wears.
+       No game type list: loaded for every game type, so total conversions
+       with their own campaign type have it too. -->
   <Xmls>
     <XmlNode>
       <XmlName id="Items" path="bvr_items" />
-      <IncludedGameTypes>
-        <GameType value="Campaign" />
-        <GameType value="CampaignStoryMode" />
-        <GameType value="CustomGame" />
-      </IncludedGameTypes>
     </XmlNode>
   </Xmls>
 </Module>

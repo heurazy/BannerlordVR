@@ -167,7 +167,7 @@ namespace BannerlordVR.VR.Physics
                 Agent player = mission?.MainAgent;
                 string blocked = _failed ? "failed_earlier" : !EnemyPhysicsSettings.Enabled ? "enemy_physics_off" :
                     !VrMotionHands.Enabled ? "motion_hands_off" : !VrSystem.IsActive ? "vr_inactive" :
-                    mission == null || mission.MissionEnded ? "no_mission" : mission.Mode != MissionMode.Battle ? "mode_" + mission.Mode :
+                    mission == null || mission.MissionEnded ? "no_mission" : !EnemyPhysicsSettings.Fighting(mission.Mode) ? "mode_" + mission.Mode :
                     player == null || !player.IsActive() ? "no_player" : player.HasMount && !EnemyPhysicsSettings.Mounted ? "player_mounted" :
                     GameNetwork.IsMultiplayer ? "multiplayer" : !VrCameraDriver.HasPose ? "no_head_pose" :
                     // The release keys the HUD over the world for the whole mission

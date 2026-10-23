@@ -48,7 +48,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (_failed || !EnemyPhysicsSettings.Bleeding || source == null || body?.Agent == null ||
                 !body.Agent.IsActive() || !EnemyBody.Hostile(body.Agent, source) || !body.Agent.IsHuman ||
-                GameNetwork.IsMultiplayer || Mission.Mode != MissionMode.Battle ||
+                GameNetwork.IsMultiplayer || !EnemyPhysicsSettings.Fighting(Mission.Mode) ||
                 (type != DamageTypes.Cut && type != DamageTypes.Pierce) ||
                 !InteractionMath.IsFinite(healthLost) || healthLost < 1 || !InteractionMath.IsFinite(contact)) return;
             try
@@ -93,7 +93,7 @@ namespace BannerlordVR.VR.Physics
             {
                 if (_failed || !EnemyPhysicsSettings.Bleeding || GameNetwork.IsMultiplayer ||
                     Mission.MissionEnded || Mission.IsFinalized) { Clear(); return; }
-                if (Mission.Mode != MissionMode.Battle) return;
+                if (!EnemyPhysicsSettings.Fighting(Mission.Mode)) return;
                 if (EnemyPhysicsSettings.RuntimeProbe && EnemyPhysicsSettings.WoundProbe) { StartProbe(dt); FinishProbe(); }
                 int work = 0;
                 // Pure Due checks are cheap. At most four entries may perform
