@@ -10,8 +10,8 @@ namespace BannerlordVR.VR.Physics
     // timed with two Stopwatch reads (some 20 ns each).
     internal static class Perf
     {
-        public enum Section { Runtime, Ragdoll, BladePose, Clash, Limbs, EnemyBlade, Count }
-        private static readonly string[] Names = { "runtime", "ragdoll", "blade_pose", "clash", "limbs", "enemy_blade" };
+        public enum Section { Runtime, Ragdoll, BladePose, Clash, Limbs, EnemyBlade, Scan, Count }
+        private static readonly string[] Names = { "runtime", "ragdoll", "blade_pose", "clash", "limbs", "enemy_blade", "scan" };
         // A call over 2 ms is a dropped VR frame: it is logged when it
         // happens, so the lines around it say what caused it.
         private const double SpikeMs = 2;
@@ -74,7 +74,7 @@ namespace BannerlordVR.VR.Physics
             for (int s = 0; s < (int)Section.Count; s++)
             {
                 double ms = Ticks[s] * 1000.0 / Stopwatch.Frequency / _frames;
-                total += s == (int)Section.Clash || s == (int)Section.EnemyBlade ? 0 : ms; // both run inside blade_pose
+                total += s == (int)Section.Clash || s == (int)Section.EnemyBlade || s == (int)Section.Scan ? 0 : ms; // nested in blade_pose and runtime
                 Line.Append(' ').Append(Names[s]).Append('=').Append(ms.ToString("F3", CultureInfo.InvariantCulture))
                     .Append(" ms (").Append(Calls[s]).Append(" calls, worst ").Append(Worst[s].ToString("F2", CultureInfo.InvariantCulture)).Append(')');
             }

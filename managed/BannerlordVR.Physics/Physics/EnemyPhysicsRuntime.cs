@@ -207,13 +207,15 @@ namespace BannerlordVR.VR.Physics
                 _workStarted = Stopwatch.GetTimestamp();
                 HandlingCombat = true;
                 ActiveBodies = 0;
+                Vec3 at = player.Position;
+                float exit = ExitRadius(player);
                 for (int i = 0; i < Bodies.Length; i++)
                 {
                     EnemyBody body = Bodies[i];
                     if (body == null) continue;
                     bool leased = _living?.HasLease(body.Agent) == true;
                     if (!EnemyBody.Eligible(body.Agent, player, leased) ||
-                        (!leased && (body.Agent.Position - player.Position).Length > ExitRadius(player)) || !body.Sample(dt))
+                        (!leased && (body.Agent.Position - at).Length > exit) || !body.Sample(dt))
                         Remove(i);
                     else
                     {
@@ -226,7 +228,9 @@ namespace BannerlordVR.VR.Physics
                     }
                 }
                 ShedUnheldBodies(player);
+                long scan = Perf.Start();
                 Scan(mission, player, dt);
+                Perf.Stop(Perf.Section.Scan, scan);
                 if (PhysicsInterop.GetInputState(out BvrInputState input) != (int)BvrStatus.Ok)
                 { Once(ref _loggedInput, "Enemy physics: controller input unavailable this frame."); ClearHands(); return; }
                 var skeleton = player.AgentVisuals?.GetSkeleton();
@@ -315,15 +319,19 @@ namespace BannerlordVR.VR.Physics
             var agents = mission.AllAgents; // Includes corpses, unlike mission.Agents.
             int count = agents.Count;
             int budget = Math.Min(count, EnemyPhysicsSettings.ScanBudget);
+            // Read once: Position and Velocity are engine calls, and were
+            // made for every agent scanned (0.3 ms a frame in a 240-agent
+            // battle with no body admitted).
+            Vec3 at = player.Position;
+            float radius = AdmitRadius(player), reach = radius * radius;
             for (int n = 0; n < budget; n++)
             {
                 if ((n & 15) == 0 && !AdmissionTimeRemaining) break;
                 if (_cursor >= count) _cursor = 0;
                 Agent agent = agents[_cursor++];
                 if (agent == player) continue;
-                float distance = (agent.Position - player.Position).LengthSquared;
-                float radius = AdmitRadius(player);
-                if (distance > radius * radius) continue;
+                float distance = (agent.Position - at).LengthSquared;
+                if (distance > reach) continue;
                 int chosen = -1; float farthest = distance + .25f;
                 bool found = false;
                 for (int i = 0; i < Bodies.Length; i++)
@@ -333,7 +341,7 @@ namespace BannerlordVR.VR.Physics
                     if (b == null && ActiveBodies < Budget.BodyLimit) { chosen = i; farthest = float.MaxValue; }
                     else if (b != null && farthest != float.MaxValue && !Held(b))
                     {
-                        float d = (b.Agent.Position - player.Position).LengthSquared;
+                        float d = (b.Agent.Position - at).LengthSquared;
                         if (d > farthest) { farthest = d; chosen = i; }
                     }
                 }
