@@ -16,6 +16,8 @@ namespace BannerlordVR.VR.Physics
     // a sphere body, AddPhysics, physics on.
     internal static class SeveredProp
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Props.Clear(); }
         private struct Prop { public GameEntity Entity; public float Until, Born; public Vec3 Start; public bool Checked; }
         private static readonly List<Prop> Props = new List<Prop>();
         private static Mission _mission;

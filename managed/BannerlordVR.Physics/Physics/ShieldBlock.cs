@@ -18,6 +18,8 @@ namespace BannerlordVR.VR.Physics
     // side the blade was on, by at most MaxLag.
     internal static class ShieldBlock
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { PressDepth.Clear(); PressAt.Clear(); }
         public const float MaxLag = 1.2f, Pad = .012f;
         // While a shield holds a blade back, the physics does not strike with
         // it (the controller's blade is behind the shield): per hand role.

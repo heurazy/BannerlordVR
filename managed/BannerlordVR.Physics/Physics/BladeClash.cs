@@ -26,6 +26,8 @@ namespace BannerlordVR.VR.Physics
     // goes on to the body behind the player's guard) bounces off instead.
     internal static class BladeClash
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Enemy.Clear(); ContactAt.Clear(); ParriedUntil.Clear(); ParriedAttack.Clear(); NearAt.Clear(); }
         public const float MaxLag = .6f, PlayerRadius = .015f, RecoilMinWeaponSpeed = 1, ContactCooldown = .25f;
         // The parried swing's hold and rewind (LivingRagdollMissionLogic
         // ParryStop + RewindSeconds), then a little: no longer. Held 0.8 s,

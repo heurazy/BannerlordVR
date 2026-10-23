@@ -14,6 +14,8 @@ namespace BannerlordVR.VR.Physics
     // part (parented to it), and its drops stain the ground (DropBlood).
     internal static class WoundFlow
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Flows.Clear(); }
         private struct Flow { public Agent Agent; public sbyte Bone; public Vec3 Local; public float Start, Until, Next; }
         private static readonly List<Flow> Flows = new List<Flow>();
         private static Mission _mission;

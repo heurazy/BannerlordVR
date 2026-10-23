@@ -20,6 +20,8 @@ namespace BannerlordVR.VR.Physics
     // blade stays until the weapon is drawn again (VrThrow ends the flight).
     internal static class ThrownBlade
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { StuckFlights.Clear(); }
         private sealed class Stuck { public Agent Agent; public sbyte Bone; public MatrixFrame Local; public float At; }
         private static readonly Dictionary<object, Stuck> StuckFlights = new Dictionary<object, Stuck>();
         private static Type _flightType;

@@ -13,6 +13,8 @@ namespace BannerlordVR.VR.Physics
     // position, a frozen skeleton, a late animation).
     internal static class ReleaseWatch
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Watches.Clear(); Done.Clear(); }
         private sealed class Watch { public Vec3 Ragdoll, Last; public int Tick; public float MaxJump, Total; public bool First; }
         private static readonly Dictionary<Agent, Watch> Watches = new Dictionary<Agent, Watch>();
         private static readonly List<Agent> Done = new List<Agent>();

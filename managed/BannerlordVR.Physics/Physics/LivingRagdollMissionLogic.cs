@@ -209,6 +209,7 @@ namespace BannerlordVR.VR.Physics
         private static readonly Dictionary<Agent, float> LastRelease = new Dictionary<Agent, float>();
         private const float ReleaseCooldown = .5f;
         private static readonly List<Agent> _blendsDone = new List<Agent>();
+        internal static void ForgetMission() { _blends.Clear(); LastRelease.Clear(); _blendsDone.Clear(); }
         private static void StartBlend(Agent agent, Skeleton skeleton)
         {
             try

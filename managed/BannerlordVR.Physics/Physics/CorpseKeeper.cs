@@ -18,6 +18,8 @@ namespace BannerlordVR.VR.Physics
     // grabbed, dragged and lifted. Every read is checked before a write.
     internal static class CorpseKeeper
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Nudged.Clear(); Awake.Clear(); }
         private const int TimerStart = 0xbd8, TimerClock = 0xbe0, TimerDuration = 0xbe8, Filed = 0xc50;
         private const long ClockTable = 0xda29b0;
         private static readonly FieldInfo AgentPointer = typeof(Agent).GetField("_pointer", BindingFlags.Instance | BindingFlags.NonPublic);

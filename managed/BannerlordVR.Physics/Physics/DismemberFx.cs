@@ -13,8 +13,24 @@ namespace BannerlordVR.VR.Physics
     // uses for horse proportions), hiding everything skinned to it and its
     // children: head and helmet, forearm and hand, calf and foot. The stump
     // bleeds from the parent bone and the cut kills, as sliceForceKill does.
+    // The engine asks Mission.GetAgentState whether a lethal blow kills or
+    // knocks out (the campaign's odds); a severing blow always kills.
+    [HarmonyLib.HarmonyPatch(typeof(Mission), "GetAgentState")]
+    internal static class SeverKillsPatch
+    {
+        [HarmonyLib.HarmonyPostfix]
+        public static void Postfix(Agent agent, ref AgentState __result)
+        {
+            if (agent == null || agent != DismemberFx.ForcedDeath || __result != AgentState.Unconscious) return;
+            __result = AgentState.Killed;
+            PhysicsLog.Info("DISMEMBER agent=" + agent.Index + " killed, not knocked out: its limb or head is off");
+        }
+    }
+
     internal static class DismemberFx
     {
+        // A new mission: the last one's agents and entities are gone.
+        internal static void ForgetMission() { Pending.Clear(); ForcedDeath = null; }
         private struct Joint { public SliceJoint Kind; public sbyte Bone, Parent, Child; }
         private static readonly Dictionary<Monster, Joint[]> Joints = new Dictionary<Monster, Joint[]>();
 
@@ -78,8 +94,33 @@ namespace BannerlordVR.VR.Physics
             return false;
         }
 
+        // Campaign: a limb or head cut off is a death, never a wound. A soldier
+        // is killed; a lord or companion is cut off only as often as the
+        // campaign lets a hero die (its own killed-or-unconscious odds for a
+        // cut), otherwise the blow is a heavy wound and the body stays whole.
+        internal static Agent ForcedDeath;
+        private static bool MayDie(Agent player, Agent victim)
+        {
+            if (!victim.IsHero) return true;
+            try
+            {
+                var model = MissionGameModels.Current?.AgentDecideKilledOrUnconsciousModel;
+                if (model == null) return true;
+                float p = model.GetAgentStateProbability(player, victim, DamageTypes.Cut, WeaponFlags.MeleeWeapon, out _);
+                return MBRandom.RandomFloat < p;
+            }
+            catch (Exception) { return true; }
+        }
+
         public static void Slice(Agent player, Agent victim, sbyte bone, sbyte parent, Vec3 at, SliceJoint kind, float speed)
         {
+            if (!MayDie(player, victim))
+            {
+                PhysicsLog.Info("DISMEMBER spared hero agent=" + victim.Index + " joint=" + kind + ": a heavy wound, as the campaign decides");
+                BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
+                PhysicalHit.ApplyPenetration(player, victim, bone, victim.AgentVisuals.GetBoneTypeData(bone).BodyPartType, at, 1000, DamageTypes.Cut);
+                return;
+            }
             // Hiding the cut part was tried three ways in game on 19 Oct 2026:
             // MBAgentVisuals.ApplySkeletonScale has no visible effect on humans,
             // a per-tick local bone frame is overwritten by the engine, and
@@ -128,7 +169,9 @@ namespace BannerlordVR.VR.Physics
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
-            PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
+            ForcedDeath = victim;
+            try { PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut); }
+            finally { ForcedDeath = null; }
             Perf.Mark("kill_blow");
             // The severed part is shrunk away in the skeleton.
             Vec3 cutDirection = player != null ? at - player.Position : Vec3.Zero;

@@ -43,6 +43,14 @@ namespace BannerlordVR.VR.Physics
         private static int _cursor;
         private static float _time = -1, _lastLog;
         private static readonly System.Collections.Generic.Dictionary<int, string> _refusals = new System.Collections.Generic.Dictionary<int, string>();
+        // Every static that holds a mission's agents, at each mission start.
+        public static void ForgetMission()
+        {
+            _refusals.Clear();
+            BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
+            ShieldBlock.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
+            LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget();
+        }
         public static bool Tracks(Agent agent)
         {
             foreach (EnemyBody body in Bodies) if (body?.Agent == agent) return true;
