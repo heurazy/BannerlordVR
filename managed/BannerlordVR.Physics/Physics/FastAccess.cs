@@ -24,10 +24,17 @@ namespace BannerlordVR.VR.Physics
         public delegate int CapsulesFn(Agent agent, Vec3[] a, Vec3[] b, float[] radius, sbyte[] bone);
         public static readonly CapsulesFn Capsules = BuildCapsules();
 
+        // VrTwoHand.Active and VrTwoHand.Gripping (the hand on the shaft or
+        // the blade besides the main one).
+        private static readonly Type TwoHand = AccessTools.TypeByName("BannerlordVR.VR.VrTwoHand");
+        public static readonly Func<bool> TwoHandActive = Bind<Func<bool>>(AccessTools.PropertyGetter(TwoHand, "Active"));
+        public static readonly Func<VrHand?> TwoHandGripping = Bind<Func<VrHand?>>(AccessTools.PropertyGetter(TwoHand, "Gripping"));
+
         static FastAccess()
         {
             PhysicsLog.Info("FAST_ACCESS own_plate=" + (OwnPlate != null ? "bound" : "MISSING") +
-                " capsules=" + (Capsules != null ? "compiled" : "MISSING"));
+                " capsules=" + (Capsules != null ? "compiled" : "MISSING") +
+                " two_hand=" + (TwoHandActive != null && TwoHandGripping != null ? "bound" : "MISSING"));
         }
 
         private static T Bind<T>(MethodInfo method) where T : class

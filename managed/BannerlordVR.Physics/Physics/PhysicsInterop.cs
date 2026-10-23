@@ -55,8 +55,38 @@ namespace BannerlordVR.VR.Physics
 
         public static void Haptic(int hand, float amplitude, float seconds)
         {
-            try { bvr_trigger_haptic(hand, amplitude, seconds); }
+            try
+            {
+                bvr_trigger_haptic(hand, amplitude, seconds);
+                MirrorTwoHanded(hand, amplitude, seconds);
+            }
             catch (Exception) { }
+        }
+
+        // A weapon held in both hands is felt in both: the second hand only
+        // ever had the pulses its own grabs made.
+        public static void MirrorTwoHanded(int hand, float amplitude, float seconds)
+        {
+            if (FastAccess.TwoHandActive?.Invoke() != true) return;
+            VrHand? gripping = FastAccess.TwoHandGripping?.Invoke();
+            int other = gripping == VrHand.Left ? 0 : gripping == VrHand.Right ? 1 : -1;
+            if (other >= 0 && other != hand) bvr_trigger_haptic(other, amplitude, seconds);
+        }
+
+        // BannerlordVR's own pulses (blocks, parries, clashes, its strikes)
+        // reach the weapon hand only.
+        [HarmonyLib.HarmonyPatch]
+        internal static class OfficialPulsePatch
+        {
+            public static System.Reflection.MethodBase TargetMethod() =>
+                HarmonyLib.AccessTools.Method(HarmonyLib.AccessTools.TypeByName("BannerlordVR.VR.VrPhysicalCombat"), "Pulse");
+            public static bool Prepare() => TargetMethod() != null;
+            [HarmonyLib.HarmonyPostfix]
+            public static void Postfix(int controller, float amplitude, float ms)
+            {
+                try { MirrorTwoHanded(controller, Math.Min(1f, Math.Max(0f, amplitude)), ms / 1000f); }
+                catch (Exception) { }
+            }
         }
 
         public static bool OverlayVisible()
