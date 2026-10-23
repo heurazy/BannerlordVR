@@ -20,8 +20,17 @@ namespace BannerlordVR.VR.Physics
     // a cut.
     internal static class WoundDecal
     {
-        // The game's twelve blood splatters (terrain decal diffuse maps).
-        private const int Variants = 12;
+        // The game's blood splatters are terrain decals: their colour maps are
+        // dark, the blood in the alpha the default material ignores (drawn
+        // black in game). BannerlordVR's own drawn meshes are plain_white
+        // under vertex colours; a wound is drawn that way, as a blob of
+        // blood with a ragged edge.
+        private const int RimPoints = 12;
+        // BannerlordVR colours its meshes with Mesh.Color (ARGB) over vertex
+        // colours: the blood red is the mesh's, the vertices only shade it,
+        // the core darker than the rim.
+        private const uint Blood = 0xFF9A0E0E;
+        private static readonly Vec3 Core = new Vec3(.55f, .55f, .55f), Rim = new Vec3(1, 1, 1);
         private const int PerAgent = 10, Total = 60;
         private const float StabSize = .07f, CutLength = .16f, CutWidth = .05f;
         // The contact is on the body's collision capsule, under the armour:
@@ -41,63 +50,60 @@ namespace BannerlordVR.VR.Physics
         }
         private struct Wound { public Agent Agent; public sbyte Bone; public MatrixFrame Local; public GameEntity Entity; }
         private static readonly List<Wound> Wounds = new List<Wound>();
-        private static readonly List<Material> _materials = new List<Material>();
+        private static Material _material;
         private static Mission _mission;
         private static bool _broken, _logged, _searched;
 
-        // At each mission start (loading): the splatters are streamed, and one
-        // drawn before it loaded was a flat black square.
-        internal static void ForgetMission() { Wounds.Clear(); _mission = null; if (EnemyPhysicsSettings.Wounds) FindMaterials(); }
+        // At each mission start (loading), so the texture is in before a hit.
+        internal static void ForgetMission() { Wounds.Clear(); _mission = null; if (EnemyPhysicsSettings.Wounds) FindMaterial(); }
 
         public static void Stab(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, false);
         public static void Cut(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, true);
 
         private static Material FindMaterial()
         {
-            FindMaterials();
-            return _materials.Count == 0 ? null : _materials[MBRandom.RandomInt(_materials.Count)];
-        }
-        private static void FindMaterials()
-        {
-            if (_searched) return;
+            if (_searched) return _material;
             _searched = true;
             try
             {
                 Material source = Material.GetDefaultMaterial();
-                if (source == null) { PhysicsLog.Info("WOUND no default material; wounds are not drawn."); return; }
-                int loaded = 0;
-                for (int i = 0; i < Variants; i++)
-                {
-                    Texture texture = Texture.GetFromResource("blood_terrain_decal_" + i + "_d");
-                    if (texture == null) continue;
-                    texture.PreloadTexture(true);
-                    if (texture.IsLoaded()) loaded++;
-                    Material material = source.CreateCopy();
-                    material.SetTexture(Material.MBTextureType.DiffuseMap, texture);
-                    material.SetAlphaBlendMode(Material.MBAlphaBlendMode.Modulate);
-                    _materials.Add(material);
-                }
-                PhysicsLog.Info("WOUND " + _materials.Count + " blood splatters, " + loaded + " loaded");
+                Texture white = Texture.GetFromResource("plain_white");
+                if (source == null || white == null) { PhysicsLog.Info("WOUND no default material or plain_white; wounds are not drawn."); return null; }
+                white.PreloadTexture(true);
+                _material = source.CreateCopy();
+                _material.SetTexture(Material.MBTextureType.DiffuseMap, white);
+                PhysicsLog.Info("WOUND mesh material default with plain_white under vertex colours");
             }
             catch (Exception ex) { Fail(ex.Message); }
+            return _material;
         }
 
-        // The quad in its own frame: x along, y across, z out of the body.
-        private static Mesh Quad(Material material)
+        // A fan in its own frame (x along, y across, z out of the body): a
+        // dark core and a ragged rim, its points at random radii; a cut's
+        // frame stretches it into a slit.
+        private static Mesh Blob(Material material, bool cut)
         {
             Mesh mesh = Mesh.CreateMeshWithMaterial(material);
             ManagedMeshEditOperations ops = ManagedMeshEditOperations.Create(mesh);
-            Vec3 p0 = new Vec3(-.5f, -.5f), p1 = new Vec3(.5f, -.5f), p2 = new Vec3(.5f, .5f), p3 = new Vec3(-.5f, .5f);
-            Vec3 up = new Vec3(0, 0, 1), down = new Vec3(0, 0, -1), white = new Vec3(1, 1, 1);
-            Vec2 u0 = new Vec2(0, 0), u1 = new Vec2(1, 0), u2 = new Vec2(1, 1), u3 = new Vec2(0, 1);
-            ops.AddTriangle(p0, p1, p2, up, up, up, u0, u1, u2, white, white, white);
-            ops.AddTriangle(p0, p2, p3, up, up, up, u0, u2, u3, white, white, white);
-            // The back face too: which way the engine culls is not known here.
-            ops.AddTriangle(p0, p2, p1, down, down, down, u0, u2, u1, white, white, white);
-            ops.AddTriangle(p0, p3, p2, down, down, down, u0, u3, u2, white, white, white);
+            Vec3 up = new Vec3(0, 0, 1), down = new Vec3(0, 0, -1), centre = Vec3.Zero;
+            Vec2 uv = new Vec2(.5f, .5f);
+            var rim = new Vec3[RimPoints];
+            for (int k = 0; k < RimPoints; k++)
+            {
+                double angle = 2 * Math.PI * k / RimPoints;
+                float r = .5f * MBRandom.RandomFloatRanged(cut ? .8f : .6f, 1f);
+                rim[k] = new Vec3((float)Math.Cos(angle) * r, (float)Math.Sin(angle) * r, 0);
+            }
+            for (int k = 0; k < RimPoints; k++)
+            {
+                Vec3 a = rim[k], b = rim[(k + 1) % RimPoints];
+                ops.AddTriangle(centre, a, b, up, up, up, uv, uv, uv, Core, Rim, Rim);
+                // The back face too: which way the engine culls is not known here.
+                ops.AddTriangle(centre, b, a, down, down, down, uv, uv, uv, Core, Rim, Rim);
+            }
             ops.FinalizeEditing();
             mesh.RecomputeBoundingBox();
-            mesh.Color = 0xFFFFFFFF;
+            mesh.Color = Blood;
             return mesh;
         }
 
@@ -138,7 +144,7 @@ namespace BannerlordVR.VR.Physics
                 var world = new MatrixFrame(new Mat3(along * length, side * width, normal), contact + normal * Lift(agent, part));
                 MatrixFrame local = boneWorld.TransformToLocalNonOrthogonal(world);
                 GameEntity entity = GameEntity.CreateEmptyDynamic(scene, false);
-                entity.AddMesh(Quad(material), true);
+                entity.AddMesh(Blob(material, cut), true);
                 entity.SetGlobalFrame(in world);
                 Wounds.Add(new Wound { Agent = agent, Bone = bone, Local = local, Entity = entity });
                 Trim(agent);
