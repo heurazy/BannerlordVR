@@ -268,7 +268,13 @@ namespace BannerlordVR.VR.Physics
                     typeof(PushReaction), typeof(RagdollGrabRules), typeof(PenetrationJoint), typeof(BodyPenetration),
                     typeof(PhysicsStepCounter), typeof(PhysicsStepGate), typeof(NativeRagdollBridge), typeof(LivingRagdollLease),
                     typeof(LivingRagdollMissionLogic), typeof(InteractionMath), typeof(PenetrationDamage), typeof(RagdollImpact),
-                    typeof(BloodFx), typeof(PhysicalHit), typeof(EnemyGrab), typeof(Dismemberment), typeof(DismemberFx));
+                    typeof(BloodFx), typeof(PhysicalHit), typeof(EnemyGrab), typeof(Dismemberment), typeof(DismemberFx),
+                    // The first parry, block or cut compiled these mid-fight: 16-23 ms frames.
+                    typeof(BladeClash), typeof(ShieldBlock), typeof(PhysicalBlade), typeof(DrawnBody), typeof(EnemyPhysicsRuntime),
+                    typeof(LimbHide), typeof(HelmetHide), typeof(SeveredProp), typeof(WoundFlow), typeof(Perf), typeof(ThrownBlade),
+                    typeof(Disarm), typeof(EnemyBody), typeof(PunchImpact));
+            // The capsule reader is an expression tree compiled on first use.
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(FastAccess).TypeHandle);
         }
         public bool Available => EnemyPhysicsSettings.LivingRagdolls && NativeRagdollBridge.Ready && !_failed;
         public double LastTickCpuMilliseconds { get; private set; }

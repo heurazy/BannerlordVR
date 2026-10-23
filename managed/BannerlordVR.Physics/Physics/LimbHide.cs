@@ -52,7 +52,7 @@ namespace BannerlordVR.VR.Physics
             public Agent Agent; public Skeleton Skeleton; public SliceJoint Kind; public sbyte Root, Parent, Grandparent;
             public sbyte[] Bones; public float Until, Started; public Vec3 Written; public bool HasWritten, Reported;
             public int Writes, Skipped, Survived, Lost, Collapsed, CollapseFailed, LastError, Spurts;
-            public float NextSpurt;
+            public float NextSpurt, NextCloth;
             // Watch: the record a tick before and how far each 16-byte block moved.
             public byte[] Prev; public float[] Moved = new float[16], Total = new float[16]; public float NextLog; public int Samples;
         }
@@ -147,7 +147,13 @@ namespace BannerlordVR.VR.Physics
                     // and stayed drawn a second while the head was gone.
                     Collapse(cut);
                     if (late) Bleed(cut, now);
-                    if (cut.Kind == SliceJoint.Neck && now - cut.Started < 1.5f) HelmetHide.Cloth(cut.Agent, true);
+                    // The coif's cloth is pinned and reset ten times a second,
+                    // not twice a frame: it holds between (0.27 ms a frame).
+                    if (cut.Kind == SliceJoint.Neck && now - cut.Started < 1.5f && now >= cut.NextCloth)
+                    {
+                        cut.NextCloth = now + .1f;
+                        HelmetHide.Cloth(cut.Agent, true);
+                    }
                     if (late && !cut.Reported && now - cut.Started > 1.5f) Report(cut, "1.5s");
                 }
                 catch (Exception ex) { Fail("tick", ex); return; }
