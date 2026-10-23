@@ -48,7 +48,7 @@ namespace BannerlordVR.VR.Physics
         // Every static that holds a mission's agents, at each mission start.
         public static void ForgetMission()
         {
-            _refusals.Clear();
+            _refusals.Clear(); ShieldHitAt.Clear();
             BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
             ShieldBlock.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
             LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission(); Choke.ForgetMission();
@@ -419,6 +419,46 @@ namespace BannerlordVR.VR.Physics
         // GetThresholdModifier halves it in the saddle): 0.7 of the speed.
         public static float Threshold(Agent player) => player?.MountAgent != null ? RiderThreshold : 1;
 
+        // MissionCombatMechanicsHelper.ComputeBlowDamageOnShield and
+        // Agent.OnShieldDamaged: the blow's raw damage on the shield's armour,
+        // x0.5 for a point and x0.7 for an edge or a blunt head, x2 for a
+        // BonusAgainstShield weapon (axes); the shield loses that many hit
+        // points and is destroyed at 0. Blocked by the physics, a struck
+        // shield never wore down and never broke.
+        // One blow per shield per 0.35 s: the blade sweeps it on several
+        // samples and frames.
+        private static readonly System.Collections.Generic.Dictionary<int, float> ShieldHitAt = new System.Collections.Generic.Dictionary<int, float>();
+        private static void ShieldDamage(Agent agent, WeaponComponentData usage, float speed, bool thrust)
+        {
+            try
+            {
+                float now = Mission.Current?.CurrentTime ?? 0;
+                if (ShieldHitAt.TryGetValue(agent.Index, out float at) && now >= at && now - at < .35f) return;
+                ShieldHitAt[agent.Index] = now;
+                EquipmentIndex off = agent.GetOffhandWieldedItemIndex();
+                if (off == EquipmentIndex.None) return;
+                MissionWeapon shield = agent.Equipment[off];
+                if (shield.IsEmpty || shield.CurrentUsageItem?.IsShield != true) return;
+                DamageTypes type = thrust ? usage.ThrustDamageType : usage.SwingDamageType;
+                float magnitude = (thrust ? usage.ThrustDamage : usage.SwingDamage) * Math.Min(1.5f, speed / (thrust ? 2.5f : 5));
+                float damage = MissionGameModels.Current.StrikeMagnitudeModel.ComputeRawDamage(type, magnitude, shield.GetGetModifiedArmorForCurrentUsage(), 1);
+                damage *= type == DamageTypes.Pierce ? .5f : .7f;
+                if (usage.WeaponFlags.HasAnyFlag(WeaponFlags.BonusAgainstShield)) damage *= 2;
+                int dealt = (int)damage;
+                if (dealt <= 0) return;
+                int left = Math.Max(0, shield.HitPoints - dealt);
+                agent.ChangeWeaponHitPoints(off, (short)left);
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info("SHIELD_DAMAGE agent=" + agent.Index + " -" + dealt + " hit points, " + left + " left");
+                if (left == 0)
+                {
+                    PhysicsLog.Info("SHIELD_BROKEN agent=" + agent.Index + "'s " + (shield.Item?.StringId ?? "shield") + " breaks");
+                    agent.RemoveEquippedWeapon(off);
+                }
+            }
+            catch (Exception ex) { PhysicsLog.Error("Shield damage failed.", ex); }
+        }
+
         // Damager.CheckAngles for a slash: the blow must come within
         // maxNormalAngle 60 deg of the edge; across the blade further than
         // that it lands on the flat.
@@ -542,7 +582,8 @@ namespace BannerlordVR.VR.Physics
             bool newGrab = grip && !hand.GripDown && usage == null;
             if (!changed)
             {
-                if (newGrab) { TryGrab(hand, pose.origin); if (hand.Grab.Held) hand.DiagGrabs++; }
+                // An arrow stuck in the player is grabbed before any body.
+                if (newGrab && !StuckMissiles.TryPull(player, pose.origin, index)) { TryGrab(hand, pose.origin); if (hand.Grab.Held) hand.DiagGrabs++; }
                 // Use stage-space displacement to reject locomotion-only punches.
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
@@ -983,6 +1024,8 @@ namespace BannerlordVR.VR.Physics
                     // B&S BrainModuleMelee: a weapon striking an attacking
                     // enemy's weapon or shield parries the attack.
                     Reject(hand, "equipment");
+                    // The blow wears the shield down, and breaks it at 0.
+                    if (!cooled && usage != null && !usage.IsShield) ShieldDamage(body.Agent, usage, length / dt, piercing);
                     bool parried = _living != null && _living.Parry(body, length / dt);
                     // Heavy weapons push the blocker through the block.
                     if (_living != null && !body.IsCorpse && usage != null && !usage.IsShield)
