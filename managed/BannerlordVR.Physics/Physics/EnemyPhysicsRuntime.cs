@@ -386,6 +386,34 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < Bodies.Length; i++) if (Bodies[i] != null) ActiveBodies++;
         }
 
+        // Tales of Glory (WepScript.GetWepInfo): a rider's weapon moves at its
+        // hand's speed relative to the rider, plus the rider's own speed
+        // along that motion clamped to 4 m/s (2 on foot, where the full
+        // walking speed is kept here). The whole gallop counted: every touch
+        // of a blade held still struck at the 12 m/s cap and skewered bodies
+        // were flung at 12 m/s.
+        public const float RiderBoost = 4, RiderThreshold = .7f;
+        public static float RiderSpeed(Agent player)
+        {
+            Agent mount = player?.MountAgent;
+            if (mount == null) return 0;
+            Vec3 v = mount.Velocity;
+            return new Vec2(v.x, v.y).Length;
+        }
+        public static Vec3 HandMotion(Agent player, Vec3 world)
+        {
+            Agent mount = player?.MountAgent;
+            if (mount == null) return world;
+            Vec3 avatar = mount.Velocity, own = world - avatar;
+            float length = own.Length;
+            if (length < 1e-3f) return own;
+            Vec3 dir = own * (1 / length);
+            return own + dir * Math.Max(0, Math.Min(RiderBoost, InteractionMath.Dot(avatar, dir)));
+        }
+        // A mounted strike needs half the energy to enter or wound (TOG
+        // GetThresholdModifier halves it in the saddle): 0.7 of the speed.
+        public static float Threshold(Agent player) => player?.MountAgent != null ? RiderThreshold : 1;
+
         // A javelin, throwing axe or knife held in its throwing usage still
         // strikes in the hand as its melee usage (Bannerlord gives each one).
         public static WeaponComponentData MeleeUsage(MissionWeapon weapon)
@@ -526,7 +554,7 @@ namespace BannerlordVR.VR.Physics
             { hand.Cut.Reset(); return false; }
             if (hand.Cut.Sample(agent.Index, start - point.World, axis, trackedTravel, now))
             {
-                Vec3 velocity = (start - hand.PreviousBase) * (1 / dt) - point.Velocity;
+                Vec3 velocity = HandMotion(player, (start - hand.PreviousBase) * (1 / dt)) - point.Velocity;
                 PhysicalHit.ApplyDrawCut(player, body, point, contact, velocity, weapon, slot);
                 if (index == 0) body.LastHitLeft = now; else body.LastHitRight = now;
                 PhysicsInterop.Haptic(index, .35f, .045f);
@@ -636,7 +664,7 @@ namespace BannerlordVR.VR.Physics
             int tier = BodyPenetration.TierOf(hand.Item);
             PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : BodyPenetration.MaterialFor(body.Agent, point.Part);
             PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
-            float relativeSpeed = (motion * (1 / dt) - point.Velocity).Length;
+            float relativeSpeed = (HandMotion(player, motion * (1 / dt)) - point.Velocity).Length;
             float pressure = PenetrationJoint.Pressure(InteractionMath.Dot(motion, axisN) / dt, overshoot, hand.Item?.Weight ?? 1.5f);
             float threshold = PenetrationJoint.PressureThreshold(profile, relativeSpeed) * row.PressureForceMultiplier;
             if (pressure < threshold) return;
@@ -867,7 +895,7 @@ namespace BannerlordVR.VR.Physics
                 // impacts, so a first glancing touch no longer blocks the stab
                 // that follows it.
                 BodyPoint early = body.ReadContact(bone);
-                Vec3 sampleVelocity = (current - previous) * (1 / dt) - early.Velocity;
+                Vec3 sampleVelocity = HandMotion(player, (current - previous) * (1 / dt)) - early.Velocity;
                 Vec3 bladeAxis = (tip - start).NormalizedCopy();
                 bool piercing = blade && along >= .8f && usage.ThrustDamage > 0 &&
                     InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
@@ -895,7 +923,7 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
                 earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
-                rawVelocity = (current - previous) * (1 / dt) - point.Velocity;
+                rawVelocity = HandMotion(player, (current - previous) * (1 / dt)) - point.Velocity;
                 velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
             if (hit == null) return;
@@ -936,7 +964,7 @@ namespace BannerlordVR.VR.Physics
             bool atPoint = !blade || hitAlong >= .8f;
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
-                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
+                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player);
             // Inside the impact cooldown only an actual entry counts.
             if (hitCooled && !enters) return;
             // DamageModifier minVelocity: a slower contact (a blade resting or
@@ -947,7 +975,7 @@ namespace BannerlordVR.VR.Physics
                 BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile damageProfile);
                 PenetrationModifiers.Row damageRow = PenetrationModifiers.Get(damageProfile,
                     BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
-                damages = velocity.Length >= damageRow.DamageMinVelocity;
+                damages = velocity.Length >= damageRow.DamageMinVelocity * Threshold(player);
             }
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             // A blade under the material's first push speed only touches: B&S

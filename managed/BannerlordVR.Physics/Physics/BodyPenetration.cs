@@ -279,6 +279,7 @@ namespace BannerlordVR.VR.Physics
                 WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
             Release();
         }
+        private const float RideThroughSpeed = 3, RideThroughAge = .15f;
         private const float NeckDeepDepth = .02f, WholeBodyBrakeMinPartMass = 5, NearOut = .03f, FastOut = 1;
         private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
@@ -376,6 +377,12 @@ namespace BannerlordVR.VR.Physics
                 if (_age > .4f) End("no_native_physics");
                 return Body != null;
             }
+            // TOG BreakStabJoint: at a gallop the stab joint cannot hold the
+            // body; the blade slides out past its end as the rider passes,
+            // the held damage lands and the body falls off it. Held, the arm
+            // joint dragged it along at the horse's speed.
+            float riding = EnemyPhysicsRuntime.RiderSpeed(TaleWorlds.MountAndBlade.Mission.Current?.MainAgent);
+            if (riding > RideThroughSpeed && _age > RideThroughAge) { End("ridden_through", riding); return false; }
             BodyPoint p = Body.ReadContact(_bone);
             MatrixFrame bone = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = bone.TransformToParent(_localContact);
