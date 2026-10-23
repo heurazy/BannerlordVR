@@ -34,6 +34,31 @@ namespace BannerlordVR.VR.Physics
             return Math.Min(MaxKinetic, .5f * mass * speed * speed);
         }
 
+        // WepDesc.StabBoost: TOG adds a per-weapon energy to the stab test
+        // (WepKinetic + wp.StabBoost > 20 x threshold). Spears and lances
+        // are built to stab, daggers nearly as much, swords a little; a
+        // sharper point (higher thrust damage) adds up to 20 J more.
+        public const float SpearBoost = 30, DaggerBoost = 20, SwordBoost = 10, OtherBoost = 5, SharpBoostMax = 20;
+        public static float StabBoost(WeaponComponentData usage)
+        {
+            if (usage == null) return 0;
+            float boost;
+            switch (usage.WeaponClass)
+            {
+                case WeaponClass.OneHandedPolearm:
+                case WeaponClass.TwoHandedPolearm:
+                case WeaponClass.Javelin: boost = SpearBoost; break;
+                case WeaponClass.Dagger:
+                case WeaponClass.ThrowingKnife: boost = DaggerBoost; break;
+                case WeaponClass.OneHandedSword:
+                case WeaponClass.TwoHandedSword: boost = SwordBoost; break;
+                default: boost = OtherBoost; break;
+            }
+            if (usage.ThrustDamageType == DamageTypes.Pierce || usage.ThrustDamageType == DamageTypes.Cut)
+                boost += Math.Max(0, Math.Min(SharpBoostMax, (usage.ThrustDamage - 20) * .5f));
+            return boost;
+        }
+
         private static bool Helmet(Agent agent, BoneBodyPartType part) =>
             part == BoneBodyPartType.Head && agent?.SpawnEquipment != null && !agent.SpawnEquipment[EquipmentIndex.Head].IsEmpty &&
             agent.SpawnEquipment[EquipmentIndex.Head].Item?.StringId != "bvr_severed_head";

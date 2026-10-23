@@ -422,12 +422,13 @@ namespace BannerlordVR.VR.Physics
             if (TogStab.Hand(body, point.Bone) || velocity.Length < 1e-3f || bladeAxis.Length < 1e-3f) return false;
             if (InteractionMath.Dot(velocity.NormalizedCopy(), bladeAxis.NormalizedCopy()) <= TogStab.Align) return false;
             float kinetic = TogStab.Kinetic(weapon.Item, velocity);
+            float boost = TogStab.StabBoost(MeleeUsage(weapon));
             float needed = TogStab.Threshold * TogStab.ThresholdModifier(player, body, point.Part, lastHitAge);
-            bool enters = kinetic > needed;
+            bool enters = kinetic + boost > needed;
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "TOG_STAB {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", enters ? "enters" : "refused", point.Part,
-                    velocity.Length, kinetic, needed));
+                    "TOG_STAB {0} part={1} speed={2:F2} kinetic={3:F1} J boost={4:F1} J needed={5:F1} J", enters ? "enters" : "refused", point.Part,
+                    velocity.Length, kinetic, boost, needed));
             return enters;
         }
 
