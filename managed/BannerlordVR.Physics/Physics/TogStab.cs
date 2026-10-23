@@ -25,6 +25,7 @@ namespace BannerlordVR.VR.Physics
         // The kill lands as the fade ends (ActiveRagdollBody.FadeToDeath).
         public const float BreakNear = .05f, OutKick = 5, DeathDelay = ActiveRagdollBody.FadeStart / ActiveRagdollBody.FadeRate, RecentHit = 1;
         public const float StabIn = 10, StabOut = 50;
+        public const float ChainmailThreshold = 2, PlateThreshold = 3;
 
         public static float Kinetic(ItemObject item, Vec3 velocity)
         {
@@ -53,11 +54,15 @@ namespace BannerlordVR.VR.Physics
             }
             if (player?.MountAgent != null) m *= .5f;
             else if (lastHitAge < RecentHit) m *= .9f;
+            // TOG has one metal (x5, full plate); Bannerlord's mail and its
+            // plate pieces are scaled under it: at x5 every armoured soldier
+            // needed 100 J (9 m/s with a 1.5 kg spear) and 93 stabs in 103
+            // were refused.
             switch (BodyPenetration.MaterialFor(body.Agent, part))
             {
                 case PenetrationMaterial.Flesh: m *= .9f; break;
-                case PenetrationMaterial.Chainmail:
-                case PenetrationMaterial.Plate: m *= 5; break;
+                case PenetrationMaterial.Chainmail: m *= ChainmailThreshold; break;
+                case PenetrationMaterial.Plate: m *= PlateThreshold; break;
             }
             if (helmet) m *= 20;
             return m;
