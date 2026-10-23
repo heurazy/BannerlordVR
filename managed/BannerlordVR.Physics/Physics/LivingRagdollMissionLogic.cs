@@ -305,7 +305,8 @@ namespace BannerlordVR.VR.Physics
         private static float LeaseSeconds => EnemyPhysicsSettings.ActiveRagdoll ? 14 : 6;
         public bool KeepHeld(EnemyBody body, bool allowBegin = false, bool destabilized = false)
         {
-            if (!Available || body.IsCorpse) return false;
+            // A rider's ragdoll would start in the saddle, on the moving horse.
+            if (!Available || body.IsCorpse || body.Agent?.MountAgent != null) return false;
             foreach (Entry entry in _entries)
             {
                 if (entry.Agent != body.Agent || !entry.Lease.Occupied) continue;

@@ -132,7 +132,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (agent == null || agent == player) return "self";
             if (!agent.IsHuman) return "not_human";
-            if (agent.MountAgent != null || agent.RiderAgent != null) return "mounted";
+            if (agent.RiderAgent != null || (agent.MountAgent != null && !EnemyPhysicsSettings.Riders)) return "mounted";
             if (agent.State != AgentState.Active && agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) return "state_" + agent.State;
             // Teams decide: the native IsEnemy is false for an agent without a
             // controller (the sandbox dummies), which left them untracked.

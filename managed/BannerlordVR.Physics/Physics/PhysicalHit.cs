@@ -148,6 +148,16 @@ namespace BannerlordVR.VR.Physics
             BloodFx.Burst(BloodFx.Kind.Drip, contact, -Vec3.Up);
         }
 
+        // A rider whose head or hand is grabbed and pulled hard comes off
+        // its horse: the engine's dismount, as from a heavy blow.
+        public static void PullOffMount(Agent player, Agent victim, BodyPoint point, Vec3 direction)
+        {
+            if (victim?.MountAgent == null || !victim.IsActive()) return;
+            PhysicsLog.Info("RIDER agent=" + victim.Index + " pulled off the horse");
+            Deliver(player, victim, point, point.World, direction, MissionWeapon.Invalid, EquipmentIndex.None,
+                null, DamageTypes.Blunt, 0, 1, 0, false, false, PushEffect.Destabilize);
+        }
+
         private static float Deliver(Agent player, Agent victim, BodyPoint point, Vec3 contact,
             Vec3 direction, MissionWeapon weapon, EquipmentIndex slot, WeaponComponentData usage,
             DamageTypes damageType, float raw, int damage, float absorbed, bool thrust, bool bloodLoss, PushEffect push)
@@ -166,6 +176,13 @@ namespace BannerlordVR.VR.Physics
             float stun = bloodLoss || shrug ? 0 : push == PushEffect.None || push == PushEffect.Destabilize ? .2f : PushReaction.Recoil(push);
             BlowFlags flags = bloodLoss ? BlowFlags.NoSound | BlowFlags.ShrugOff : shrug ? BlowFlags.ShrugOff :
                 push == PushEffect.StaggerMedium || push == PushEffect.StaggerFull ? BlowFlags.KnockBack : BlowFlags.None;
+            // A rider is not knocked back (Mission.MeleeHitCallback gives a
+            // mounted victim CanDismount instead): a destabilizing blow, the
+            // one that sends a man on foot down, unseats it.
+            bool rider = victim.MountAgent != null && victim.MountAgent.RiderAgent == victim;
+            if (rider && !bloodLoss) flags = push == PushEffect.Destabilize ? BlowFlags.CanDismount : flags & ~BlowFlags.KnockBack;
+            if (rider && push == PushEffect.Destabilize && EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info("RIDER agent=" + victim.Index + " unseated by a destabilizing blow");
             Mission mission = Mission.Current;
             int victimIndex = victim.Index;
             // A lethal blow without attacker crashes the custom battle morale

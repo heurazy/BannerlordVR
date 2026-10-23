@@ -12,6 +12,10 @@ namespace BannerlordVR.VR.Physics
         // On horseback too: every hit speed is already the blade's relative
         // to the body it meets, so a charge strikes as hard as it should.
         public static readonly bool Mounted = VrConfig.Bool("enemy_physics_mounted", true);
+        // Enemy riders are physical bodies too (cuts, stabs, blood, parries,
+        // grabs of the head or a hand); a ragdoll is never started in the
+        // saddle: a destabilizing blow or a hard pull unseats them instead.
+        public static readonly bool Riders = VrConfig.Bool("enemy_physics_riders", true);
         public static readonly float Spring = Read("enemy_physics_grab_spring", 180, 10, 500);
         public static readonly float Damping = Read("enemy_physics_grab_damping", 22, 1, 80);
         public static readonly float MaxForce = Read("enemy_physics_max_force", 350, 20, 800);

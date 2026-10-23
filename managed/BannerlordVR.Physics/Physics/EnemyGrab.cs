@@ -34,6 +34,7 @@ namespace BannerlordVR.VR.Physics
                     body.Skeleton.GetCurrentRagdollState() != RagdollState.Disabled) Release();
             }
         }
+        private const float PullOff = .35f;
         public void Release()
         {
             if (Body != null && EnemyPhysicsSettings.ActiveRagdoll) EnemyPhysicsRuntime.ReleaseActiveGrab(Body, HandIndex);
@@ -63,6 +64,12 @@ namespace BannerlordVR.VR.Physics
             MatrixFrame boneWorld = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
             Vec3 anchor = boneWorld.TransformToParent(_localOffset);
             Vec3 error = hand.origin - anchor;
+            // Pulled well past the grabbed point, a rider leaves the saddle.
+            if (!Body.IsCorpse && Body.Agent.MountAgent != null && error.Length > PullOff)
+            {
+                PhysicalHit.PullOffMount(TaleWorlds.MountAndBlade.Mission.Current?.MainAgent, Body.Agent, p, error.NormalizedCopy());
+                Release(); return;
+            }
             if (error.Length > EnemyPhysicsSettings.BreakDistance) { Release(); return; }
             // B&S: the hand is jointed to the handle, so the shown hand stays
             // on the grabbed point while the controller pulls on.
