@@ -60,15 +60,16 @@ namespace BannerlordVR.VR.Physics
         }
 
         public static bool TrySlice(Agent player, EnemyBody body, Vec3 contact, Vec3 bladeBase, Vec3 bladeTip, Vec3 velocity,
-            PenetrationProfile profile, bool twoHanded, bool thrust)
+            PenetrationProfile profile, bool twoHanded, bool thrust, int tier = 2)
         {
             Agent victim = body?.Agent;
             if (victim == null || body.IsCorpse || !victim.IsActive() || thrust) return false;
             float speed = velocity.Length;
-            if (speed <= Dismemberment.MinVelocity(profile, twoHanded))
+            float min = Dismemberment.MinVelocity(profile, twoHanded, tier);
+            if (speed <= min)
             {
                 if (EnemyPhysicsSettings.Trace && speed > 7) PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
-                    "SLICE_MISS speed={0:F1} below {1:F1} m/s", speed, Dismemberment.MinVelocity(profile, twoHanded)));
+                    "SLICE_MISS speed={0:F1} below {1:F1} m/s (tier {2})", speed, min, tier));
                 return false;
             }
             string miss = "no joint within 25 cm";
@@ -85,8 +86,11 @@ namespace BannerlordVR.VR.Physics
                 Vec3 offset = contact - at;
                 float along = Math.Abs(InteractionMath.Dot(offset, axis.NormalizedCopy()));
                 if ((offset - axis.NormalizedCopy() * InteractionMath.Dot(offset, axis.NormalizedCopy())).Length > .25f) continue;
-                if (!Dismemberment.Slices(profile, twoHanded, false, speed, axis, bladeUp, velocity, along))
+                if (!Dismemberment.Slices(profile, twoHanded, false, speed, axis, bladeUp, velocity, along, tier))
                 { miss = joint.Kind + " angle or distance (" + along.ToString("F2", CultureInfo.InvariantCulture) + " m along the limb)"; continue; }
+                PenetrationMaterial armour = BodyPenetration.MaterialFor(victim, victim.AgentVisuals.GetBoneTypeData(joint.Bone).BodyPartType);
+                if (!Dismemberment.EdgeEnters(profile, armour, tier, speed))
+                { miss = joint.Kind + " covered by " + armour + " the edge does not enter"; continue; }
                 Slice(player, victim, joint.Bone, joint.Parent, at, joint.Kind, speed);
                 return true;
             }

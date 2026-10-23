@@ -959,7 +959,8 @@ namespace BannerlordVR.VR.Physics
                 bool twoHanded = usage.WeaponFlags.HasAnyFlag(WeaponFlags.NotUsableWithOneHand);
                 // Damager dismembermentMinVelocity is 12 m/s for a one-handed
                 // sword: measured on the 12 m/s-capped hit speed it never sliced.
-                if (DismemberFx.TrySlice(player, hit, contact, start, tip, InteractionMath.ClampMagnitude(rawVelocity, 30), sliceProfile, twoHanded, false))
+                if (DismemberFx.TrySlice(player, hit, contact, start, tip, InteractionMath.ClampMagnitude(rawVelocity, 30), sliceProfile, twoHanded, false,
+                        BodyPenetration.TierOf(weapon.Item)))
                 {
                     PhysicsInterop.Haptic(index, .8f, .06f);
                     return;

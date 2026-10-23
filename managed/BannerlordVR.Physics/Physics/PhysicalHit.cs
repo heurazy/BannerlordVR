@@ -62,6 +62,9 @@ namespace BannerlordVR.VR.Physics
         public static PushMaterial Material(WeaponComponentData usage, bool thrust)
         {
             if (usage == null) return PushMaterial.Punch;
+            // A mace's or a staff's thrust is a blunt blow (B&S Damager_Mace
+            // has no pierce): pushed and stunned as one, not as a point.
+            if (thrust && usage.ThrustDamageType == DamageTypes.Blunt) return usage.WeaponLength > 90 ? PushMaterial.Blunt : PushMaterial.BluntLight;
             if (thrust) return PushMaterial.Pierce;
             if (usage.SwingDamageType == DamageTypes.Blunt) return usage.WeaponLength > 90 ? PushMaterial.Blunt : PushMaterial.BluntLight;
             switch (usage.WeaponClass)

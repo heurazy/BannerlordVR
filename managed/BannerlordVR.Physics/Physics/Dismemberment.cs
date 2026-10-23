@@ -23,7 +23,7 @@ namespace BannerlordVR.VR.Physics
         public const float MaxVerticalAngle = 90, MaxHorizontalAngle = 35, SliceWidth = .12f;
 
         // Damager_*.json dismembermentMinVelocity; 0 when the damager cannot slice.
-        public static float MinVelocity(PenetrationProfile profile, bool twoHanded)
+        public static float BaseMinVelocity(PenetrationProfile profile, bool twoHanded)
         {
             switch (profile)
             {
@@ -35,23 +35,64 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
-        public static bool CheckSlice(Vec3 sliceAxis, Vec3 bladeUp, Vec3 bladeForward, float contactDistance)
+        // Damager.tiers[].dismembermentMinVelocityMultiplier (B&S tiers 0-5,
+        // Bannerlord Tier1-Tier6): a poor blade needs 2-2.5 times the speed,
+        // a fine one 0.8-0.9. Without it every tier cut at the tier-2 speed.
+        private static readonly float[] Sword1H = { 2.5f, 1.5f, 1, .9f, .8f, .8f }, Sword2H = { 2, 1.5f, 1, .9f, .8f, .8f },
+            Axe2H = { 2, 1.5f, 1, .95f, .9f, .9f };
+        public static float TierMultiplier(PenetrationProfile profile, bool twoHanded, int tier)
+        {
+            float[] row = profile == PenetrationProfile.AxeSlash2H ? Axe2H : profile == PenetrationProfile.SaberSlash && twoHanded ? Sword2H : Sword1H;
+            return row[Math.Max(0, Math.Min(row.Length - 1, tier))];
+        }
+        public static float MinVelocity(PenetrationProfile profile, bool twoHanded, int tier = 2) =>
+            BaseMinVelocity(profile, twoHanded) * TierMultiplier(profile, twoHanded, tier);
+
+        // dismemberment{Vertical,Horizontal}Angle per damager: swords 90/35,
+        // axes 80/45, daggers 60/35.
+        public static void Angles(PenetrationProfile profile, out float vertical, out float horizontal)
+        {
+            switch (profile)
+            {
+                case PenetrationProfile.AxeSlash1H:
+                case PenetrationProfile.AxeSlash2H: vertical = 80; horizontal = 45; return;
+                case PenetrationProfile.DaggerSlash: vertical = 60; horizontal = 35; return;
+                default: vertical = MaxVerticalAngle; horizontal = MaxHorizontalAngle; return;
+            }
+        }
+
+        public static bool CheckSlice(Vec3 sliceAxis, Vec3 bladeUp, Vec3 bladeForward, float contactDistance,
+            PenetrationProfile profile = PenetrationProfile.SaberSlash)
         {
             if (!InteractionMath.IsFinite(sliceAxis) || !InteractionMath.IsFinite(bladeUp) || !InteractionMath.IsFinite(bladeForward) ||
                 !InteractionMath.IsFinite(contactDistance) || contactDistance >= SliceWidth) return false;
             if (sliceAxis.LengthSquared < 1e-8f || bladeUp.LengthSquared < 1e-8f || bladeForward.LengthSquared < 1e-8f) return false;
             // Damager.CheckSlice compares the dot products with angle / 90.
+            Angles(profile, out float vertical, out float horizontal);
             Vec3 axis = sliceAxis.NormalizedCopy();
-            return Math.Abs(InteractionMath.Dot(axis, bladeUp.NormalizedCopy())) < MaxVerticalAngle / 90 &&
-                   Math.Abs(InteractionMath.Dot(axis, bladeForward.NormalizedCopy())) < MaxHorizontalAngle / 90;
+            return Math.Abs(InteractionMath.Dot(axis, bladeUp.NormalizedCopy())) < vertical / 90 &&
+                   Math.Abs(InteractionMath.Dot(axis, bladeForward.NormalizedCopy())) < horizontal / 90;
         }
 
         public static bool Slices(PenetrationProfile profile, bool twoHanded, bool thrust, float speed,
-            Vec3 sliceAxis, Vec3 bladeUp, Vec3 bladeForward, float contactDistance)
+            Vec3 sliceAxis, Vec3 bladeUp, Vec3 bladeForward, float contactDistance, int tier = 2)
         {
-            float min = MinVelocity(profile, twoHanded);
+            float min = MinVelocity(profile, twoHanded, tier);
             return !thrust && min > 0 && InteractionMath.IsFinite(speed) && speed > min &&
-                CheckSlice(sliceAxis, bladeUp, bladeForward, contactDistance);
+                CheckSlice(sliceAxis, bladeUp, bladeForward, contactDistance, profile);
+        }
+
+        // Damager.OnCollision slices only a hit whose penetration is Hit
+        // (CheckPenetration: the target material lets the edge in at that
+        // speed). DamageModifier_Slash: mail and plate never let a sword or
+        // an axe in, so a mail coif, a gorget or a plated limb is never cut
+        // off. Bannerlord's plate rows stand in for leather on stabs; a cut
+        // through them is held to mail's.
+        public static bool EdgeEnters(PenetrationProfile profile, PenetrationMaterial material, int tier, float speed)
+        {
+            if (material == PenetrationMaterial.Plate) material = PenetrationMaterial.Chainmail;
+            PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
+            return row.Allow && InteractionMath.IsFinite(speed) && speed >= row.MinVelocity;
         }
 
         // The DamageModifier knockout rows are no longer read by ThunderRoad:
