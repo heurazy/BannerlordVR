@@ -60,12 +60,12 @@ namespace BannerlordVR.VR.Physics
         // are read a few at a time from the moment the physics takes the
         // agent, one vertex in three.
         private const int MaxVertices = 60000, CachedAgents = 8, Stride = 3, ReadsPerFrame = 1200;
-        private const float SliceAlong = .03f, SliceCos = .94f, OnSurface = .003f;
+        private const float SliceAlong = .03f, SliceCos = .94f, OnSurface = .003f, SettleSeconds = 1;
         private sealed class Reader
         {
             public readonly List<Vec3> Vertices = new List<Vec3>(16000);
-            public List<Mesh> Meshes;
             public int MeshIndex, Vertex, Count = -1;
+            public float StartAt;
             public Mesh Copy; public ManagedMeshEditOperations Ops;
             public bool Done;
         }
@@ -76,7 +76,9 @@ namespace BannerlordVR.VR.Physics
         public static void Prepare(Agent agent)
         {
             if (_broken || !EnemyPhysicsSettings.Wounds || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent)) return;
-            Readers[agent] = new Reader(); ReaderOrder.Add(agent);
+            // A second after it is taken: a body just placed or equipping
+            // rebuilds its visuals.
+            Readers[agent] = new Reader { StartAt = (Mission.Current?.CurrentTime ?? 0) + SettleSeconds }; ReaderOrder.Add(agent);
             while (ReaderOrder.Count > CachedAgents) { Close(Readers[ReaderOrder[0]]); Readers.Remove(ReaderOrder[0]); ReaderOrder.RemoveAt(0); }
         }
         private static void Close(Reader r)
@@ -84,23 +86,34 @@ namespace BannerlordVR.VR.Physics
             try { r.Ops?.ManualInvalidate(); r.Copy?.ManualInvalidate(); } catch (Exception) { }
             r.Ops = null; r.Copy = null;
         }
+        // The engine's meshes are only touched within the frame they are asked
+        // for: kept from one frame to the next, a body that re-equipped had
+        // freed them and the copy crashed the game (23 Oct 2026). Each mesh
+        // is copied whole into one of our own, then read from that copy.
+        private static Mesh MeshAt(Skeleton skeleton, int index)
+        {
+            int i = 0;
+            foreach (Mesh mesh in skeleton.GetAllMeshes()) if (i++ == index) return mesh;
+            return null;
+        }
         private static void Read(int budget)
         {
+            float now = Mission.Current?.CurrentTime ?? 0;
             foreach (Agent agent in ReaderOrder)
             {
                 Reader r = Readers[agent];
-                if (r.Done) continue;
+                if (r.Done || now < r.StartAt) continue;
                 MBAgentVisuals visuals = agent.AgentVisuals;
-                Skeleton skeleton = visuals != null && visuals.IsValid() ? visuals.GetSkeleton() : null;
-                if (skeleton == null) { r.Done = true; continue; }
-                if (r.Meshes == null) r.Meshes = new List<Mesh>(skeleton.GetAllMeshes());
+                Skeleton skeleton = agent.IsActive() && visuals != null && visuals.IsValid() ? visuals.GetSkeleton() : null;
+                if (skeleton == null) { Close(r); r.Done = true; continue; }
                 while (budget > 0 && !r.Done)
                 {
                     if (r.Ops == null)
                     {
-                        if (r.MeshIndex >= r.Meshes.Count || r.Vertices.Count >= MaxVertices) { r.Done = true; break; }
-                        Mesh source = r.Meshes[r.MeshIndex++];
-                        Material material = source?.GetMaterial();
+                        if (r.Vertices.Count >= MaxVertices) { r.Done = true; break; }
+                        Mesh source = MeshAt(skeleton, r.MeshIndex++);
+                        if (source == null) { r.Done = true; break; }
+                        Material material = source.GetMaterial();
                         if (material == null) continue;
                         r.Copy = Mesh.CreateMeshWithMaterial(material);
                         r.Ops = ManagedMeshEditOperations.Create(r.Copy);
@@ -284,14 +297,21 @@ namespace BannerlordVR.VR.Physics
             catch (Exception ex) { Fail(ex.Message); }
         }
 
+        // In the mission tick, where the engine's meshes were read safely
+        // (after the agents' async tick it crashed): a share of a body's
+        // surface each frame.
+        public static void ReadSurfaces()
+        {
+            if (_broken || ReaderOrder.Count == 0) return;
+            try { Read(ReadsPerFrame); }
+            catch (Exception ex) { Fail("reading a body's surface: " + ex.Message); }
+        }
+
         // After the agents' tick: each wound back on its bone. A body whose
         // visuals are gone (a filed corpse) keeps its wounds where they are.
         public static void Tick()
         {
-            if (_broken) return;
-            try { if (ReaderOrder.Count > 0) Read(ReadsPerFrame); }
-            catch (Exception ex) { Fail("reading a body's surface: " + ex.Message); return; }
-            if (Wounds.Count == 0) return;
+            if (_broken || Wounds.Count == 0) return;
             if (Mission.Current != _mission) { Wounds.Clear(); return; }
             try
             {
