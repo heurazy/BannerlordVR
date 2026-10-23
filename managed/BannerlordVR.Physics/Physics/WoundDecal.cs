@@ -20,43 +20,66 @@ namespace BannerlordVR.VR.Physics
     // a cut.
     internal static class WoundDecal
     {
-        private static readonly string[] Textures = { "blood21_splatter", "blood_7_sprite", "blood_9_spirte", "blood_terrain_decal_0_d" };
+        // The game's twelve blood splatters (terrain decal diffuse maps).
+        private const int Variants = 12;
         private const int PerAgent = 10, Total = 60;
-        private const float StabSize = .07f, CutLength = .16f, CutWidth = .05f, Lift = .012f;
-        // Dark arterial red over the texture.
-        private const uint Tint = 0xFF7A0C0C;
+        private const float StabSize = .07f, CutLength = .16f, CutWidth = .05f;
+        // The contact is on the body's collision capsule, under the armour:
+        // the wound is laid out on the armour's surface (a mail sleeve or a
+        // plate covered it in game).
+        private static float Lift(Agent agent, BoneBodyPartType part)
+        {
+            if (part == BoneBodyPartType.Head && agent.SpawnEquipment != null && !agent.SpawnEquipment[EquipmentIndex.Head].IsEmpty)
+                return HelmetVolume.Margin + .01f;
+            switch (BodyPenetration.MaterialFor(agent, part))
+            {
+                case PenetrationMaterial.Leather: return .025f;
+                case PenetrationMaterial.Chainmail: return .03f;
+                case PenetrationMaterial.Plate: return .045f;
+                default: return .015f;
+            }
+        }
         private struct Wound { public Agent Agent; public sbyte Bone; public MatrixFrame Local; public GameEntity Entity; }
         private static readonly List<Wound> Wounds = new List<Wound>();
-        private static Material _material;
+        private static readonly List<Material> _materials = new List<Material>();
         private static Mission _mission;
         private static bool _broken, _logged, _searched;
 
-        internal static void ForgetMission() { Wounds.Clear(); _mission = null; }
+        // At each mission start (loading): the splatters are streamed, and one
+        // drawn before it loaded was a flat black square.
+        internal static void ForgetMission() { Wounds.Clear(); _mission = null; if (EnemyPhysicsSettings.Wounds) FindMaterials(); }
 
         public static void Stab(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, false);
         public static void Cut(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, true);
 
         private static Material FindMaterial()
         {
-            if (_searched) return _material;
+            FindMaterials();
+            return _materials.Count == 0 ? null : _materials[MBRandom.RandomInt(_materials.Count)];
+        }
+        private static void FindMaterials()
+        {
+            if (_searched) return;
             _searched = true;
-            Texture texture = null; string textureName = null;
-            foreach (string name in Textures)
+            try
             {
-                texture = Texture.GetFromResource(name);
-                if (texture != null) { textureName = name; break; }
+                Material source = Material.GetDefaultMaterial();
+                if (source == null) { PhysicsLog.Info("WOUND no default material; wounds are not drawn."); return; }
+                int loaded = 0;
+                for (int i = 0; i < Variants; i++)
+                {
+                    Texture texture = Texture.GetFromResource("blood_terrain_decal_" + i + "_d");
+                    if (texture == null) continue;
+                    texture.PreloadTexture(true);
+                    if (texture.IsLoaded()) loaded++;
+                    Material material = source.CreateCopy();
+                    material.SetTexture(Material.MBTextureType.DiffuseMap, texture);
+                    material.SetAlphaBlendMode(Material.MBAlphaBlendMode.Modulate);
+                    _materials.Add(material);
+                }
+                PhysicsLog.Info("WOUND " + _materials.Count + " blood splatters, " + loaded + " loaded");
             }
-            Material source = Material.GetDefaultMaterial();
-            if (texture == null || source == null)
-            {
-                PhysicsLog.Info("WOUND no blood texture (" + (textureName ?? "none") + ") or default material; wounds are not drawn.");
-                return null;
-            }
-            _material = source.CreateCopy();
-            _material.SetTexture(Material.MBTextureType.DiffuseMap, texture);
-            _material.SetAlphaBlendMode(Material.MBAlphaBlendMode.Modulate);
-            PhysicsLog.Info("WOUND mesh material default with texture " + textureName);
-            return _material;
+            catch (Exception ex) { Fail(ex.Message); }
         }
 
         // The quad in its own frame: x along, y across, z out of the body.
@@ -74,7 +97,7 @@ namespace BannerlordVR.VR.Physics
             ops.AddTriangle(p0, p3, p2, down, down, down, u0, u3, u2, white, white, white);
             ops.FinalizeEditing();
             mesh.RecomputeBoundingBox();
-            mesh.Color = Tint;
+            mesh.Color = 0xFFFFFFFF;
             return mesh;
         }
 
@@ -111,7 +134,8 @@ namespace BannerlordVR.VR.Physics
                 Vec3 side = Vec3.CrossProduct(normal, along);
                 float jitter = MBRandom.RandomFloatRanged(.8f, 1.2f);
                 float length = (cut ? CutLength : StabSize) * jitter, width = (cut ? CutWidth : StabSize) * jitter;
-                var world = new MatrixFrame(new Mat3(along * length, side * width, normal), contact + normal * Lift);
+                BoneBodyPartType part = agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
+                var world = new MatrixFrame(new Mat3(along * length, side * width, normal), contact + normal * Lift(agent, part));
                 MatrixFrame local = boneWorld.TransformToLocalNonOrthogonal(world);
                 GameEntity entity = GameEntity.CreateEmptyDynamic(scene, false);
                 entity.AddMesh(Quad(material), true);
