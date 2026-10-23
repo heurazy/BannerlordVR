@@ -142,8 +142,52 @@ namespace BannerlordVR.VR.Physics
             Perf.Mark("penetration");
         }
 
+        // Tales of Glory's stab (TogStab): the entry test was passed; a vital
+        // part dies on the blade (gone limp now, killed 1 s on unless pulled
+        // out first), a limb takes kinetic/20 x modifier at once.
+        private bool _tog;
+        private float _togDeathAt = -1;
+        public void BeginTog(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, Agent source, int tier,
+            Vec3 velocity, float kinetic, float damageModifier)
+        {
+            Begin(body, point, contact);
+            if (Body == null) return;
+            _tog = true; _togDeathAt = -1;
+            PenetrationMaterial material = MaterialFor(body.Agent, point.Part);
+            _profile = profile; _material = material; _tier = tier; _depthLimit = float.PositiveInfinity;
+            _source = source; _zone = ZoneFor(body, point); _part = point.Part;
+            _cut = false; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
+            BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
+            _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false; _nextTrace = 0;
+            Disarm.ArmStab(body.Agent, point.Bone, point.Part, body.Skeleton.GetBoneName(point.Bone));
+            string effect;
+            if (TogStab.Lethal(point.Part))
+            {
+                _pending = body.Agent.Health + 1; _pendingVictim = body.Agent; _lastAnchor = contact;
+                EnemyPhysicsRuntime.MarkDying(body);
+                _togDeathAt = TogStab.DeathDelay;
+                effect = "lethal";
+            }
+            else
+            {
+                float damage = Math.Min(kinetic, TogStab.LimbKineticCap) / 20 * damageModifier;
+                float lost = PhysicalHit.ApplyPenetration(source, body.Agent, point.Bone, point.Part, contact, damage, DamageTypes.Pierce);
+                if (lost > 0) RecordLimbWound(lost);
+                effect = "limb damage=" + damage.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PENETRATION begin model=tog profile={0} zone={1} material={2} kinetic={3:F1} J {4}", profile, _zone, material, kinetic, effect));
+        }
+        private void RecordLimbWound(float lost)
+        {
+            if (Body != null && Body.Agent.IsActive()) { _woundLost += lost; _woundBody = Body; }
+        }
+
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
+            _tog = false; _togDeathAt = -1;
             Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _bladeSampled = false; _bladeVelocity = Vec3.Zero; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1; _prevSigned = float.NaN;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
@@ -280,6 +324,10 @@ namespace BannerlordVR.VR.Physics
             Release();
         }
         private const float RideThroughSpeed = 3, RideThroughAge = .15f;
+        // TOG's anchor follows the part out five times faster than in: the
+        // blade drags the part ahead of it going in, slides out nearly free.
+        private const float TogPushInDrag = 1500, TogWithdrawDrag = 300f / TogStab.StabOut * TogStab.StabIn;
+        private float TogDamper(bool goingIn) => _mass * RagdollPinDrive.MaxDampingRate * (goingIn ? 1 : TogStab.StabIn / TogStab.StabOut);
         private const float NeckDeepDepth = .02f, WholeBodyBrakeMinPartMass = 5, NearOut = .03f, FastOut = 1;
         private EnemyBody _woundBody, _lastWoundBody;
         private Agent _pendingVictim;
@@ -381,6 +429,7 @@ namespace BannerlordVR.VR.Physics
             // body; the blade slides out past its end as the rider passes,
             // the held damage lands and the body falls off it. Held, the arm
             // joint dragged it along at the horse's speed.
+            if (_tog && _togDeathAt >= 0 && _age >= _togDeathAt) { End("tog_death"); return false; }
             float riding = EnemyPhysicsRuntime.RiderSpeed(TaleWorlds.MountAndBlade.Mission.Current?.MainAgent);
             if (riding > RideThroughSpeed && _age > RideThroughAge) { End("ridden_through", riding); return false; }
             BodyPoint p = Body.ReadContact(_bone);
@@ -443,6 +492,14 @@ namespace BannerlordVR.VR.Physics
             // yanked by the hand, rode up it 73 cm towards the player.
             float leaving = float.IsNaN(_prevSigned) || dt <= 0 ? 0 : (_prevSigned - signedDepth) / dt;
             _prevSigned = signedDepth;
+            if (_tog && _maxDepth > TogStab.BreakNear * 2 && signedDepth < TogStab.BreakNear)
+            {
+                // BreakStabJoint: the part is kicked off towards the hilt at its
+                // mass x 5 (an impulse; one PhysX step at 60 Hz).
+                Vec3 kick = -axis * Math.Min(EnemyPhysicsSettings.MaxForce, _mass * TogStab.OutKick * 60);
+                if (!Body.IsCorpse) Body.Agent.ApplyForceOnRagdoll(p.Bone, in kick);
+                End("tog_slid_out", signedDepth); return false;
+            }
             if (_maxDepth > .05f && signedDepth < NearOut && leaving > FastOut) { End("withdrawn_fast", leaving); return false; }
             // Joint zMotion Limited at penetrationVelocityMaxDepth, and never
             // past the hilt: beyond it the stopped blade carries the part.
@@ -476,7 +533,7 @@ namespace BannerlordVR.VR.Physics
             if (!Body.IsCorpse)
             {
                 EnemyPhysicsRuntime.DeepenWound(Body.Agent, _bone, depth);
-                DeepDamage(anchor, depth);
+                if (!_tog) DeepDamage(anchor, depth);
                 if (Body == null) return false;
             }
             Vec3 targetVelocity = _bladeVelocity;
@@ -500,7 +557,7 @@ namespace BannerlordVR.VR.Physics
             }
             // B&S axial damper: the part is dragged along with the blade, with
             // a different brake going in and coming out, set by its armour.
-            float damper = atLimit ? 0 : PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth, _tier);
+            float damper = atLimit ? 0 : _tog ? TogDamper(depth >= _lastDepth) : PenetrationJoint.Damper(_profile, _material, true, depth >= _lastDepth, _tier);
             // The damper acts on the blade's speed into the part and on the
             // part's own speed along the blade. The blade's push is held to
             // 300 N (the controller is never slowed, and the full damper shoved
@@ -515,7 +572,8 @@ namespace BannerlordVR.VR.Physics
             float c = Math.Min(damper, braked * RagdollPinDrive.MaxDampingRate);
             float bladeAxial = InteractionMath.Dot(targetVelocity, axis), partAxial = InteractionMath.Dot(p.Velocity, axis);
             float fromBlade = c * bladeAxial, fromPart = -c * partAxial;
-            fromBlade = Math.Max(-(depth < _lastDepth ? WithdrawDrag : PushInDrag), Math.Min(depth < _lastDepth ? WithdrawDrag : PushInDrag, fromBlade));
+            float drag = _tog ? (depth < _lastDepth ? TogWithdrawDrag : TogPushInDrag) : depth < _lastDepth ? WithdrawDrag : PushInDrag;
+            fromBlade = Math.Max(-drag, Math.Min(drag, fromBlade));
             fromPart = Math.Max(-SlideBrake, Math.Min(SlideBrake, fromPart));
             Vec3 axial = axis * (fromBlade + fromPart);
             // Pulling out, the brake drags the part along at up to its mass x

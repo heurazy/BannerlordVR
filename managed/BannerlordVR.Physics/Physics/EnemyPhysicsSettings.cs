@@ -17,6 +17,9 @@ namespace BannerlordVR.VR.Physics
         // grabs of the head or a hand); a ragdoll is never started in the
         // saddle: a destabilizing blow or a hard pull unseats them instead.
         public static readonly bool Riders = VrConfig.Bool("enemy_physics_riders", true);
+        // Stab model on trial: tog (Tales of Glory 4's WepScript stab, see
+        // TogStab) or bs (Blade & Sorcery's damager penetration).
+        public static readonly bool TogStab = !string.Equals(VrConfig.String("enemy_physics_stab_model", "tog"), "bs", StringComparison.OrdinalIgnoreCase);
         // Every mission mode with melee in it: field battles, but also
         // tournaments, duels and hideout stealth, the game's and mods' alike.
         public static bool Fighting(MissionMode mode) =>

@@ -414,6 +414,22 @@ namespace BannerlordVR.VR.Physics
         // GetThresholdModifier halves it in the saddle): 0.7 of the speed.
         public static float Threshold(Agent player) => player?.MountAgent != null ? RiderThreshold : 1;
 
+        // TOG OnCollisionEnter: along the blade, kinetic over 20 J x threshold.
+        private static bool TogEnters(Agent player, EnemyBody body, BodyPoint point, Vec3 velocity, Vec3 bladeAxis,
+            MissionWeapon weapon, float lastHitAge)
+        {
+            if (TogStab.Hand(body, point.Bone) || velocity.Length < 1e-3f || bladeAxis.Length < 1e-3f) return false;
+            if (InteractionMath.Dot(velocity.NormalizedCopy(), bladeAxis.NormalizedCopy()) <= TogStab.Align) return false;
+            float kinetic = TogStab.Kinetic(weapon.Item, velocity);
+            float needed = TogStab.Threshold * TogStab.ThresholdModifier(player, body, point.Part, lastHitAge);
+            bool enters = kinetic > needed;
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "TOG_STAB {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", enters ? "enters" : "refused", point.Part,
+                    velocity.Length, kinetic, needed));
+            return enters;
+        }
+
         // A javelin, throwing axe or knife held in its throwing usage still
         // strikes in the hand as its melee usage (Bannerlord gives each one).
         public static WeaponComponentData MeleeUsage(MissionWeapon weapon)
@@ -502,7 +518,8 @@ namespace BannerlordVR.VR.Physics
                     (blade || shield || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
                 else if (!held && !embedded && !drawing && blade && EnemyPhysicsSettings.ActiveRagdoll)
-                    TryPressure(index, hand, basePoint, tip, usage, player, dt);
+                    // TOG has no slow pressure entry: only a stab's kinetic enters.
+                    if (!EnemyPhysicsSettings.TogStab) TryPressure(index, hand, basePoint, tip, usage, player, dt);
                 if (hand.Grab.Held) hand.Grab.Tick(pose, dt);
             }
             hand.Previous = pose.origin;
@@ -928,6 +945,7 @@ namespace BannerlordVR.VR.Physics
             }
             if (hit == null) return;
             hand.DiagHits++;
+            float lastHitAge = now - Math.Max(hit.LastHitLeft, hit.LastHitRight);
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
             // B&S dismemberment: a fast cut across a joint slices and kills.
@@ -964,7 +982,9 @@ namespace BannerlordVR.VR.Physics
             bool atPoint = !blade || hitAlong >= .8f;
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
-                velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player);
+                (EnemyPhysicsSettings.TogStab
+                    ? TogEnters(player, hit, hitPoint, rawVelocity, tip - start, weapon, lastHitAge)
+                    : velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player));
             // Inside the impact cooldown only an actual entry counts.
             if (hitCooled && !enters) return;
             // DamageModifier minVelocity: a slower contact (a blade resting or
@@ -992,7 +1012,18 @@ namespace BannerlordVR.VR.Physics
                 // half a second on every cut.
                 bool fighting = !hit.IsCorpse && hit.Agent.Controller == AgentControllerType.AI && !hit.Agent.IsPaused &&
                     !EnemyPhysicsRuntime.HasLivingLease(hit.Agent);
-                if (thrust || !fighting)
+                if (EnemyPhysicsSettings.TogStab && thrust && !hit.IsCorpse && PenetrationJoint.Get(profile).Pierce)
+                {
+                    // TOG: only a stab that passed its entry test holds.
+                    if (enters)
+                    {
+                        float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
+                        hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
+                            kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge));
+                        if (hand.Penetration.Body != null) StopEngineAttack(player);
+                    }
+                }
+                else if (thrust || !fighting)
                 {
                     hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
