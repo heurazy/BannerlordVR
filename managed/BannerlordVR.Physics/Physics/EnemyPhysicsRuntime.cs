@@ -50,7 +50,7 @@ namespace BannerlordVR.VR.Physics
         {
             _refusals.Clear(); ShieldHitAt.Clear();
             BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
-            ShieldBlock.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
+            ShieldBlock.ForgetMission(); StuckMissiles.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
             LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission(); Choke.ForgetMission();
         }
         public static bool Tracks(Agent agent)
@@ -419,6 +419,24 @@ namespace BannerlordVR.VR.Physics
         // GetThresholdModifier halves it in the saddle): 0.7 of the speed.
         public static float Threshold(Agent player) => player?.MountAgent != null ? RiderThreshold : 1;
 
+        // A point carried along its blade at the gallop (a couched lance, a
+        // sword held out) strikes with the horse's speed, up to 8 m/s: cut to
+        // 4 m/s along the hand's own motion, a blade held out at the charge
+        // only touched (4 thrusts counted in a mounted battle, one entered).
+        // Only along the blade and at its point: an edge held out still only
+        // touches.
+        public const float CouchCap = 8, PointAlong = .8f, MountedPointAlong = .6f;
+        public static float PointFrom(Agent player) => player?.MountAgent != null ? MountedPointAlong : PointAlong;
+        private static Vec3 StrikeMotion(Agent player, Vec3 world, Vec3 target, Vec3 bladeAxis, bool point)
+        {
+            Vec3 motion = HandMotion(player, world) - target;
+            if (!point || player?.MountAgent == null) return motion;
+            Vec3 carried = world - target;
+            float length = carried.Length;
+            if (length <= motion.Length || InteractionMath.Dot(carried, bladeAxis) <= length * .7f) return motion;
+            return InteractionMath.ClampMagnitude(carried, CouchCap);
+        }
+
         // MissionCombatMechanicsHelper.ComputeBlowDamageOnShield and
         // Agent.OnShieldDamaged: the blow's raw damage on the shield's armour,
         // x0.5 for a point and x0.7 for an edge or a blunt head, x2 for a
@@ -582,8 +600,10 @@ namespace BannerlordVR.VR.Physics
             bool newGrab = grip && !hand.GripDown && usage == null;
             if (!changed)
             {
-                // An arrow stuck in the player is grabbed before any body.
-                if (newGrab && !StuckMissiles.TryPull(player, pose.origin, index)) { TryGrab(hand, pose.origin); if (hand.Grab.Held) hand.DiagGrabs++; }
+                // An arrow stuck in the player or a shield is grabbed before
+                // any body; one held in the hand follows it until let go.
+                StuckMissiles.Tick(player, index, pose, grip, now);
+                if (newGrab && !StuckMissiles.Holding(index) && !StuckMissiles.TryPull(player, pose, index)) { TryGrab(hand, pose.origin); if (hand.Grab.Held) hand.DiagGrabs++; }
                 // Use stage-space displacement to reject locomotion-only punches.
                 float gestureSpeed = InteractionMath.GestureSpeed(hand.Stage, stage, hand.Axis, stageAxis,
                     blade ? (tip - basePoint).Length : 0, VrCameraDriver.HandScale, dt);
@@ -1047,9 +1067,10 @@ namespace BannerlordVR.VR.Physics
                 // impacts, so a first glancing touch no longer blocks the stab
                 // that follows it.
                 BodyPoint early = body.ReadContact(bone);
-                Vec3 sampleVelocity = HandMotion(player, (current - previous) * (1 / dt)) - early.Velocity;
                 Vec3 bladeAxis = (tip - start).NormalizedCopy();
-                bool piercing = blade && along >= .8f && usage.ThrustDamage > 0 &&
+                bool atTip = blade && usage.ThrustDamage > 0 && along >= PointFrom(player);
+                Vec3 sampleVelocity = StrikeMotion(player, (current - previous) * (1 / dt), early.Velocity, bladeAxis, atTip);
+                bool piercing = atTip &&
                     InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
                 bool cooled = now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f;
                 if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
@@ -1077,7 +1098,7 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
                 earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
-                rawVelocity = HandMotion(player, (current - previous) * (1 / dt)) - point.Velocity;
+                rawVelocity = StrikeMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
                 velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
             if (hit == null) return;
@@ -1128,7 +1149,7 @@ namespace BannerlordVR.VR.Physics
             // depth and skewering, and lands when the blade is pulled out.
             // A thrust enters through its point (B&S pierce damagers sit at the
             // tip), never through the middle of a blade swept into the body.
-            bool atPoint = !blade || hitAlong >= .8f;
+            bool atPoint = !blade || hitAlong >= PointFrom(player);
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
                 (EnemyPhysicsSettings.TogStab
