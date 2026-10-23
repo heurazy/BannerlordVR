@@ -374,7 +374,7 @@ namespace BannerlordVR.VR.Physics
                 bool occupied = Bodies[chosen] != null;
                 Remove(chosen);
                 if (candidate.Bind(agent) && candidate.Sample(dt))
-                { Bodies[chosen] = candidate; if (!occupied) ActiveBodies++; }
+                { Bodies[chosen] = candidate; if (!occupied) ActiveBodies++; if (!candidate.IsCorpse) WoundDecal.Prepare(agent); }
                 else
                 {
                     string why = "bind_" + candidate.LastFailure;

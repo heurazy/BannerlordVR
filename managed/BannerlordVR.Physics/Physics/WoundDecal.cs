@@ -53,65 +53,92 @@ namespace BannerlordVR.VR.Physics
         // The drawn surface. The contact is on a collision capsule, a stock
         // radius per body part: wounds sat under a mail sleeve, or floated
         // off a slim arm. The agent's drawn meshes (body, armour, cloth) are
-        // read once in their rest pose, as BannerlordVR reads its bow and
-        // hands (AddSkinnedMeshWithColor, GetPositionOfVertex), and a wound
-        // goes on the outermost vertex around the hit, from the bone's line.
-        private const int MaxVertices = 60000, CachedAgents = 8;
-        private const float SliceAlong = .04f, SliceCos = .9f, OnSurface = .003f;
-        private static readonly Dictionary<Agent, Vec3[]> Rest = new Dictionary<Agent, Vec3[]>();
-        private static readonly List<Agent> RestOrder = new List<Agent>();
-        private static Vec3[] RestVertices(Agent agent, Skeleton skeleton)
+        // read in their rest pose, as BannerlordVR reads its bow and hands
+        // (AddSkinnedMeshWithColor, GetPositionOfVertex), and every point of
+        // a wound goes on the outermost vertex out from the bone's line there.
+        // Read at once, 47 000 vertices cost 41-44 ms on the hit's frame: they
+        // are read a few at a time from the moment the physics takes the
+        // agent, one vertex in three.
+        private const int MaxVertices = 60000, CachedAgents = 8, Stride = 3, ReadsPerFrame = 1200;
+        private const float SliceAlong = .03f, SliceCos = .94f, OnSurface = .003f;
+        private sealed class Reader
         {
-            if (Rest.TryGetValue(agent, out Vec3[] cached)) return cached;
-            Vec3[] result = null;
-            if (FastAccess.VertexCount != null)
+            public readonly List<Vec3> Vertices = new List<Vec3>(16000);
+            public List<Mesh> Meshes;
+            public int MeshIndex, Vertex, Count = -1;
+            public Mesh Copy; public ManagedMeshEditOperations Ops;
+            public bool Done;
+        }
+        private static readonly Dictionary<Agent, Reader> Readers = new Dictionary<Agent, Reader>();
+        private static readonly List<Agent> ReaderOrder = new List<Agent>();
+
+        // From the physics' admission: start reading this agent's surface.
+        public static void Prepare(Agent agent)
+        {
+            if (_broken || !EnemyPhysicsSettings.Wounds || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent)) return;
+            Readers[agent] = new Reader(); ReaderOrder.Add(agent);
+            while (ReaderOrder.Count > CachedAgents) { Close(Readers[ReaderOrder[0]]); Readers.Remove(ReaderOrder[0]); ReaderOrder.RemoveAt(0); }
+        }
+        private static void Close(Reader r)
+        {
+            try { r.Ops?.ManualInvalidate(); r.Copy?.ManualInvalidate(); } catch (Exception) { }
+            r.Ops = null; r.Copy = null;
+        }
+        private static void Read(int budget)
+        {
+            foreach (Agent agent in ReaderOrder)
             {
-                var all = new List<Vec3>(8000);
-                foreach (Mesh source in skeleton.GetAllMeshes())
+                Reader r = Readers[agent];
+                if (r.Done) continue;
+                MBAgentVisuals visuals = agent.AgentVisuals;
+                Skeleton skeleton = visuals != null && visuals.IsValid() ? visuals.GetSkeleton() : null;
+                if (skeleton == null) { r.Done = true; continue; }
+                if (r.Meshes == null) r.Meshes = new List<Mesh>(skeleton.GetAllMeshes());
+                while (budget > 0 && !r.Done)
                 {
-                    if (source == null || all.Count >= MaxVertices) continue;
-                    Material material = source.GetMaterial();
-                    if (material == null) continue;
-                    Mesh copy = Mesh.CreateMeshWithMaterial(material);
-                    ManagedMeshEditOperations ops = ManagedMeshEditOperations.Create(copy);
-                    try
+                    if (r.Ops == null)
                     {
-                        ops.AddSkinnedMeshWithColor(source, MatrixFrame.Identity, new Vec3(1, 1, 1), true);
-                        int n = Math.Min(FastAccess.VertexCount(ops), MaxVertices - all.Count);
-                        for (int i = 0; i < n; i++) all.Add(ops.GetPositionOfVertex(i));
+                        if (r.MeshIndex >= r.Meshes.Count || r.Vertices.Count >= MaxVertices) { r.Done = true; break; }
+                        Mesh source = r.Meshes[r.MeshIndex++];
+                        Material material = source?.GetMaterial();
+                        if (material == null) continue;
+                        r.Copy = Mesh.CreateMeshWithMaterial(material);
+                        r.Ops = ManagedMeshEditOperations.Create(r.Copy);
+                        r.Ops.AddSkinnedMeshWithColor(source, MatrixFrame.Identity, new Vec3(1, 1, 1), true);
+                        r.Count = FastAccess.VertexCount(r.Ops); r.Vertex = 0;
+                        budget -= 50;
                     }
-                    finally { try { ops.ManualInvalidate(); copy.ManualInvalidate(); } catch (Exception) { } }
+                    for (; r.Vertex < r.Count && budget > 0 && r.Vertices.Count < MaxVertices; r.Vertex += Stride, budget--)
+                        r.Vertices.Add(r.Ops.GetPositionOfVertex(r.Vertex));
+                    if (r.Vertex >= r.Count || r.Vertices.Count >= MaxVertices) Close(r);
                 }
-                if (all.Count > 0) result = all.ToArray();
+                if (budget <= 0) return;
             }
-            Rest[agent] = result; RestOrder.Add(agent);
-            while (RestOrder.Count > CachedAgents) { Rest.Remove(RestOrder[0]); RestOrder.RemoveAt(0); }
-            return result;
         }
 
-        // The rest-pose surface point out of the bone's line along normal, at
-        // the contact's height along the bone; false when nothing is drawn there.
-        private static bool Surface(Vec3[] vertices, Vec3 a, Vec3 b, Vec3 contact, Vec3 normal, out Vec3 point)
+        // The rest-pose surface out of the bone's line through p (along the
+        // bone at p's height); false when nothing is drawn there.
+        private static bool Surface(List<Vec3> vertices, Vec3 a, Vec3 axis, Vec3 p, out Vec3 point)
         {
-            point = contact;
-            Vec3 ab = b - a;
-            float len2 = ab.LengthSquared;
-            Vec3 axis = len2 > 1e-6f ? ab * (1 / (float)Math.Sqrt(len2)) : Vec3.Zero;
-            float along = InteractionMath.Dot(contact - a, axis);
+            point = p;
+            float along = InteractionMath.Dot(p - a, axis);
             Vec3 line = a + axis * along;
+            Vec3 n = p - line;
+            if (n.Length < 1e-3f) return false;
+            n.Normalize();
             float best = -1;
-            foreach (Vec3 v in vertices)
+            for (int i = 0; i < vertices.Count; i++)
             {
-                Vec3 d = v - a;
+                Vec3 d = vertices[i] - a;
                 float t = InteractionMath.Dot(d, axis);
                 if (Math.Abs(t - along) > SliceAlong) continue;
                 Vec3 radial = d - axis * t;
                 float r = radial.Length;
-                if (r < 1e-3f || r > .5f || InteractionMath.Dot(radial, normal) < r * SliceCos) continue;
+                if (r < 1e-3f || r > .5f || InteractionMath.Dot(radial, n) < r * SliceCos) continue;
                 if (r > best) best = r;
             }
             if (best < 0) return false;
-            point = line + normal * (best + OnSurface);
+            point = line + n * (best + OnSurface);
             return true;
         }
         private static readonly List<Wound> Wounds = new List<Wound>();
@@ -120,7 +147,13 @@ namespace BannerlordVR.VR.Physics
         private static bool _broken, _logged, _searched;
 
         // At each mission start (loading), so the texture is in before a hit.
-        internal static void ForgetMission() { Wounds.Clear(); Rest.Clear(); RestOrder.Clear(); _mission = null; if (EnemyPhysicsSettings.Wounds) FindMaterial(); }
+        internal static void ForgetMission()
+        {
+            Wounds.Clear(); _mission = null;
+            foreach (Reader r in Readers.Values) Close(r);
+            Readers.Clear(); ReaderOrder.Clear();
+            if (EnemyPhysicsSettings.Wounds) FindMaterial();
+        }
 
         public static void Stab(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, false);
         public static void Cut(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, true);
@@ -143,26 +176,26 @@ namespace BannerlordVR.VR.Physics
             return _material;
         }
 
-        // A fan in its own frame (x along, y across, z out of the body): a
-        // dark core and a ragged rim, its points at random radii; a cut's
-        // frame stretches it into a slit.
-        private static Mesh Blob(Material material, bool cut)
+        // A fan: a dark core and a ragged rim, its points at random radii in
+        // the wound's plane (x along, y across), each then laid on the drawn
+        // surface by place (bone space) so the wound follows the body's curve.
+        private static Mesh Blob(Material material, bool cut, Func<Vec2, Vec3> place, Vec3 outward)
         {
             Mesh mesh = Mesh.CreateMeshWithMaterial(material);
             ManagedMeshEditOperations ops = ManagedMeshEditOperations.Create(mesh);
-            Vec3 up = new Vec3(0, 0, 1), down = new Vec3(0, 0, -1), centre = Vec3.Zero;
+            Vec3 down = -outward, centre = place(Vec2.Zero);
             Vec2 uv = new Vec2(.5f, .5f);
             var rim = new Vec3[RimPoints];
             for (int k = 0; k < RimPoints; k++)
             {
                 double angle = 2 * Math.PI * k / RimPoints;
                 float r = .5f * MBRandom.RandomFloatRanged(cut ? .8f : .6f, 1f);
-                rim[k] = new Vec3((float)Math.Cos(angle) * r, (float)Math.Sin(angle) * r, 0);
+                rim[k] = place(new Vec2((float)Math.Cos(angle) * r, (float)Math.Sin(angle) * r));
             }
             for (int k = 0; k < RimPoints; k++)
             {
                 Vec3 a = rim[k], b = rim[(k + 1) % RimPoints];
-                ops.AddTriangle(centre, a, b, up, up, up, uv, uv, uv, Core, Rim, Rim);
+                ops.AddTriangle(centre, a, b, outward, outward, outward, uv, uv, uv, Core, Rim, Rim);
                 // The back face too: which way the engine culls is not known here.
                 ops.AddTriangle(centre, b, a, down, down, down, uv, uv, uv, Core, Rim, Rim);
             }
@@ -206,38 +239,45 @@ namespace BannerlordVR.VR.Physics
                 float jitter = MBRandom.RandomFloatRanged(.8f, 1.2f);
                 float length = (cut ? CutLength : StabSize) * jitter, width = (cut ? CutWidth : StabSize) * jitter;
                 BoneBodyPartType part = agent.AgentVisuals.GetBoneTypeData(bone).BodyPartType;
-                var world = new MatrixFrame(new Mat3(along * length, side * width, normal), contact + normal * Lift(agent, part));
-                MatrixFrame local = boneWorld.TransformToLocalNonOrthogonal(world);
-                // On the drawn surface: the same bone-local offset in the rest
-                // pose, where the meshes' vertices are.
-                Perf.Mark("wound_place");
-                Vec3[] vertices = RestVertices(agent, skeleton);
-                Perf.Mark("wound_vertices");
-                bool fitted = false;
-                if (vertices != null)
+                Vec3 centreWorld = contact + normal * Lift(agent, part);
+                // Bone space: the mesh is built there and its entity put on the
+                // bone each frame. The rest pose has the same bone space.
+                Vec3 localCentre = boneWorld.TransformToLocalNonOrthogonal(centreWorld);
+                Vec3 localAlong = boneWorld.rotation.TransformToLocal(along), localSide = boneWorld.rotation.TransformToLocal(side);
+                Vec3 localNormal = boneWorld.rotation.TransformToLocal(normal);
+                if (!Readers.ContainsKey(agent)) Prepare(agent);
+                List<Vec3> vertices = Readers.TryGetValue(agent, out Reader reader) && reader.Vertices.Count > 0 ? reader.Vertices : null;
+                MatrixFrame restBone = skeleton.GetBoneEntitialRestFrame(bone);
+                Vec3 restA = restBone.origin, restAxis = Vec3.Zero;
+                if (skeleton.GetBoneChildCount(bone) > 0)
                 {
-                    MatrixFrame restBone = skeleton.GetBoneEntitialRestFrame(bone);
-                    Vec3 restA = restBone.origin, restB = restA;
-                    if (skeleton.GetBoneChildCount(bone) > 0) restB = skeleton.GetBoneEntitialRestFrame(skeleton.GetBoneChildAtIndex(bone, 0)).origin;
-                    Vec3 restContact = restBone.TransformToParent(boneWorld.TransformToLocalNonOrthogonal(contact));
-                    Vec3 restNormal = restBone.rotation.TransformToParent(boneWorld.rotation.TransformToLocal(normal));
-                    if (restNormal.Length > 1e-4f && Surface(vertices, restA, restB, restContact, restNormal.NormalizedCopy(), out Vec3 restPoint))
-                    {
-                        local.origin = restBone.TransformToLocalNonOrthogonal(restPoint);
-                        fitted = true;
-                    }
+                    restAxis = skeleton.GetBoneEntitialRestFrame(skeleton.GetBoneChildAtIndex(bone, 0)).origin - restA;
+                    if (restAxis.Length > 1e-4f) restAxis.Normalize(); else restAxis = Vec3.Zero;
                 }
-                Perf.Mark("wound_fit");
+                int fitted = 0;
+                Func<Vec2, Vec3> place = q =>
+                {
+                    Vec3 local = localCentre + localAlong * (q.x * length) + localSide * (q.y * width);
+                    if (vertices == null) return local;
+                    Vec3 rest = restBone.TransformToParent(local);
+                    if (!Surface(vertices, restA, restAxis, rest, out Vec3 onSurface)) return local;
+                    fitted++;
+                    return restBone.TransformToLocalNonOrthogonal(onSurface);
+                };
+                Perf.Mark("wound_place");
+                Mesh blob = Blob(material, cut, place, localNormal);
+                Perf.Mark("wound_mesh");
                 GameEntity entity = GameEntity.CreateEmptyDynamic(scene, false);
-                entity.AddMesh(Blob(material, cut), true);
-                entity.SetGlobalFrame(in world);
-                Wounds.Add(new Wound { Agent = agent, Bone = bone, Local = local, Entity = entity });
+                entity.AddMesh(blob, true);
+                entity.SetGlobalFrame(in boneWorld);
+                MatrixFrame local0 = MatrixFrame.Identity;
+                Wounds.Add(new Wound { Agent = agent, Bone = bone, Local = local0, Entity = entity });
                 Trim(agent);
                 if (!_logged)
                 {
                     _logged = true;
                     PhysicsLog.Info("WOUND first wound on agent " + agent.Index + " bone " + skeleton.GetBoneName(bone) + (cut ? " (cut)" : " (stab)") +
-                        " surface=" + (fitted ? "drawn mesh (" + vertices.Length + " vertices)" : vertices == null ? "capsule (no vertices read)" : "capsule (none at the hit)") +
+                        " surface=" + (vertices == null ? "capsule (vertices not read yet)" : fitted + "/" + (RimPoints + 1) + " points on the drawn mesh (" + vertices.Count + " vertices)") +
                         " at (" + contact.x.ToString("F2") + "," + contact.y.ToString("F2") + "," + contact.z.ToString("F2") + ")");
                 }
             }
@@ -248,7 +288,10 @@ namespace BannerlordVR.VR.Physics
         // visuals are gone (a filed corpse) keeps its wounds where they are.
         public static void Tick()
         {
-            if (_broken || Wounds.Count == 0) return;
+            if (_broken) return;
+            try { if (ReaderOrder.Count > 0) Read(ReadsPerFrame); }
+            catch (Exception ex) { Fail("reading a body's surface: " + ex.Message); return; }
+            if (Wounds.Count == 0) return;
             if (Mission.Current != _mission) { Wounds.Clear(); return; }
             try
             {
