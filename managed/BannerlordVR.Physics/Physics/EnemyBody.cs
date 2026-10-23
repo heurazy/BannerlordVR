@@ -146,7 +146,11 @@ namespace BannerlordVR.VR.Physics
                 Agent.AIScriptedFrameFlags scripted = agent.GetScriptedFlags();
                 if (ownedPhysicalFall) scripted &= ~Agent.AIScriptedFrameFlags.InConversation;
                 if (scripted != Agent.AIScriptedFrameFlags.None) return "scripted_" + scripted;
-                if (agent.GetScriptedCombatFlags() != Agent.AISpecialCombatModeFlags.None) return "scripted_combat";
+                // Only an attack on an entity (a gate, a siege engine) is the
+                // AI's script; IgnoreAmmoLimitForRangeCalculation, set on most
+                // soldiers of a field battle, dropped them mid-fight.
+                if ((agent.GetScriptedCombatFlags() & (Agent.AISpecialCombatModeFlags.AttackEntity | Agent.AISpecialCombatModeFlags.SurroundAttackEntity)) != 0)
+                    return "scripted_combat";
             }
             if (agent.State != AgentState.Active) return null;
             for (int channel = 0; channel < 2; channel++)
