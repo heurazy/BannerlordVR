@@ -17,6 +17,8 @@ namespace BannerlordVR.VR.Physics
         // grabs of the head or a hand); a ragdoll is never started in the
         // saddle: a destabilizing blow or a hard pull unseats them instead.
         public static readonly bool Riders = VrConfig.Bool("enemy_physics_riders", true);
+        // B&S RevealDecal: a wound decal where each cut and stab landed.
+        public static readonly bool Wounds = VrConfig.Bool("enemy_physics_wounds", true);
         // Stab model on trial: tog (Tales of Glory 4's WepScript stab, see
         // TogStab) or bs (Blade & Sorcery's damager penetration).
         public static readonly bool TogStab = !string.Equals(VrConfig.String("enemy_physics_stab_model", "tog"), "bs", StringComparison.OrdinalIgnoreCase);

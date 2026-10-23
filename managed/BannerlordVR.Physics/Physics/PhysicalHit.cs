@@ -224,6 +224,12 @@ namespace BannerlordVR.VR.Physics
             if (mission == null || mission != Mission.Current || mission.IsFinalized ||
                 mission.FindAgentWithIndex(victimIndex) != victim || !victim.IsActive()) return 0;
             float lost = before - victim.Health;
+            // The wound stays where the edge or the point went in.
+            if (!bloodLoss && lost > 0 && (damageType == DamageTypes.Cut || damageType == DamageTypes.Pierce))
+            {
+                if (thrust || damageType == DamageTypes.Pierce) WoundDecal.Stab(victim, point.Bone, contact, direction);
+                else WoundDecal.Cut(victim, point.Bone, contact, direction);
+            }
             if (EnemyPhysicsSettings.Trace && !bloodLoss)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "HIT agent={0} part={1} type={2} damage={3} lost={4:F0} push={5} shrugged={6} stun={7:F2} health={8:F0}",

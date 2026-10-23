@@ -49,7 +49,7 @@ namespace BannerlordVR.VR.Physics
             _refusals.Clear();
             BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
             ShieldBlock.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
-            LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget();
+            LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission();
         }
         public static bool Tracks(Agent agent)
         {

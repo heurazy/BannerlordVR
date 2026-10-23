@@ -128,6 +128,7 @@ namespace BannerlordVR.VR.Physics
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             _cut = !PenetrationJoint.Get(profile).Pierce; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            if (!_cut) WoundDecal.Stab(body.Agent, point.Bone, contact, velocity);
             Perf.Mark("entry_blood");
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false; _nextTrace = 0;
@@ -158,6 +159,7 @@ namespace BannerlordVR.VR.Physics
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             _cut = false; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            WoundDecal.Stab(body.Agent, point.Bone, contact, velocity);
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false; _nextTrace = 0;
             Disarm.ArmStab(body.Agent, point.Bone, point.Part, body.Skeleton.GetBoneName(point.Bone));
