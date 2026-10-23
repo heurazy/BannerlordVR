@@ -24,6 +24,11 @@ namespace BannerlordVR.VR.Physics
         public delegate int CapsulesFn(Agent agent, Vec3[] a, Vec3[] b, float[] radius, sbyte[] bone);
         public static readonly CapsulesFn Capsules = BuildCapsules();
 
+        // VrDrawnBow.VertexCount: the vertices a ManagedMeshEditOperations holds
+        // (read from its native buffer; the engine exposes no count).
+        public static readonly Func<ManagedMeshEditOperations, int> VertexCount =
+            Bind<Func<ManagedMeshEditOperations, int>>(AccessTools.Method(AccessTools.TypeByName("BannerlordVR.VR.VrDrawnBow"), "VertexCount"));
+
         // VrTwoHand.Active and VrTwoHand.Gripping (the hand on the shaft or
         // the blade besides the main one).
         private static readonly Type TwoHand = AccessTools.TypeByName("BannerlordVR.VR.VrTwoHand");
