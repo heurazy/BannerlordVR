@@ -36,11 +36,16 @@
   </SubModules>
 
   <!-- bvr_severed_head: the meshless head armour a beheaded agent wears.
-       No game type list: loaded for every game type, so total conversions
-       with their own campaign type have it too. -->
+       Custom battles only: registered in the campaign, a save loaded twice
+       hung on the loading screen (23 Oct 2026, not without this module).
+       There a beheading keeps the head's equipment; the native hook still
+       folds the head away. -->
   <Xmls>
     <XmlNode>
       <XmlName id="Items" path="bvr_items" />
+      <IncludedGameTypes>
+        <GameType value="CustomGame" />
+      </IncludedGameTypes>
     </XmlNode>
   </Xmls>
 </Module>
