@@ -38,6 +38,7 @@ namespace BannerlordVR.Physics
         protected override void AfterAsyncTickTick(float dt)
         {
             try { BannerlordVR.VR.Physics.LimbHide.LateTick(); } catch (Exception) { }
+            try { BannerlordVR.VR.Physics.WoundDecal.Tick(); } catch (Exception) { }
         }
         protected override void OnApplicationTick(float dt)
         {

@@ -10,23 +10,28 @@ namespace BannerlordVR.VR.Physics
     // Blade & Sorcery EffectModuleReveal / RevealDecal: every cut and stab
     // leaves a wound where it landed, on the skin or the armour, that stays
     // and moves with the body. Bannerlord has no reveal mask on its skinned
-    // meshes, and its decals only project on terrain (a decal on the struck
-    // bone drew nothing in game, 23 Oct 2026). A small quad of the game's
-    // blood texture is laid on the surface instead and attached to the
-    // struck bone (Skeleton.AddMeshToBone, as items are): round for a stab,
-    // drawn along the swing for a cut.
+    // meshes, its blood decals are terrain decals, and a mesh put on a bone
+    // with Skeleton.AddMeshToBone was not drawn (both tried in game, 23 Oct
+    // 2026). A small quad of the game's blood texture is built the way
+    // BannerlordVR builds the meshes it draws (default material copy,
+    // ManagedMeshEditOperations, FinalizeEditing, on a dynamic scene entity)
+    // and that entity is put back on the struck bone every frame, after the
+    // engine posed the skeleton: round for a stab, drawn along the swing for
+    // a cut.
     internal static class WoundDecal
     {
         private static readonly string[] Textures = { "blood21_splatter", "blood_7_sprite", "blood_9_spirte", "blood_terrain_decal_0_d" };
-        private static readonly string[] BaseMaterials = { "tableau_with_alpha_mask", "vertex_color_blend_mat", "vertex_color_mat" };
-        private const int PerAgent = 10, Total = 80;
+        private const int PerAgent = 10, Total = 60;
         private const float StabSize = .07f, CutLength = .16f, CutWidth = .05f, Lift = .012f;
-        private struct Wound { public Agent Agent; public Skeleton Skeleton; public Mesh Mesh; }
+        // Dark arterial red over the texture.
+        private const uint Tint = 0xFF7A0C0C;
+        private struct Wound { public Agent Agent; public sbyte Bone; public MatrixFrame Local; public GameEntity Entity; }
         private static readonly List<Wound> Wounds = new List<Wound>();
         private static Material _material;
+        private static Mission _mission;
         private static bool _broken, _logged, _searched;
 
-        internal static void ForgetMission() { Wounds.Clear(); }
+        internal static void ForgetMission() { Wounds.Clear(); _mission = null; }
 
         public static void Stab(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, false);
         public static void Cut(Agent agent, sbyte bone, Vec3 contact, Vec3 direction) => Add(agent, bone, contact, direction, true);
@@ -41,22 +46,36 @@ namespace BannerlordVR.VR.Physics
                 texture = Texture.GetFromResource(name);
                 if (texture != null) { textureName = name; break; }
             }
-            Material source = null; string sourceName = null;
-            foreach (string name in BaseMaterials)
-            {
-                source = Material.GetFromResource(name);
-                if (source != null) { sourceName = name; break; }
-            }
+            Material source = Material.GetDefaultMaterial();
             if (texture == null || source == null)
             {
-                PhysicsLog.Info("WOUND no blood texture (" + (textureName ?? "none") + ") or base material (" + (sourceName ?? "none") + "); wounds are not drawn.");
+                PhysicsLog.Info("WOUND no blood texture (" + (textureName ?? "none") + ") or default material; wounds are not drawn.");
                 return null;
             }
             _material = source.CreateCopy();
             _material.SetTexture(Material.MBTextureType.DiffuseMap, texture);
             _material.SetAlphaBlendMode(Material.MBAlphaBlendMode.Modulate);
-            PhysicsLog.Info("WOUND mesh material " + sourceName + " with texture " + textureName);
+            PhysicsLog.Info("WOUND mesh material default with texture " + textureName);
             return _material;
+        }
+
+        // The quad in its own frame: x along, y across, z out of the body.
+        private static Mesh Quad(Material material)
+        {
+            Mesh mesh = Mesh.CreateMeshWithMaterial(material);
+            ManagedMeshEditOperations ops = ManagedMeshEditOperations.Create(mesh);
+            Vec3 p0 = new Vec3(-.5f, -.5f), p1 = new Vec3(.5f, -.5f), p2 = new Vec3(.5f, .5f), p3 = new Vec3(-.5f, .5f);
+            Vec3 up = new Vec3(0, 0, 1), down = new Vec3(0, 0, -1), white = new Vec3(1, 1, 1);
+            Vec2 u0 = new Vec2(0, 0), u1 = new Vec2(1, 0), u2 = new Vec2(1, 1), u3 = new Vec2(0, 1);
+            ops.AddTriangle(p0, p1, p2, up, up, up, u0, u1, u2, white, white, white);
+            ops.AddTriangle(p0, p2, p3, up, up, up, u0, u2, u3, white, white, white);
+            // The back face too: which way the engine culls is not known here.
+            ops.AddTriangle(p0, p2, p1, down, down, down, u0, u2, u1, white, white, white);
+            ops.AddTriangle(p0, p3, p2, down, down, down, u0, u3, u2, white, white, white);
+            ops.FinalizeEditing();
+            mesh.RecomputeBoundingBox();
+            mesh.Color = Tint;
+            return mesh;
         }
 
         private static void Add(Agent agent, sbyte bone, Vec3 contact, Vec3 direction, bool cut)
@@ -64,6 +83,10 @@ namespace BannerlordVR.VR.Physics
             if (_broken || !EnemyPhysicsSettings.Wounds || agent?.AgentVisuals == null || bone < 0 || !InteractionMath.IsFinite(contact)) return;
             try
             {
+                Mission mission = Mission.Current;
+                Scene scene = mission?.Scene;
+                if (scene == null) return;
+                if (mission != _mission) { Wounds.Clear(); _mission = mission; }
                 Material material = FindMaterial();
                 if (material == null) return;
                 Skeleton skeleton = agent.AgentVisuals.GetSkeleton();
@@ -87,57 +110,63 @@ namespace BannerlordVR.VR.Physics
                 along.Normalize();
                 Vec3 side = Vec3.CrossProduct(normal, along);
                 float jitter = MBRandom.RandomFloatRanged(.8f, 1.2f);
-                float half = (cut ? CutLength : StabSize) * jitter * .5f, halfWidth = (cut ? CutWidth : StabSize) * jitter * .5f;
-                // Bone space, lifted off the surface against z-fighting.
-                Vec3 centre = contact + normal * Lift;
-                Vec3 p0 = Local(boneWorld, centre - along * half - side * halfWidth), p1 = Local(boneWorld, centre + along * half - side * halfWidth);
-                Vec3 p2 = Local(boneWorld, centre + along * half + side * halfWidth), p3 = Local(boneWorld, centre - along * half + side * halfWidth);
-                Mesh mesh = Mesh.CreateMeshWithMaterial(material);
-                if (mesh == null) { Fail("CreateMeshWithMaterial returned nothing"); return; }
-                UIntPtr handle = mesh.LockEditDataWrite();
-                Vec2 u0 = new Vec2(0, 0), u1 = new Vec2(1, 0), u2 = new Vec2(1, 1), u3 = new Vec2(0, 1);
-                const uint white = 0xFFFFFFFF;
-                // Both faces: which way the engine culls is not known here.
-                mesh.AddTriangle(p0, p1, p2, u0, u1, u2, white, handle);
-                mesh.AddTriangle(p0, p2, p3, u0, u2, u3, white, handle);
-                mesh.AddTriangle(p0, p2, p1, u0, u2, u1, white, handle);
-                mesh.AddTriangle(p0, p3, p2, u0, u3, u2, white, handle);
-                mesh.UnlockEditDataWrite(handle);
-                mesh.ComputeNormals();
-                mesh.UpdateBoundingBox();
-                skeleton.AddMeshToBone(mesh.Pointer, bone);
-                Wounds.Add(new Wound { Agent = agent, Skeleton = skeleton, Mesh = mesh });
+                float length = (cut ? CutLength : StabSize) * jitter, width = (cut ? CutWidth : StabSize) * jitter;
+                var world = new MatrixFrame(new Mat3(along * length, side * width, normal), contact + normal * Lift);
+                MatrixFrame local = boneWorld.TransformToLocalNonOrthogonal(world);
+                GameEntity entity = GameEntity.CreateEmptyDynamic(scene, false);
+                entity.AddMesh(Quad(material), true);
+                entity.SetGlobalFrame(in world);
+                Wounds.Add(new Wound { Agent = agent, Bone = bone, Local = local, Entity = entity });
                 Trim(agent);
                 if (!_logged)
                 {
                     _logged = true;
-                    PhysicsLog.Info("WOUND first mesh on agent " + agent.Index + " bone " + skeleton.GetBoneName(bone) + (cut ? " (cut)" : " (stab)"));
+                    PhysicsLog.Info("WOUND first wound on agent " + agent.Index + " bone " + skeleton.GetBoneName(bone) + (cut ? " (cut)" : " (stab)") +
+                        " at (" + contact.x.ToString("F2") + "," + contact.y.ToString("F2") + "," + contact.z.ToString("F2") + ")");
                 }
             }
             catch (Exception ex) { Fail(ex.Message); }
         }
 
-        private static Vec3 Local(MatrixFrame boneWorld, Vec3 world) => boneWorld.TransformToLocalNonOrthogonal(world);
+        // After the agents' tick: each wound back on its bone. A body whose
+        // visuals are gone (a filed corpse) keeps its wounds where they are.
+        public static void Tick()
+        {
+            if (_broken || Wounds.Count == 0) return;
+            if (Mission.Current != _mission) { Wounds.Clear(); return; }
+            try
+            {
+                foreach (Wound w in Wounds)
+                {
+                    MBAgentVisuals visuals = w.Agent?.AgentVisuals;
+                    if (visuals == null || !visuals.IsValid()) continue;
+                    Skeleton skeleton = visuals.GetSkeleton();
+                    if (skeleton == null || w.Bone >= skeleton.GetBoneCount()) continue;
+                    MatrixFrame frame = visuals.GetGlobalFrame().TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(w.Bone)).TransformToParent(w.Local);
+                    w.Entity.SetGlobalFrame(in frame);
+                }
+            }
+            catch (Exception ex) { Fail(ex.Message); }
+        }
 
-        // Oldest first: ten on one body, eighty in the battle. A bone's mesh
-        // cannot be taken off alone; a trimmed one is hidden.
+        // Oldest first: ten on one body, sixty in the battle.
         private static void Trim(Agent agent)
         {
             int mine = 0;
-            for (int i = Wounds.Count - 1; i >= 0; i--) if (Wounds[i].Agent == agent && ++mine > PerAgent) Hide(i);
-            while (Wounds.Count > Total) Hide(0);
+            for (int i = Wounds.Count - 1; i >= 0; i--) if (Wounds[i].Agent == agent && ++mine > PerAgent) Remove(i);
+            while (Wounds.Count > Total) Remove(0);
         }
-        private static void Hide(int i)
+        private static void Remove(int i)
         {
             Wound w = Wounds[i];
             Wounds.RemoveAt(i);
-            try { w.Mesh?.SetVisibilityMask((VisibilityMaskFlags)0); } catch (Exception) { }
+            try { w.Entity?.Remove(79); } catch (Exception) { }
         }
 
         private static void Fail(string why)
         {
             _broken = true;
-            PhysicsLog.Info("WOUND meshes stopped for the session: " + why);
+            PhysicsLog.Info("WOUND wounds stopped for the session: " + why);
         }
     }
 }
