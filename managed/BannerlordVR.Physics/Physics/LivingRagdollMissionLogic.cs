@@ -38,16 +38,20 @@ namespace BannerlordVR.VR.Physics
             {
                 if (!NativeRagdollBridge.Preflight(Agent, Mission, Skeleton))
                     throw new InvalidOperationException("Living ragdoll activation refused by recovery preflight.");
+                Perf.Mark("preflight");
                 if (EnemyPhysicsSettings.ActiveRagdoll)
                 {
                     bool ready = Active.Capture(Agent, Skeleton, StartDestabilized);
+                    Perf.Mark("capture");
                     PhysicsLog.Info("ACTIVE_RAGDOLL capture ready=" + ready + " pose=" + Active.CaptureSource + " " + Actions(Agent) +
                         " frozen=" + Skeleton.IsFrozen());
                 }
                 else if (EnemyPhysicsSettings.ActiveBalance)
                     PhysicsLog.Info("BALANCE capture ready=" + Balance.Capture(Agent, Skeleton, Mission));
                 Agent.StartRagdollAsCorpse();
+                Perf.Mark("engine_ragdoll");
                 CloseCapsule();
+                Perf.Mark("capsule");
             }
             // Whatever ends the lease (a timeout, the agent no longer safe to
             // hold), the agent comes back where its body lies, not at the

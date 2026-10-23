@@ -197,9 +197,11 @@ namespace BannerlordVR.VR.Physics
             collision.MovementSpeedDamageModifier = blow.MovementSpeedDamageModifier;
             collision.InflictedDamage = blow.InflictedDamage;
             collision.AbsorbedByArmor = (int)blow.AbsorbedByArmor;
+            Perf.Mark("blow_prepared");
             DeliveringOwnBlow = true;
             try { victim.RegisterBlow(blow, in collision); }
             finally { DeliveringOwnBlow = false; }
+            Perf.Mark("engine_blow");
             // A blow can synchronously remove its victim or end the mission.
             // Query the captured index before reading the native health again.
             if (mission == null || mission != Mission.Current || mission.IsFinalized ||

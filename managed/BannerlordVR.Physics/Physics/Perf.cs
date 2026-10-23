@@ -16,6 +16,18 @@ namespace BannerlordVR.VR.Physics
         // happens, so the lines around it say what caused it.
         private const double SpikeMs = 2;
         private static long _lastSpike;
+        // Steps of the rare, heavy paths (a body going limp, a beheading):
+        // a spike's line says how long each took.
+        private const int MaxMarks = 32;
+        private static readonly string[] MarkLabel = new string[MaxMarks];
+        private static readonly long[] MarkAt = new long[MaxMarks];
+        private static int _marks;
+
+        public static void Mark(string label)
+        {
+            if (_marks >= MaxMarks) return;
+            MarkLabel[_marks] = label; MarkAt[_marks++] = Stopwatch.GetTimestamp();
+        }
         private static readonly long[] Ticks = new long[(int)Section.Count], Calls = new long[(int)Section.Count];
         private static readonly double[] Worst = new double[(int)Section.Count];
         private static long _frames, _windowStart;
@@ -35,7 +47,16 @@ namespace BannerlordVR.VR.Physics
             if (ms > SpikeMs && started - _lastSpike > Stopwatch.Frequency / 4)
             {
                 _lastSpike = started;
-                PhysicsLog.Info("PERF_SPIKE " + Names[s] + " " + ms.ToString("F2", CultureInfo.InvariantCulture) + " ms");
+                var spike = new StringBuilder("PERF_SPIKE ").Append(Names[s]).Append(' ').Append(ms.ToString("F2", CultureInfo.InvariantCulture)).Append(" ms");
+                long from = started;
+                for (int i = 0; i < _marks; i++)
+                {
+                    if (MarkAt[i] < started) continue;
+                    spike.Append(i == 0 || MarkAt[i - 1] < started ? ": " : ", ").Append(MarkLabel[i]).Append(' ')
+                        .Append(((MarkAt[i] - from) * 1000.0 / Stopwatch.Frequency).ToString("F2", CultureInfo.InvariantCulture));
+                    from = MarkAt[i];
+                }
+                PhysicsLog.Info(spike.ToString());
             }
         }
 
@@ -43,6 +64,7 @@ namespace BannerlordVR.VR.Physics
         public static void Frame()
         {
             long now = Stopwatch.GetTimestamp();
+            _marks = 0;
             if (_windowStart == 0) { Reset(now); return; }
             _frames++;
             if ((now - _windowStart) < Stopwatch.Frequency * LogSeconds || _frames == 0) return;

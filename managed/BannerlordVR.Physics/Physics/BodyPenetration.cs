@@ -128,6 +128,7 @@ namespace BannerlordVR.VR.Physics
             _source = source; _zone = ZoneFor(body, point); _part = point.Part;
             _cut = !PenetrationJoint.Get(profile).Pierce; _entryVelocity = velocity; _hasCutNormal = false; _cutBased = false; _lastAlong = float.NaN;
             if (!body.IsCorpse) BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            Perf.Mark("entry_blood");
             _mass = EnemyPhysicsRuntime.PartMass(body, point.Bone);
             _maxDepth = 0; _maxSeparation = 0; _maxAxial = 0; _lockedLogged = false; _nextTrace = 0;
             // BrainModuleEquipment: a pierce into an arm or hand disarms that hand.
@@ -138,6 +139,7 @@ namespace BannerlordVR.VR.Physics
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "PENETRATION begin profile={0} zone={1} material={2} tier={3} speed={4:F2} pressure={5} bone={6} depth_limit={7:F3} damper_x={8:F2}",
                     profile, _zone, material, tier, speed, pressure, point.Bone, _depthLimit, row.DamperMultiplier));
+            Perf.Mark("penetration");
         }
 
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)

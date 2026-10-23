@@ -121,12 +121,15 @@ namespace BannerlordVR.VR.Physics
                 visuals.CreateParticleSystemAttachedToBone("psys_game_blood_sword_exit", parent, ref local);
             }
             catch (Exception ex) { PhysicsLog.Error("Stump blood particle unavailable.", ex); }
+            Perf.Mark("stump_particle");
             BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
+            Perf.Mark("blood");
             BoneBodyPartType part = visuals.GetBoneTypeData(bone).BodyPartType;
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture, "DISMEMBER agent={0} joint={1} bone={2} speed={3:F2}",
                     victim.Index, kind, bone, speed));
             PhysicalHit.ApplyPenetration(player, victim, bone, part, at, 1000, DamageTypes.Cut);
+            Perf.Mark("kill_blow");
             // The severed part is shrunk away in the skeleton.
             Vec3 cutDirection = player != null ? at - player.Position : Vec3.Zero;
             cutDirection.z = 0;
@@ -135,6 +138,7 @@ namespace BannerlordVR.VR.Physics
             // The cut itself sprays.
             BloodFx.Burst(BloodFx.Kind.Enter, at, cutDirection);
             BloodFx.Burst(BloodFx.Kind.Inside, at, Vec3.Up);
+            Perf.Mark("blood");
         }
 
         // Official equipment refresh with a meshless head item that covers the

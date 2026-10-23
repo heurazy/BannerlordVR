@@ -74,11 +74,14 @@ namespace BannerlordVR.VR.Physics
                     for (sbyte up = b; up >= 0; up = skeleton.GetParentBoneIndex(up))
                         if (up == bone) { bones.Add(b); break; }
                 float now = Mission.Current?.CurrentTime ?? 0;
+                Perf.Mark("limb_bones");
                 // The helmet flies before the head is folded away.
                 if (kind == SliceJoint.Neck && bvr_skeleton_bone_record(skeleton.Pointer, bone, Buffer, RecordBytes) == RecordBytes)
                     SeveredProp.ThrowHelmet(agent, skeleton.GetBoneEntitialFrameWithIndex(bone), RestFrame(),
                         skeleton.GetBoneEntitialFrameWithIndex(parent).origin);
+                Perf.Mark("helmet_prop");
                 if (kind == SliceJoint.Neck) HelmetHide.Hide(agent, bone);
+                Perf.Mark("helmet_hide");
                 ulong mask = 0;
                 foreach (sbyte b in bones) if (b < 64) mask |= 1ul << b;
                 // A head is also sunk into the chest in its record, natively
@@ -86,6 +89,7 @@ namespace BannerlordVR.VR.Physics
                 int sever = kind == SliceJoint.Neck
                     ? bvr_limb_sever_sunk(skeleton.Pointer, bone, mask, parent, skeleton.GetParentBoneIndex(parent), HeadSink)
                     : bvr_limb_sever(skeleton.Pointer, bone, mask);
+                Perf.Mark("sever_hook");
                 PhysicsLog.Info("LIMB_TUCK sever hook status=" + sever + (sever == 0 ? "" : " (the limb is collapsed from the mission tick only)"));
                 _mission = Mission.Current;
                 Cuts.Add(new Cut { Agent = agent, Skeleton = skeleton, Kind = kind, Root = bone, Parent = parent,
