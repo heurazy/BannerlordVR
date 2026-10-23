@@ -28,6 +28,8 @@ namespace BannerlordVR.VR.Physics
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
+            // BladeShape: the flat's normal (world) and the pommel's reach.
+            public bool HasFlat; public Vec3 Flat; public float Pommel;
             public void Reset() { PressBody = null; Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; ReleasedFrom = null; ReleasedAt = -10; }
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
@@ -417,6 +419,42 @@ namespace BannerlordVR.VR.Physics
         // GetThresholdModifier halves it in the saddle): 0.7 of the speed.
         public static float Threshold(Agent player) => player?.MountAgent != null ? RiderThreshold : 1;
 
+        // Damager.CheckAngles for a slash: the blow must come within
+        // maxNormalAngle 60 deg of the edge; across the blade further than
+        // that it lands on the flat.
+        private const float FlatCos = .866f;
+        private static bool OnTheFlat(Hand hand, Vec3 velocity, Vec3 bladeAxis)
+        {
+            if (!hand.HasFlat || bladeAxis.Length < 1e-3f) return false;
+            Vec3 axis = bladeAxis.NormalizedCopy();
+            Vec3 across = velocity - axis * InteractionMath.Dot(velocity, axis);
+            if (across.Length < 1e-3f) return false;
+            return Math.Abs(InteractionMath.Dot(across.NormalizedCopy(), hand.Flat)) > FlatCos;
+        }
+
+        // A pommel or flat blow: blunt, no cut, no entry. The pommel is the
+        // handle damager (light, heavy past 2 kg) and can stun as any blunt
+        // blow to the head; the flat is the slash's bad-angle fallback
+        // (BluntLight, badAngleDamage 0.5) and, a bad angle, never stuns.
+        public const float PommelDamage = .35f, FlatDamage = .5f, BluntMinVelocity = 2;
+        private static void BluntBladeHit(int index, Hand hand, BladeZone zone, EnemyBody hit, BodyPoint point, Vec3 contact, Vec3 velocity,
+            WeaponComponentData usage, MissionWeapon weapon, EquipmentIndex slot, Agent player)
+        {
+            bool pommel = zone == BladeZone.Pommel;
+            PushMaterial material = pommel && weapon.Item != null && weapon.Item.Weight > 2 ? PushMaterial.Blunt : PushMaterial.BluntLight;
+            float speed = velocity.Length;
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "BLUNT_BLADE {0} agent={1} part={2} speed={3:F2} material={4}", zone, hit.Agent.Index, point.Part, speed, material));
+            if (speed < BluntMinVelocity) return;
+            PushEffect push = hit.IsCorpse || _living == null ? PushEffect.None : _living.EvaluatePush(hit, point, velocity, material, pommel);
+            if (!hit.IsCorpse)
+                PhysicalHit.ApplyBlunt(player, hit, point, contact, velocity, weapon, slot, usage, pommel ? PommelDamage : FlatDamage, push);
+            if (!hit.IsCorpse && speed > PushReaction.Thresholds(material)[0])
+                ApplyLivingImpact(hit, point, velocity, push, 2 + (weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)), false);
+            PhysicsInterop.Haptic(index, .45f, .035f);
+        }
+
         // TOG OnCollisionEnter: along the blade, kinetic over 20 J x threshold.
         private static bool TogEnters(Agent player, EnemyBody body, BodyPoint point, Vec3 velocity, Vec3 bladeAxis,
             MissionWeapon weapon, float lastHitAge)
@@ -466,10 +504,19 @@ namespace BannerlordVR.VR.Physics
                 // The release draws the held weapon as its own skinned visual
                 // (VrSkinnedWeapon), not where the game's weapon entity sits;
                 // VrBlade measures the blade actually shown in the hand.
+                hand.HasFlat = false; hand.Pommel = 0;
                 if (VrBlade.TryGet(player, slot, out VrBlade.Segment segment) && segment.Valid)
                 {
                     basePoint = segment.GripWorld;
                     tip = segment.TipWorld;
+                    BladeShape.Shape shape = BladeShape.Of(slot.Role, segment);
+                    if (shape.Valid)
+                    {
+                        hand.Pommel = shape.Pommel;
+                        Vec3 flat = segment.World.rotation.TransformToParent(shape.LocalFlat);
+                        hand.HasFlat = shape.HasFlat && flat.Length > 1e-4f;
+                        if (hand.HasFlat) hand.Flat = flat.NormalizedCopy();
+                    }
                     // The shown blade may be held back by a joint or by
                     // VrCollide; the physics works from the controller's.
                     PhysicalBlade.LearnBlade(slot.Role, basePoint, tip);
@@ -890,9 +937,12 @@ namespace BannerlordVR.VR.Physics
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
             // A shield's face is about 0.22 m round its grip, a fist 6.5 cm.
             float thickness = blade ? .025f : usage != null && usage.IsShield ? .22f : .065f;
-            for (int s = 0; s <= (blade ? samples : 0); s++)
+            // Behind the grip, the pommel (a blunt damager of its own).
+            float bladeLength = (tip - start).Length;
+            int pommelSamples = blade && hand.Pommel > .03f && bladeLength > .1f ? Math.Max(1, (int)Math.Ceiling(hand.Pommel / .06f)) : 0;
+            for (int s = -pommelSamples; s <= (blade ? samples : 0); s++)
             {
-                float along = blade ? (float)s / samples : 0;
+                float along = !blade ? 0 : s >= 0 ? (float)s / samples : s * (hand.Pommel / bladeLength) / pommelSamples;
                 Vec3 previous = hand.PreviousBase + (hand.PreviousTip - hand.PreviousBase) * along;
                 Vec3 current = start + (tip - start) * along;
                 float length = (current - previous).Length;
@@ -952,6 +1002,15 @@ namespace BannerlordVR.VR.Physics
             float lastHitAge = now - Math.Max(hit.LastHitLeft, hit.LastHitRight);
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
+            // B&S: the pommel (Damager_HandleLight/Heavy) and the flat (the
+            // slash damager's bad angle, badAngleBluntFallback) strike blunt.
+            BladeZone zone = !blade || usage.IsShield ? BladeZone.Edge : hitAlong < 0 ? BladeZone.Pommel :
+                !thrust && OnTheFlat(hand, velocity, tip - start) ? BladeZone.Flat : BladeZone.Edge;
+            if (zone != BladeZone.Edge)
+            {
+                if (!hitCooled) BluntBladeHit(index, hand, zone, hit, hitPoint, contact, velocity, usage, weapon, slot, player);
+                return;
+            }
             // B&S dismemberment: a fast cut across a joint slices and kills.
             // Only an edge slices: a mace or a hammer at speed took heads off.
             if (blade && !thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll && usage.SwingDamageType == DamageTypes.Cut)

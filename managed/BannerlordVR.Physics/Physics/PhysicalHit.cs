@@ -55,6 +55,17 @@ namespace BannerlordVR.VR.Physics
             Register(player, body, point, contact, direction, weapon, slot, usage, damageType, raw, thrust, false, push);
         }
 
+        // A weapon's pommel or flat: the swing's damage scaled, as blunt.
+        public static void ApplyBlunt(Agent player, EnemyBody body, BodyPoint point, Vec3 contact, Vec3 velocity,
+            MissionWeapon weapon, EquipmentIndex slot, WeaponComponentData usage, float scale, PushEffect push)
+        {
+            float speed = velocity.Length;
+            if (usage == null || speed < .01f || body.IsCorpse) return;
+            float raw = usage.SwingDamage * scale * Math.Min(1.5f, speed / 5);
+            if (raw < .5f) return;
+            Register(player, body, point, contact, velocity.NormalizedCopy(), weapon, slot, usage, DamageTypes.Blunt, raw, false, false, push);
+        }
+
         // Mean part of a 89.7 kg ragdoll of 16 bodies.
         private const float CorpsePartMass = 5.6f;
 

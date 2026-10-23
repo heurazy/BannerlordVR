@@ -82,19 +82,6 @@ namespace BannerlordVR.VR.Physics
                 CheckSlice(sliceAxis, bladeUp, bladeForward, contactDistance, profile);
         }
 
-        // Damager.OnCollision slices only a hit whose penetration is Hit
-        // (CheckPenetration: the target material lets the edge in at that
-        // speed). DamageModifier_Slash: mail and plate never let a sword or
-        // an axe in, so a mail coif, a gorget or a plated limb is never cut
-        // off. Bannerlord's plate rows stand in for leather on stabs; a cut
-        // through them is held to mail's.
-        public static bool EdgeEnters(PenetrationProfile profile, PenetrationMaterial material, int tier, float speed)
-        {
-            if (material == PenetrationMaterial.Plate) material = PenetrationMaterial.Chainmail;
-            PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
-            return row.Allow && InteractionMath.IsFinite(speed) && speed >= row.MinVelocity;
-        }
-
         // The DamageModifier knockout rows are no longer read by ThunderRoad:
         // only SkillDiscombobulate knocks a creature out. CheckStunConditions:
         // a Blunt blow (fists, kicks, maces, pommels and flats) to the Head

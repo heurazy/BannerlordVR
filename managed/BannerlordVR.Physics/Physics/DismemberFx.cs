@@ -88,9 +88,6 @@ namespace BannerlordVR.VR.Physics
                 if ((offset - axis.NormalizedCopy() * InteractionMath.Dot(offset, axis.NormalizedCopy())).Length > .25f) continue;
                 if (!Dismemberment.Slices(profile, twoHanded, false, speed, axis, bladeUp, velocity, along, tier))
                 { miss = joint.Kind + " angle or distance (" + along.ToString("F2", CultureInfo.InvariantCulture) + " m along the limb)"; continue; }
-                PenetrationMaterial armour = BodyPenetration.MaterialFor(victim, victim.AgentVisuals.GetBoneTypeData(joint.Bone).BodyPartType);
-                if (!Dismemberment.EdgeEnters(profile, armour, tier, speed))
-                { miss = joint.Kind + " covered by " + armour + " the edge does not enter"; continue; }
                 Slice(player, victim, joint.Bone, joint.Parent, at, joint.Kind, speed);
                 return true;
             }

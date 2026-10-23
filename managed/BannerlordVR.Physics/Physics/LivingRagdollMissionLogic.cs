@@ -603,13 +603,13 @@ namespace BannerlordVR.VR.Physics
         private readonly Dictionary<Agent, Stagger> _staggers = new Dictionary<Agent, Stagger>();
         private readonly Dictionary<Agent, float> _knockouts = new Dictionary<Agent, float>();
         private struct Stagger { public float Until; public PushEffect Effect; }
-        public PushEffect EvaluatePush(EnemyBody body, BodyPoint point, Vec3 velocity, PushMaterial material)
+        public PushEffect EvaluatePush(EnemyBody body, BodyPoint point, Vec3 velocity, PushMaterial material, bool canStun = true)
         {
             Agent agent = body.Agent;
             if (agent == null || !agent.IsActive()) return PushEffect.None;
             Entry held = Find(agent);
             float now = Mission.CurrentTime;
-            bool knockout = EnemyPhysicsSettings.Knockout &&
+            bool knockout = canStun && EnemyPhysicsSettings.Knockout &&
                 Dismemberment.KnocksOut(material, BodyPenetration.ZoneFor(body, point), velocity.Length);
             if (knockout) _knockouts[agent] = now;
             if (held != null && held.Active.Phase == ActiveRagdollPhase.Destabilized)
