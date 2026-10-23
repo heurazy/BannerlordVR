@@ -9,6 +9,9 @@ namespace BannerlordVR.VR.Physics
         public static readonly int ScanBudget = Math.Max(16, Math.Min(512, VrConfig.Int("enemy_physics_scan_budget", 128)));
         public static readonly float Radius = Read("enemy_physics_radius", 4, 2, 8);
         public static readonly float ExitRadius = Radius + 1;
+        // On horseback too: every hit speed is already the blade's relative
+        // to the body it meets, so a charge strikes as hard as it should.
+        public static readonly bool Mounted = VrConfig.Bool("enemy_physics_mounted", true);
         public static readonly float Spring = Read("enemy_physics_grab_spring", 180, 10, 500);
         public static readonly float Damping = Read("enemy_physics_grab_damping", 22, 1, 80);
         public static readonly float MaxForce = Read("enemy_physics_max_force", 350, 20, 800);

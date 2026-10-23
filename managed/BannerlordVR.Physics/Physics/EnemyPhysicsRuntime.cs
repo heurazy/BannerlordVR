@@ -168,7 +168,7 @@ namespace BannerlordVR.VR.Physics
                 string blocked = _failed ? "failed_earlier" : !EnemyPhysicsSettings.Enabled ? "enemy_physics_off" :
                     !VrMotionHands.Enabled ? "motion_hands_off" : !VrSystem.IsActive ? "vr_inactive" :
                     mission == null || mission.MissionEnded ? "no_mission" : mission.Mode != MissionMode.Battle ? "mode_" + mission.Mode :
-                    player == null || !player.IsActive() ? "no_player" : player.HasMount ? "player_mounted" :
+                    player == null || !player.IsActive() ? "no_player" : player.HasMount && !EnemyPhysicsSettings.Mounted ? "player_mounted" :
                     GameNetwork.IsMultiplayer ? "multiplayer" : !VrCameraDriver.HasPose ? "no_head_pose" :
                     // The release keys the HUD over the world for the whole mission
                     // (ui_overlay_always), so UiWantsOverlay no longer means a menu:
@@ -213,7 +213,7 @@ namespace BannerlordVR.VR.Physics
                     if (body == null) continue;
                     bool leased = _living?.HasLease(body.Agent) == true;
                     if (!EnemyBody.Eligible(body.Agent, player, leased) ||
-                        (!leased && (body.Agent.Position - player.Position).Length > EnemyPhysicsSettings.ExitRadius) || !body.Sample(dt))
+                        (!leased && (body.Agent.Position - player.Position).Length > ExitRadius(player)) || !body.Sample(dt))
                         Remove(i);
                     else
                     {
@@ -256,6 +256,16 @@ namespace BannerlordVR.VR.Physics
                     (_living?.LastTickCpuMilliseconds ?? 0) + (_bleeding?.LastTickCpuMilliseconds ?? 0));
             }
         }
+
+        // At a gallop (10 m/s) a 4 m radius was crossed in 0.4 s, about the
+        // time a body takes to be admitted and sampled: the reach grows by
+        // 0.5 s of the player's ground speed, up to 10 m.
+        private static float AdmitRadius(Agent player)
+        {
+            Vec3 v = player.HasMount ? player.MountAgent?.Velocity ?? player.Velocity : player.Velocity;
+            return Math.Min(10, EnemyPhysicsSettings.Radius + new Vec2(v.x, v.y).Length * .5f);
+        }
+        private static float ExitRadius(Agent player) => AdmitRadius(player) + (EnemyPhysicsSettings.ExitRadius - EnemyPhysicsSettings.Radius);
 
         private static bool AdmissionTimeRemaining =>
             (Stopwatch.GetTimestamp() - _workStarted) * 1000.0 / Stopwatch.Frequency < Budget.Milliseconds * .35;
@@ -312,7 +322,8 @@ namespace BannerlordVR.VR.Physics
                 Agent agent = agents[_cursor++];
                 if (agent == player) continue;
                 float distance = (agent.Position - player.Position).LengthSquared;
-                if (distance > EnemyPhysicsSettings.Radius * EnemyPhysicsSettings.Radius) continue;
+                float radius = AdmitRadius(player);
+                if (distance > radius * radius) continue;
                 int chosen = -1; float farthest = distance + .25f;
                 bool found = false;
                 for (int i = 0; i < Bodies.Length; i++)

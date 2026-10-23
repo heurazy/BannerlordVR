@@ -28,7 +28,7 @@ namespace BannerlordVR.VR.Physics
             float reach = EnemyPhysicsSettings.CloseReach;
             if (reach <= configured || !EnemyPhysicsSettings.Enabled) return configured;
             Agent player = Mission.Current?.MainAgent;
-            if (player == null || !player.IsActive()) return configured;
+            if (player == null || !player.IsActive() || player.HasMount) return configured;
             return EnemyPhysicsRuntime.Clearance(player.Position.AsVec2, Radius(player)) < Near ? reach : configured;
         }
 
@@ -44,7 +44,8 @@ namespace BannerlordVR.VR.Physics
             try
             {
                 float reach = EnemyPhysicsSettings.CloseReach;
-                if (reach <= 0 || player == null || !player.IsActive() || dt <= 0 || dt > .1f) return;
+                // A rider's stick drives the horse, not a lean into reach.
+                if (reach <= 0 || player == null || !player.IsActive() || player.HasMount || dt <= 0 || dt > .1f) return;
                 Vec2 input = player.MovementInputVector;
                 Vec2 at = player.Position.AsVec2;
                 float gap = EnemyPhysicsRuntime.Nearest(at, Radius(player), out Vec2 enemy);
@@ -131,7 +132,8 @@ namespace BannerlordVR.VR.Physics
             public static void Prefix(Agent agent, out Before __state)
             {
                 __state = default(Before);
-                if (agent == null || EnemyPhysicsSettings.CloseReach <= 0 || !EnemyPhysicsSettings.Enabled) return;
+                // A rider is never put back: the horse carries it.
+                if (agent == null || agent.HasMount || EnemyPhysicsSettings.CloseReach <= 0 || !EnemyPhysicsSettings.Enabled) return;
                 __state = new Before { Valid = true, Position = agent.Position, Offset = VrCameraDriver.RoomOffset };
             }
 
