@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using BannerlordVR.VR;
 using HarmonyLib;
+using TaleWorlds.Core;
 using TaleWorlds.Engine;
 using TaleWorlds.Library;
 
@@ -51,6 +52,40 @@ namespace BannerlordVR.VR.Physics
             catch (Exception) { return default(Shape); }
         }
 
+        // The handle's share of the weapon from its butt (VrBlade's grip end is
+        // the weapon's bottom: 0 m of pommel was ever found behind it).
+        // Bannerlord crafts its melee weapons from pieces: the handle and the
+        // pommel are the blunt part, the guard is metal on the blade's side.
+        // An uncrafted weapon keeps a fifth.
+        private static readonly Dictionary<ItemObject, float> Handles = new Dictionary<ItemObject, float>();
+        public const float DefaultHandle = .2f;
+        public static float HandleFraction(ItemObject item)
+        {
+            if (item == null) return 0;
+            if (Handles.TryGetValue(item, out float cached)) return cached;
+            float fraction = DefaultHandle;
+            try
+            {
+                WeaponDesign design = item.WeaponDesign;
+                if (design?.UsedPieces != null && design.TotalLength > .05f)
+                {
+                    float handle = 0;
+                    foreach (WeaponDesignElement piece in design.UsedPieces)
+                    {
+                        if (piece == null || !piece.IsValid) continue;
+                        CraftingPiece.PieceTypes type = piece.CraftingPiece.PieceType;
+                        if (type == CraftingPiece.PieceTypes.Handle || type == CraftingPiece.PieceTypes.Pommel) handle += piece.ScaledLength;
+                    }
+                    if (handle > 0) fraction = Math.Max(.05f, Math.Min(.9f, handle / design.TotalLength));
+                }
+            }
+            catch (Exception) { }
+            Handles[item] = fraction;
+            PhysicsLog.Info("BLADE_HANDLE '" + item.StringId + "': handle and pommel " + (fraction * 100).ToString("F0", CultureInfo.InvariantCulture) +
+                "% of the weapon from its butt" + (item.WeaponDesign == null ? " (not crafted: default)" : ""));
+            return fraction;
+        }
+
         private static Shape Measure(List<MetaMesh> meshes, VrBlade.Segment segment, string item)
         {
             if (!Bounds(meshes, out Vec3 min, out Vec3 max)) return default(Shape);
@@ -74,7 +109,9 @@ namespace BannerlordVR.VR.Physics
             }
             // A box not along the blade, or a weapon as thick as it is wide
             // (a round mace or club): no flat to tell.
-            bool flat = aligned > .9f && extent[thin] < extent[wide] * .7f;
+            // Half as thick as wide at most: a box 21 x 30 cm round an imperial
+            // sword (its guard and grip) told no flat worth trusting.
+            bool flat = aligned > .9f && extent[thin] < extent[wide] * .5f;
             var shape = new Shape { Valid = true, HasFlat = flat, LocalFlat = axes[thin], Pommel = Math.Min(MaxPommel, Math.Max(0, -back)) };
             if (Logged.Add(item ?? "?"))
                 PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,

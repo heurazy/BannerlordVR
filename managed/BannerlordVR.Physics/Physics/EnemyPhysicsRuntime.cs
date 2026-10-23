@@ -29,7 +29,7 @@ namespace BannerlordVR.VR.Physics
             public ItemObject Item;
             public EquipmentIndex Slot;
             // BladeShape: the flat's normal (world) and the pommel's reach.
-            public bool HasFlat; public Vec3 Flat; public float Pommel;
+            public bool HasFlat; public Vec3 Flat; public float Pommel, Handle;
             public void Reset() { PressBody = null; Grab.Release(); Penetration.Release(); Cut.Reset(); Sampled = GripDown = SuppressTrigger = false; Item = null; Slot = EquipmentIndex.None; ReleasedFrom = null; ReleasedAt = -10; }
         }
         private static readonly EnemyBody[] Bodies = new EnemyBody[EnemyPhysicsSettings.Capacity];
@@ -544,7 +544,7 @@ namespace BannerlordVR.VR.Physics
                 // The release draws the held weapon as its own skinned visual
                 // (VrSkinnedWeapon), not where the game's weapon entity sits;
                 // VrBlade measures the blade actually shown in the hand.
-                hand.HasFlat = false; hand.Pommel = 0;
+                hand.HasFlat = false; hand.Pommel = 0; hand.Handle = BladeShape.HandleFraction(weapon.Item);
                 if (VrBlade.TryGet(player, slot, out VrBlade.Segment segment) && segment.Valid)
                 {
                     basePoint = segment.GripWorld;
@@ -1087,7 +1087,9 @@ namespace BannerlordVR.VR.Physics
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
             // B&S: the pommel (Damager_HandleLight/Heavy) and the flat (the
             // slash damager's bad angle, badAngleBluntFallback) strike blunt.
-            BladeZone zone = !blade || usage.IsShield ? BladeZone.Edge : hitAlong < 0 ? BladeZone.Pommel :
+            // The grip end of VrBlade's segment is the weapon's butt: the first
+            // stretch along it is the handle and the pommel.
+            BladeZone zone = !blade || usage.IsShield ? BladeZone.Edge : hitAlong < hand.Handle ? BladeZone.Pommel :
                 !thrust && OnTheFlat(hand, velocity, tip - start) ? BladeZone.Flat : BladeZone.Edge;
             if (zone != BladeZone.Edge)
             {

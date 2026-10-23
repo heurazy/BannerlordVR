@@ -18,9 +18,9 @@ namespace BannerlordVR.VR.Physics
         // saddle: a destabilizing blow or a hard pull unseats them instead.
         public static readonly bool Riders = VrConfig.Bool("enemy_physics_riders", true);
         // B&S RevealDecal: a wound decal where each cut and stab landed.
-        public static readonly bool Wounds = VrConfig.Bool("enemy_physics_wounds", true);
+        public static readonly bool Wounds = VrConfig.Bool("enemy_physics_wounds", false);
         // B&S choking: a hand on a living enemy's neck strangles it.
-        public static readonly bool Choke = VrConfig.Bool("enemy_physics_choke", true);
+        public static readonly bool Choke = VrConfig.Bool("enemy_physics_choke", false);
         // Stab model on trial: tog (Tales of Glory 4's WepScript stab, see
         // TogStab) or bs (Blade & Sorcery's damager penetration).
         public static readonly bool TogStab = !string.Equals(VrConfig.String("enemy_physics_stab_model", "tog"), "bs", StringComparison.OrdinalIgnoreCase);
