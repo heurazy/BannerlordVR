@@ -110,9 +110,43 @@ namespace BannerlordVR.VR.Physics
                 a.GetCurrentAction(0).GetName(), a.GetCurrentAction(1).GetName()));
         }
 
+        // A spear for stab tests, in a free weapon slot (it is carried on the
+        // back until drawn); the last slot is replaced when all four are full.
+        private static void GiveSpear(Agent player)
+        {
+            try
+            {
+                ItemObject spear = null;
+                foreach (ItemObject item in TaleWorlds.ObjectSystem.MBObjectManager.Instance.GetObjectTypeList<ItemObject>())
+                {
+                    WeaponComponentData usage = item.PrimaryWeapon;
+                    if (usage == null || usage.WeaponClass != WeaponClass.OneHandedPolearm || !usage.IsMeleeWeapon || usage.ThrustDamage <= 0 ||
+                        item.StringId.Contains("throwing") || item.StringId.StartsWith("bvr_")) continue;
+                    // A plain spear of middling tier, the same every time.
+                    bool named = item.StringId.Contains("spear");
+                    bool better = spear == null || (named && !spear.StringId.Contains("spear")) ||
+                        (named == spear.StringId.Contains("spear") && Math.Abs((int)item.Tier - 3) < Math.Abs((int)spear.Tier - 3)) ||
+                        (named == spear.StringId.Contains("spear") && Math.Abs((int)item.Tier - 3) == Math.Abs((int)spear.Tier - 3) &&
+                         string.CompareOrdinal(item.StringId, spear.StringId) < 0);
+                    if (better) spear = item;
+                }
+                if (spear == null) { PhysicsLog.Info("SANDBOX no spear found among the items."); return; }
+                EquipmentIndex slot = EquipmentIndex.Weapon3;
+                for (EquipmentIndex i = EquipmentIndex.Weapon0; i <= EquipmentIndex.Weapon3; i++)
+                    if (player.Equipment[i].IsEmpty) { slot = i; break; }
+                if (slot == player.GetPrimaryWieldedItemIndex() || slot == player.GetOffhandWieldedItemIndex())
+                { PhysicsLog.Info("SANDBOX no free weapon slot for the spear."); return; }
+                var weapon = new MissionWeapon(spear, null, player.Origin?.Banner);
+                player.EquipWeaponWithNewEntity(slot, ref weapon);
+                PhysicsLog.Info("SANDBOX spear " + spear.StringId + " given in slot " + slot);
+            }
+            catch (Exception ex) { PhysicsLog.Error("SANDBOX spear could not be given.", ex); }
+        }
+
         private void Place(Agent player)
         {
             _placed = true;
+            GiveSpear(player);
             Vec3 forward = player.LookDirection; forward.z = 0;
             if (forward.LengthSquared < 1e-4f) forward = Vec3.Forward;
             forward = forward.NormalizedCopy();
