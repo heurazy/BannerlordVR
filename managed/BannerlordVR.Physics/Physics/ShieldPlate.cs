@@ -21,6 +21,8 @@ namespace BannerlordVR.VR.Physics
         private static bool _logged, _compared;
         public const float MinHalfThickness = .03f;
 
+        private static readonly Vec3[] Axes = new Vec3[3];
+        private static readonly float[] Half = new float[3];
         public static bool FromEntity(Agent agent, out VrBlade.Plate plate)
         {
             plate = default(VrBlade.Plate);
@@ -34,8 +36,11 @@ namespace BannerlordVR.VR.Physics
             BoundingBox box = entity.GetLocalBoundingBox();
             if (!InteractionMath.IsFinite(box.min) || !InteractionMath.IsFinite(box.max) || (box.max - box.min).LengthSquared < 1e-4f) return false;
             MatrixFrame frame = entity.GetGlobalFrame();
-            Vec3[] axes = { frame.rotation.s, frame.rotation.f, frame.rotation.u };
-            float[] half = { (box.max.x - box.min.x) * .5f, (box.max.y - box.min.y) * .5f, (box.max.z - box.min.z) * .5f };
+            // Scratch arrays: this runs for every shield bearer BannerlordVR
+            // tests each frame.
+            Vec3[] axes = Axes; float[] half = Half;
+            axes[0] = frame.rotation.s; axes[1] = frame.rotation.f; axes[2] = frame.rotation.u;
+            half[0] = (box.max.x - box.min.x) * .5f; half[1] = (box.max.y - box.min.y) * .5f; half[2] = (box.max.z - box.min.z) * .5f;
             for (int i = 0; i < 3; i++)
             {
                 float length = axes[i].Length;

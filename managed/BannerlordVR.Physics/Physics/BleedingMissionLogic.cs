@@ -218,7 +218,10 @@ namespace BannerlordVR.VR.Physics
         {
             // Every blow any system lands while the physics runs, with who dealt
             // it: ours (PhysicalHit), BannerlordVR's or the engine's own melee.
-            if (EnemyPhysicsSettings.Trace)
+            // Only blows near the player: in a large battle every soldier's
+            // blow made a formatted line, hundreds a second.
+            if (EnemyPhysicsSettings.Trace && (PhysicalHit.DeliveringOwnBlow || victim?.IsMainAgent == true || source?.IsMainAgent == true ||
+                (victim != null && EnemyPhysicsRuntime.Tracks(victim))))
             {
                 try
                 {

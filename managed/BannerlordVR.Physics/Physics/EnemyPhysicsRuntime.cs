@@ -240,9 +240,9 @@ namespace BannerlordVR.VR.Physics
                 if (now - _lastLog > 10)
                 {
                     _lastLog = now;
-                    PhysicsLog.Info(string.Format("Enemy physics: {0}/{1} bodies (adaptive limit {2}); CPU mean {3:F3} ms, p95 {4:F3}, p99 {5:F3}; budget {6:F2} ms. CPU work only, not total frame time.",
+                    PhysicsLog.Info(string.Format("Enemy physics: {0}/{1} bodies (adaptive limit {2}) of {7} agents; CPU mean {3:F3} ms, p95 {4:F3}, p99 {5:F3}; budget {6:F2} ms. CPU work only, not total frame time.",
                         ActiveBodies, Bodies.Length, Budget.BodyLimit, Budget.Mean,
-                        Budget.Percentile(.95), Budget.Percentile(.99), Budget.Milliseconds));
+                        Budget.Percentile(.95), Budget.Percentile(.99), Budget.Milliseconds, mission.Agents.Count));
                 }
             }
             catch (Exception ex)
