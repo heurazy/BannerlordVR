@@ -681,9 +681,49 @@ namespace BannerlordVR.VR.Physics
             return distance >= length - .06f || (entity != null && entity.Pointer == CorpseVisuals.EntityPointer(body.Agent));
         }
 
+        // B&S HandleRagdoll on the neck: a handle along the whole neck, the
+        // Choke handle. The nearest point alone chose the head (its bone
+        // starts just above the throat) for a hand closed on the throat, and
+        // the enemy was never choked. A hand within NeckReach of the neck's
+        // line, from its base to the chin, takes the neck first.
+        public const float NeckReach = .14f, ChinAbove = .06f;
+        private static bool NeckZone(EnemyBody body, Vec3 position, out int neck, out float gap)
+        {
+            neck = -1; gap = float.MaxValue;
+            if (body.IsCorpse || !EnemyPhysicsSettings.Choke) return false;
+            int head = -1;
+            for (int i = 0; i < body.Count; i++)
+            {
+                if (body.Points[i].Part == BoneBodyPartType.Neck) neck = i;
+                else if (body.Points[i].Part == BoneBodyPartType.Head && head < 0) head = i;
+            }
+            if (neck < 0 || head < 0) return false;
+            Vec3 a = body.Points[neck].World, b = body.Points[head].World;
+            Vec3 axis = b - a;
+            if (axis.Length < .02f) return false;
+            Vec3 dir = axis.NormalizedCopy();
+            float t = Math.Max(0, Math.Min(axis.Length + ChinAbove, InteractionMath.Dot(position - a, dir)));
+            gap = (position - (a + dir * t)).Length;
+            return gap <= NeckReach;
+        }
+
         private static void TryGrab(Hand hand, Vec3 position)
         {
             EnemyBody best = null; int point = -1; float distance = .22f;
+            float neckGap = NeckReach;
+            foreach (EnemyBody body in Bodies)
+            {
+                if (body == null || !body.Agent.IsActive()) continue;
+                if (NeckZone(body, position, out int neck, out float gap) && gap <= neckGap && Visible(position, body.Points[neck].World, body))
+                { neckGap = gap; best = body; point = neck; }
+            }
+            if (best != null)
+            {
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info("GRAB neck zone agent=" + best.Agent.Index + " " + neckGap.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " m from the neck's line");
+                hand.Grab.Begin(best, point, position);
+                return;
+            }
             foreach (EnemyBody body in Bodies)
             {
                 if (body == null || (!body.IsCorpse && !body.Agent.IsActive())) continue;
