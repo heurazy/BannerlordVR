@@ -236,8 +236,8 @@ namespace BannerlordVR.VR.Physics
                 var skeleton = player.AgentVisuals?.GetSkeleton();
                 if (skeleton == null || !VrHandSlots.Resolve(player, skeleton, out VrHandSlot main, out VrHandSlot off))
                 { Once(ref _loggedSlots, "Enemy physics: hand bones not resolved for the player."); ClearHands(); return; }
-                if (player.WieldedWeapon.CurrentUsageItem?.IsRangedWeapon == true ||
-                    player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true)
+                if ((player.WieldedWeapon.CurrentUsageItem?.IsRangedWeapon == true && MeleeUsage(player.WieldedWeapon) == null) ||
+                    (player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true && MeleeUsage(player.WieldedOffhandWeapon) == null))
                 { ClearHands(); return; }
                 UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
                 UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
@@ -378,6 +378,19 @@ namespace BannerlordVR.VR.Physics
             for (int i = 0; i < Bodies.Length; i++) if (Bodies[i] != null) ActiveBodies++;
         }
 
+        // A javelin, throwing axe or knife held in its throwing usage still
+        // strikes in the hand as its melee usage (Bannerlord gives each one).
+        public static WeaponComponentData MeleeUsage(MissionWeapon weapon)
+        {
+            if (weapon.IsEmpty) return null;
+            WeaponComponentData current = weapon.CurrentUsageItem;
+            if (current?.IsMeleeWeapon == true) return current;
+            var usages = weapon.Item?.Weapons;
+            if (usages == null) return null;
+            foreach (WeaponComponentData usage in usages) if (usage.IsMeleeWeapon && !usage.IsShield) return usage;
+            return null;
+        }
+
         private static void UpdateHand(int index, BvrHandState input, BvrHandState otherInput, VrHandSlot slot, Agent player, float dt, float now)
         {
             Hand hand = Hands[index];
@@ -388,7 +401,7 @@ namespace BannerlordVR.VR.Physics
             Vec3 stage = new Vec3(input.GripPosition.X, input.GripPosition.Y, input.GripPosition.Z);
             Vec3 stageAxis = VrMath.ToBannerlord(input.GripOrientation, input.GripPosition).rotation.u;
             MissionWeapon weapon = slot.Equipment == EquipmentIndex.None ? MissionWeapon.Invalid : player.Equipment[slot.Equipment];
-            WeaponComponentData usage = weapon.IsEmpty ? null : weapon.CurrentUsageItem;
+            WeaponComponentData usage = weapon.IsEmpty ? null : MeleeUsage(weapon) ?? weapon.CurrentUsageItem;
             Vec3 basePoint = pose.origin, tip = basePoint;
             bool blade = usage != null && usage.IsMeleeWeapon && EnemyPhysicsSettings.WeaponDamage;
             hand.SuppressTrigger = usage == null || blade;
@@ -882,7 +895,8 @@ namespace BannerlordVR.VR.Physics
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
             bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
             // B&S dismemberment: a fast cut across a joint slices and kills.
-            if (blade && !thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll)
+            // Only an edge slices: a mace or a hammer at speed took heads off.
+            if (blade && !thrust && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll && usage.SwingDamageType == DamageTypes.Cut)
             {
                 BodyPenetration.ProfileFor(usage, false, out PenetrationProfile sliceProfile);
                 bool twoHanded = usage.WeaponFlags.HasAnyFlag(WeaponFlags.NotUsableWithOneHand);

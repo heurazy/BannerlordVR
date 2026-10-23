@@ -93,9 +93,13 @@ namespace BannerlordVR.Physics
     {
         private static bool _logged;
         [HarmonyPrefix]
-        public static bool Prefix()
+        public static bool Prefix(Agent victim)
         {
             if (!EnemyPhysicsSettings.Enabled || !EnemyPhysicsSettings.WeaponDamage) return true;
+            // Only the bodies the physics tracks are its own to damage: a
+            // horse or camel, or a soldier past the six bodies simulated,
+            // took no blow at all from the blade.
+            if (victim != null && !EnemyPhysicsRuntime.Tracks(victim)) return true;
             if (!_logged) { _logged = true; PhysicsLog.Info("BannerlordVR physical strikes skipped: the enemy physics owns blade damage."); }
             return false;
         }
