@@ -165,7 +165,7 @@ namespace BannerlordVR.VR.Physics
             if (TogStab.Lethal(point.Part))
             {
                 _pending = body.Agent.Health + 1; _pendingVictim = body.Agent; _lastAnchor = contact;
-                EnemyPhysicsRuntime.MarkDying(body);
+                EnemyPhysicsRuntime.MarkFading(body);
                 _togDeathAt = TogStab.DeathDelay;
                 effect = "lethal";
             }
@@ -466,7 +466,7 @@ namespace BannerlordVR.VR.Physics
             // cannot). Only a hand teleported away (2.5 m) lets go.
             if ((bladePoint - anchor).Length > LateralLoss)
             { End("slipped_off_blade", (bladePoint - anchor).Length); return false; }
-            if (!Body.IsCorpse && _pending >= .5f && _pending >= Body.Agent.Health - .5f) EnemyPhysicsRuntime.MarkDying(Body);
+            if (!_tog && !Body.IsCorpse && _pending >= .5f && _pending >= Body.Agent.Health - .5f) EnemyPhysicsRuntime.MarkDying(Body);
             if (_cut) return TickCut(p, bone, anchor, axis, bladeBase, bladeTip, bladeLength, along, bladePoint, dt);
             if (!_hasLocalAxis)
             {

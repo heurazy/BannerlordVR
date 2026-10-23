@@ -164,6 +164,22 @@ namespace BannerlordVR.VR.Physics
                 "ACTIVE_RAGDOLL knocked out until {0:F2} ({1:F1} s) phase={2}", _knockedUntil, _knockedUntil - now, _cycle.Phase));
         }
 
+        // Tales of Glory NpcAI.FadeToDeath (PuppetMaster): a vital stab sets
+        // the puppet's pin and muscle weights to 0.3 and eases both to 0 at
+        // 1/5 a second (1.5 s): the body sags on its pose and on the blade,
+        // gravity on, then is a limp ragdoll. Already down, it is limp at once.
+        private float _fadeFrom = -1, _fadeMul = -1;
+        public const float FadeStart = .3f, FadeRate = .2f;
+        public bool Fading => _fadeFrom >= 0 && !Dying;
+        public void FadeToDeath(float now)
+        {
+            if (Dying || !_configured || Fading) return;
+            if (_cycle.Phase != ActiveRagdollPhase.Standing && _cycle.Phase != ActiveRagdollPhase.Recovered) { Die(); return; }
+            _fadeFrom = now;
+            PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                "ACTIVE_RAGDOLL fading to death (pins {0:F1} to 0 over {1:F1} s) phase={2}", FadeStart, FadeStart / FadeRate, _cycle.Phase));
+        }
+
         public void Die()
         {
             if (Dying || !_configured) return;
@@ -175,7 +191,7 @@ namespace BannerlordVR.VR.Physics
 
         public void Clear()
         {
-            Dying = false; _knockedUntil = -1; HoldSeconds = PhysicEnabledDuration;
+            Dying = false; _knockedUntil = -1; HoldSeconds = PhysicEnabledDuration; _fadeFrom = -1; _fadeMul = -1;
             _cycle.Stop(); _gate.Reset(); _drive.ResetVelocity();
             _captureValid = _configured = _destabilizeOnStart = false;
             _lastApplied = _lastRootSample = -1; _nextGround = 0; _nearGround = false;
@@ -516,8 +532,14 @@ namespace BannerlordVR.VR.Physics
             if (clock == null || !clock.Running || !_gate.CanApply(clock.Steps)) { SkippedTicks++; return; }
             float dt = _lastApplied < 0 ? 1f / 90 : now - _lastApplied;
             _drive.State = _cycle.DriveState;
-            _drive.Multiplier = _cycle.PinMultiplier;
-            _drive.CancelGravity = _cycle.CancelGravity;
+            _fadeMul = -1;
+            if (Fading)
+            {
+                _fadeMul = Math.Max(0, FadeStart - (now - _fadeFrom) * FadeRate);
+                if (_fadeMul <= 0) { _fadeFrom = -1; _fadeMul = -1; Die(); _drive.State = _cycle.DriveState; }
+            }
+            _drive.Multiplier = _fadeMul >= 0 ? _fadeMul : _cycle.PinMultiplier;
+            _drive.CancelGravity = _fadeMul < 0 && _cycle.CancelGravity;
             _drive.Grounded = _nearGround;
             // A body that starts far off its pose (a skeleton caught mid
             // change) would be flung by its pins: it goes limp instead.
@@ -573,7 +595,7 @@ namespace BannerlordVR.VR.Physics
             bool standing = _drive.State == PinState.Standing;
             float spring = standing ? 1 : _nearGround ? RagdollPinDrive.DestabilizedGroundSpringRotation : RagdollPinDrive.DestabilizedSpringRotation;
             float damper = standing ? 1 : RagdollPinDrive.DestabilizedDamperRotation;
-            float multiplier = Math.Max(0, Math.Min(1, _cycle.PinMultiplier));
+            float multiplier = Math.Max(0, Math.Min(1, _fadeMul >= 0 ? _fadeMul : _cycle.PinMultiplier));
             for (int i = 0; i < _drive.Count; i++)
             {
                 if (!standing && i == _pelvisBody) continue;

@@ -434,6 +434,14 @@ namespace BannerlordVR.VR.Physics
         // BrainModuleDeath.DropGrabbedCoroutine: a dying creature lets go of
         // what it holds after dropObjectsDelay (0 to 0.5 s).
         private readonly Dictionary<Agent, float> _drops = new Dictionary<Agent, float>();
+        // TOG FadeToDeath: the body sags on the blade, its weapons dropped now.
+        public void FadeToDeath(EnemyBody body)
+        {
+            Entry entry = Find(body.Agent);
+            if (entry == null) return;
+            entry.Active.FadeToDeath(Mission.CurrentTime);
+            if (EnemyPhysicsSettings.DropOnDeath && !_drops.ContainsKey(body.Agent)) _drops[body.Agent] = Mission.CurrentTime;
+        }
         public void Die(EnemyBody body)
         {
             Entry entry = Find(body.Agent);

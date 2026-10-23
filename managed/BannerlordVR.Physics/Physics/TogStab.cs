@@ -22,7 +22,8 @@ namespace BannerlordVR.VR.Physics
     internal static class TogStab
     {
         public const float ImpactBoost = 1.2f, Threshold = 20, MaxKinetic = 400, LimbKineticCap = 300, Align = .8f;
-        public const float BreakNear = .05f, OutKick = 5, DeathDelay = 1, RecentHit = 1;
+        // The kill lands as the fade ends (ActiveRagdollBody.FadeToDeath).
+        public const float BreakNear = .05f, OutKick = 5, DeathDelay = ActiveRagdollBody.FadeStart / ActiveRagdollBody.FadeRate, RecentHit = 1;
         public const float StabIn = 10, StabOut = 50;
 
         public static float Kinetic(ItemObject item, Vec3 velocity)
