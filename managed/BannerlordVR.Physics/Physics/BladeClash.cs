@@ -388,7 +388,11 @@ namespace BannerlordVR.VR.Physics
         private static bool Candidates(Agent agent, EquipmentIndex slot, out VrBlade.Segment fit, out VrBlade.Segment frame)
         {
             frame = default(VrBlade.Segment);
-            if (!VrBlade.TryGetEnemyBlade(agent, slot, out fit) || !fit.Valid) return false;
+            long perf = Perf.Start();
+            bool found;
+            try { found = VrBlade.TryGetEnemyBlade(agent, slot, out fit); }
+            finally { Perf.Stop(Perf.Section.EnemyBlade, perf); }
+            if (!found || !fit.Valid) return false;
             WeaponComponentData usage = agent.Equipment[slot].CurrentUsageItem;
             if (usage == null) return false;
             // VrBlade.FrameBlade: the item frame's origin and its up axis.

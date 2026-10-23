@@ -10,8 +10,12 @@ namespace BannerlordVR.VR.Physics
     // timed with two Stopwatch reads (some 20 ns each).
     internal static class Perf
     {
-        public enum Section { Runtime, Ragdoll, BladePose, Clash, Limbs, Count }
-        private static readonly string[] Names = { "runtime", "ragdoll", "blade_pose", "clash", "limbs" };
+        public enum Section { Runtime, Ragdoll, BladePose, Clash, Limbs, EnemyBlade, Count }
+        private static readonly string[] Names = { "runtime", "ragdoll", "blade_pose", "clash", "limbs", "enemy_blade" };
+        // A call over 2 ms is a dropped VR frame: it is logged when it
+        // happens, so the lines around it say what caused it.
+        private const double SpikeMs = 2;
+        private static long _lastSpike;
         private static readonly long[] Ticks = new long[(int)Section.Count], Calls = new long[(int)Section.Count];
         private static readonly double[] Worst = new double[(int)Section.Count];
         private static long _frames, _windowStart;
@@ -28,6 +32,11 @@ namespace BannerlordVR.VR.Physics
             Ticks[s] += spent; Calls[s]++;
             double ms = spent * 1000.0 / Stopwatch.Frequency;
             if (ms > Worst[s]) Worst[s] = ms;
+            if (ms > SpikeMs && started - _lastSpike > Stopwatch.Frequency / 4)
+            {
+                _lastSpike = started;
+                PhysicsLog.Info("PERF_SPIKE " + Names[s] + " " + ms.ToString("F2", CultureInfo.InvariantCulture) + " ms");
+            }
         }
 
         // Once per mission tick.
@@ -43,7 +52,7 @@ namespace BannerlordVR.VR.Physics
             for (int s = 0; s < (int)Section.Count; s++)
             {
                 double ms = Ticks[s] * 1000.0 / Stopwatch.Frequency / _frames;
-                total += s == (int)Section.Clash ? 0 : ms; // clash runs inside blade_pose
+                total += s == (int)Section.Clash || s == (int)Section.EnemyBlade ? 0 : ms; // both run inside blade_pose
                 Line.Append(' ').Append(Names[s]).Append('=').Append(ms.ToString("F3", CultureInfo.InvariantCulture))
                     .Append(" ms (").Append(Calls[s]).Append(" calls, worst ").Append(Worst[s].ToString("F2", CultureInfo.InvariantCulture)).Append(')');
             }
