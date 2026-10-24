@@ -485,6 +485,17 @@ namespace BannerlordVR.VR.Physics
         // touches.
         public const float CouchCap = 8, PointAlong = .8f, MountedPointAlong = .6f;
         public static float PointFrom(Agent player) => player?.MountAgent != null ? MountedPointAlong : PointAlong;
+        // TOG tests a stab on the weapon's own velocity (WepVelocity, the
+        // rigidbody's): measured against the part instead, an AI that
+        // stepped back or swayed in its animation took 26 stabs of 33 down
+        // to 1-3 m/s, neither a thrust nor enough to enter. The part's motion
+        // counts only when it drives the point in harder (a charge onto it).
+        private static Vec3 StabMotion(Agent player, Vec3 world, Vec3 target, Vec3 bladeAxis, bool point)
+        {
+            Vec3 relative = StrikeMotion(player, world, target, bladeAxis, point);
+            Vec3 own = StrikeMotion(player, world, Vec3.Zero, bladeAxis, point);
+            return InteractionMath.Dot(relative, bladeAxis) > InteractionMath.Dot(own, bladeAxis) ? relative : own;
+        }
         private static Vec3 StrikeMotion(Agent player, Vec3 world, Vec3 target, Vec3 bladeAxis, bool point)
         {
             Vec3 motion = HandMotion(player, world) - target;
@@ -1137,7 +1148,7 @@ namespace BannerlordVR.VR.Physics
             // shown blade: each was drawn through the body.
             Agent touched = null; Vec3 touchAt = Vec3.Zero, touchVelocity = Vec3.Zero; float touchFraction = 2, touchAlong = 0;
             BoneBodyPartType touchPart = BoneBodyPartType.Chest;
-            Vec3 rawVelocity = Vec3.Zero;
+            Vec3 rawVelocity = Vec3.Zero, stabVelocity = Vec3.Zero;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
             // A shield's face is about 0.22 m round its grip, a fist 6.5 cm.
@@ -1187,7 +1198,7 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint early = body.ReadContact(bone);
                 Vec3 bladeAxis = (tip - start).NormalizedCopy();
                 bool atTip = blade && usage.ThrustDamage > 0 && along >= PointFrom(player);
-                Vec3 sampleVelocity = StrikeMotion(player, (current - previous) * (1 / dt), early.Velocity, bladeAxis, atTip);
+                Vec3 sampleVelocity = StabMotion(player, (current - previous) * (1 / dt), early.Velocity, bladeAxis, atTip);
                 bool piercing = atTip &&
                     InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
                 // 0.2 s: one swing crosses a body in under 0.1 s; at 0.35 s a
@@ -1224,6 +1235,7 @@ namespace BannerlordVR.VR.Physics
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
                 earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
                 rawVelocity = StrikeMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
+                stabVelocity = StabMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
                 velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
             if (hit == null)
@@ -1235,7 +1247,8 @@ namespace BannerlordVR.VR.Physics
             hand.DiagHits++;
             float lastHitAge = now - Math.Max(hit.LastHitLeft, hit.LastHitRight);
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
-            bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(velocity, (tip - start).NormalizedCopy()) > velocity.Length * .7f;
+            Vec3 stab = InteractionMath.ClampMagnitude(stabVelocity, 12);
+            bool thrust = blade && usage.ThrustDamage > 0 && InteractionMath.Dot(stab, (tip - start).NormalizedCopy()) > stab.Length * .7f;
             // B&S: the pommel (Damager_HandleLight/Heavy) and the flat (the
             // slash damager's bad angle, badAngleBluntFallback) strike blunt.
             // The grip end of VrBlade's segment is the weapon's butt: the first
@@ -1285,7 +1298,7 @@ namespace BannerlordVR.VR.Physics
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
                 (EnemyPhysicsSettings.TogStab
-                    ? TogEnters(player, hit, hitPoint, rawVelocity, tip - start, weapon, lastHitAge)
+                    ? TogEnters(player, hit, hitPoint, stabVelocity, tip - start, weapon, lastHitAge)
                     : velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player));
             // Inside the impact cooldown only an actual entry counts; the
             // blade is still stopped at the body (a quick second blow was
@@ -1344,7 +1357,7 @@ namespace BannerlordVR.VR.Physics
                     // TOG: only a stab that passed its entry test holds.
                     if (enters)
                     {
-                        float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
+                        float kinetic = TogStab.Kinetic(weapon.Item, stabVelocity);
                         hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
                             kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge));
                         if (hand.Penetration.Body != null) StopEngineAttack(player);
