@@ -50,7 +50,7 @@ namespace BannerlordVR.VR.Physics
         {
             _refusals.Clear(); ShieldHitAt.Clear();
             BladeClash.ForgetMission(); CorpseKeeper.ForgetMission(); ReleaseWatch.ForgetMission(); SeveredProp.ForgetMission();
-            ShieldBlock.ForgetMission(); StuckMissiles.ForgetMission(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
+            ShieldBlock.ForgetMission(); StuckMissiles.ForgetMission(); KillPushes.Clear(); ThrownBlade.ForgetMission(); WoundFlow.ForgetMission(); DismemberFx.ForgetMission();
             LivingRagdollMissionLogic.ForgetMission(); CorpseVisuals.Forget(); WoundDecal.ForgetMission(); Choke.ForgetMission();
         }
         public static bool Tracks(Agent agent)
@@ -84,6 +84,44 @@ namespace BannerlordVR.VR.Physics
         }
         public static bool BeginLivingGrab(EnemyBody body) => !body.IsCorpse && _living?.KeepHeld(body, true) == true;
         public static void MaintainLivingGrab(EnemyBody body) { if (!body.IsCorpse) _living?.KeepHeld(body); }
+        public static void TouchLiving(EnemyBody body) { if (!body.IsCorpse) _living?.Touch(body.Agent); }
+
+        // TOG's killing blow: the part takes the weapon's push
+        // (AddForceAtPosition along the hit, clamped). The blow that killed
+        // made the body a corpse in the same tick: no living impact was given
+        // and the game's death ragdoll fell slack, the blade drawn through
+        // it. The push is held until the corpse's ragdoll is active, then
+        // given over KillPushSteps ticks.
+        private struct KillPush { public Agent Agent; public sbyte Bone; public Vec3 Force; public float Until; public int Left; }
+        private static readonly System.Collections.Generic.List<KillPush> KillPushes = new System.Collections.Generic.List<KillPush>();
+        public const float KillPushGain = 25, KillPushWait = 1;
+        public const int KillPushSteps = 4;
+        private static void QueueKillPush(Agent agent, sbyte bone, Vec3 velocity, float now)
+        {
+            if (agent == null || bone < 0 || !InteractionMath.IsFinite(velocity) || velocity.Length < 1) return;
+            KillPushes.Add(new KillPush { Agent = agent, Bone = bone, Force = InteractionMath.ClampMagnitude(velocity * KillPushGain, EnemyPhysicsSettings.MaxForce),
+                Until = now + KillPushWait, Left = KillPushSteps });
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "KILL_PUSH agent={0} queued at {1:F1} m/s", agent.Index, velocity.Length));
+        }
+        private static void TickKillPushes(float now)
+        {
+            for (int i = KillPushes.Count - 1; i >= 0; i--)
+            {
+                KillPush push = KillPushes[i];
+                try
+                {
+                    Skeleton skeleton = push.Agent?.AgentVisuals?.GetSkeleton();
+                    if (skeleton == null || now > push.Until || now < push.Until - KillPushWait - 1) { KillPushes.RemoveAt(i); continue; }
+                    if (skeleton.GetCurrentRagdollState() != RagdollState.Active) continue;
+                    push.Agent.ApplyForceOnRagdoll(push.Bone, in push.Force);
+                    push.Left--;
+                    if (push.Left <= 0) KillPushes.RemoveAt(i); else KillPushes[i] = push;
+                }
+                catch (Exception) { KillPushes.RemoveAt(i); }
+            }
+        }
         // PhysX steps counted by the scene clock, or -1 when no clock runs.
         public static long PhysicsSteps => _living?.PhysicsSteps ?? -1;
         // Horizontal gap between a capsule of this radius at a point and the
@@ -252,6 +290,7 @@ namespace BannerlordVR.VR.Physics
                     (player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true && MeleeUsage(player.WieldedOffhandWeapon) == null))
                 { ClearHands(); return; }
                 StuckMissiles.DrawOnPlayer(player);
+                TickKillPushes(now);
                 UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
                 UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
                 if (EnemyPhysicsSettings.Choke) Choke.Tick(player, Hands[0].Grab, Hands[1].Grab, now);
@@ -1187,7 +1226,9 @@ namespace BannerlordVR.VR.Physics
                         "AXE_BITE {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", axeBites ? "bites" : "refused", hitPoint.Part, rawVelocity.Length, kinetic, needed));
                 if (axeBites && push > PushEffect.StaggerLight) push = PushEffect.StaggerLight;
             }
+            bool wasAlive = !hit.IsCorpse;
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+            if (wasAlive && hit.IsCorpse) QueueKillPush(hit.Agent, hitPoint.Bone, velocity, now);
             // A blade under the material's first push speed only touches: B&S
             // resolves it as a plain contact. Its impulses lifted a body
             // over a blade drawn slowly across the head.

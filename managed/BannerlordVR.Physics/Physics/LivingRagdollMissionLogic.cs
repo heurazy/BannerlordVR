@@ -349,6 +349,15 @@ namespace BannerlordVR.VR.Physics
             }
             return false;
         }
+        public void Touch(Agent agent)
+        {
+            Entry entry = Find(agent);
+            if (entry != null && entry.Lease.Occupied && entry.Lease.Phase != LivingRagdollPhase.Recovering)
+            {
+                entry.Lease.KeepHeld(Mission.CurrentTime, .3f);
+                entry.Active?.Touch();
+            }
+        }
         public void Release(Agent agent)
         {
             foreach (Entry entry in _entries)

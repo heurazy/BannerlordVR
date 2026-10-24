@@ -235,6 +235,7 @@ namespace BannerlordVR.VR.Physics
                 return false;
             }
             PhysicalBlade.SetBite(Role, shown);
+            EnemyPhysicsRuntime.TouchLiving(Body);
             _lastAnchor = bone.TransformToParent(_localContact);
             // The hand pulls the part by the axe (the joint drags it).
             Vec3 target = raw.TransformToParent(_biteHand.origin);
@@ -487,6 +488,7 @@ namespace BannerlordVR.VR.Physics
                 if (_age > .4f) End("no_native_physics");
                 else if (_bite && PhysicalBlade.RawHand(Role, out _))
                 {
+                    EnemyPhysicsRuntime.TouchLiving(Body);
                     // Held already while the ragdoll takes over.
                     MatrixFrame bone0 = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
                     PhysicalBlade.SetBite(Role, bone0.TransformToParent(_biteLocal));

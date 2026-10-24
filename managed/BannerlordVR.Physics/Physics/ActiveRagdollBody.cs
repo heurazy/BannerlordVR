@@ -411,6 +411,11 @@ namespace BannerlordVR.VR.Physics
         // A force held on one part for this tick (a blade pressing the shield
         // the hand holds): applied with the drive, at most once per step.
         private sbyte _pressBone = -1; private Vec3 _pressForce; private float _pressUntil;
+        // Held by something that is not a grab (an axe bitten in): an
+        // interaction every tick, so physicEnabledDuration never runs out
+        // under it (the body went back to animation 2 s in, the axe fell out).
+        public void Touch() => _lastInteraction = Math.Max(_lastInteraction, _lastRootSample);
+
         public void Press(sbyte bone, Vec3 force, float now)
         {
             if (bone < 0 || !InteractionMath.IsFinite(force)) return;
