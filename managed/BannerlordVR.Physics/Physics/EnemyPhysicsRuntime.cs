@@ -1018,7 +1018,13 @@ namespace BannerlordVR.VR.Physics
             {
                 EnemyBody hitBody = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { hitBody = candidate; break; }
-                if (hitBody == null || !DrawnOnly(hitBody)) { LastCastMethod = "closest_limbs"; return agent; }
+                // A horse (the player's own, its head and neck before the
+                // saddle, or a rider's) or a friend, untracked, is closest
+                // along the blade: the tracked bodies are tested past it.
+                // Returned, it hid the enemy behind it (hundreds of mounted
+                // blows ended agent_not_tracked).
+                bool past = hitBody == null && (!agent.IsHuman || agent == _player?.MountAgent || _player == null || !EnemyBody.Hostile(agent, _player));
+                if (!past && (hitBody == null || !DrawnOnly(hitBody))) { LastCastMethod = "closest_limbs"; return agent; }
             }
             float length = (to - from).Length;
             Agent best = null; float bestDistance = float.MaxValue; sbyte bestBone = -1;
