@@ -187,9 +187,63 @@ namespace BannerlordVR.VR.Physics
             if (Body != null && Body.Agent.IsActive()) { _woundLost += lost; _woundBody = Body; }
         }
 
+        // An axe that bites (B&S Damager_SlashAxe penetrating, TOG CutJoint:
+        // every axis limited, broken by a strong pull): the shown axe stays
+        // fixed in the part where it struck; pulling on it drags the part;
+        // it comes out when the controller is drawn BitePull from the axe
+        // shown, or with the victim's death.
+        public const float BitePull = .3f;
+        private bool _bite;
+        private MatrixFrame _biteLocal, _biteHand;
+        public bool Biting => Body != null && _bite;
+        public void BeginBite(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, Agent source, int tier,
+            MatrixFrame shownHand, MatrixFrame rawHand)
+        {
+            Begin(body, point, contact);
+            if (Body == null) return;
+            _bite = true;
+            _profile = profile; _material = MaterialFor(body.Agent, point.Part); _tier = tier; _source = source;
+            _zone = ZoneFor(body, point); _part = point.Part;
+            MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
+            _biteLocal = bone.TransformToLocalNonOrthogonal(shownHand);
+            // Where on the controller's hand the axe meets the part.
+            _biteHand = rawHand.TransformToLocalNonOrthogonal(new MatrixFrame(Mat3.Identity, contact));
+            _maxDepth = 0; _maxSeparation = 0;
+            BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info("PENETRATION begin model=bite profile=" + profile + " zone=" + _zone + " material=" + _material + " part=" + point.Part);
+        }
+        private bool TickBite()
+        {
+            BodyPoint p = Body.ReadContact(_bone);
+            MatrixFrame bone = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(p.Bone));
+            MatrixFrame shown = bone.TransformToParent(_biteLocal);
+            if (!PhysicalBlade.RawHand(Role, out MatrixFrame raw)) { End("no_hand"); return false; }
+            float pull = (raw.origin - shown.origin).Length;
+            _maxSeparation = Math.Max(_maxSeparation, pull);
+            if (pull > BitePull)
+            {
+                Vec3 at = bone.TransformToParent(_localContact);
+                BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
+                End("pulled_free", pull);
+                return false;
+            }
+            PhysicalBlade.SetBite(Role, shown);
+            _lastAnchor = bone.TransformToParent(_localContact);
+            // The hand pulls the part by the axe (the joint drags it).
+            Vec3 target = raw.TransformToParent(_biteHand.origin);
+            Vec3 force = InteractionMath.SpringForce(target - _lastAnchor, p.Velocity - _bladeVelocity,
+                EnemyPhysicsSettings.Spring, EnemyPhysicsSettings.Damping, EnemyPhysicsSettings.MaxForce * .5f);
+            long steps = EnemyPhysicsRuntime.PhysicsSteps;
+            if (steps >= 0 && !_gate.CanApply(steps)) return true;
+            Body.Agent.ApplyForceOnRagdoll(p.Bone, in force);
+            if (steps >= 0) _gate.Applied(EnemyPhysicsRuntime.PhysicsSteps);
+            return true;
+        }
+
         public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
         {
-            _tog = false; _togDeathAt = -1;
+            _tog = false; _togDeathAt = -1; _bite = false;
             Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _bladeSampled = false; _bladeVelocity = Vec3.Zero; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1; _prevSigned = float.NaN;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
@@ -425,8 +479,15 @@ namespace BannerlordVR.VR.Physics
             if (!Body.HasNativePhysics)
             {
                 if (_age > .4f) End("no_native_physics");
+                else if (_bite && PhysicalBlade.RawHand(Role, out _))
+                {
+                    // Held already while the ragdoll takes over.
+                    MatrixFrame bone0 = Body.Frame.TransformToParent(Body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
+                    PhysicalBlade.SetBite(Role, bone0.TransformToParent(_biteLocal));
+                }
                 return Body != null;
             }
+            if (_bite) return TickBite();
             // TOG BreakStabJoint: at a gallop the stab joint cannot hold the
             // body; the blade slides out past its end as the rider passes,
             // the held damage lands and the body falls off it. Held, the arm

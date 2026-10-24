@@ -987,7 +987,7 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
-        private const float ReleaseHitDelay = .35f, HitCooldown = .2f, ImpactMinSpeed = 2;
+        private const float ReleaseHitDelay = .35f, HitCooldown = .2f, ImpactMinSpeed = 2, AxeBite = 40;
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
         // motion over swing_speed (2 m/s, one per 250 ms). A blade held in a
@@ -1210,10 +1210,33 @@ namespace BannerlordVR.VR.Physics
                         }
                     }
                 }
-                else if (thrust || !fighting)
+                // An axe's chop bites instead (below): the slash joint held it
+                // 3 mm deep and it slid off at once.
+                else if (thrust || (!fighting && profile != PenetrationProfile.AxeSlash1H && profile != PenetrationProfile.AxeSlash2H))
                 {
                     hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
+                }
+            }
+            // An axe's chop that beats TOG's cut test (kinetic over 40 J x the
+            // threshold modifier: half in the saddle, x2 mail, x3 plate)
+            // bites and stays in the part.
+            if (blade && !thrust && usage != null && !hit.IsCorpse && hand.Penetration.Body == null && hit.Agent.MountAgent == null &&
+                hit.Agent.IsActive() && EnemyPhysicsSettings.ActiveRagdoll && BodyPenetration.ProfileFor(usage, false, out PenetrationProfile chop) &&
+                (chop == PenetrationProfile.AxeSlash1H || chop == PenetrationProfile.AxeSlash2H) && PhysicalBlade.RawHand(hand.Penetration.Role, out MatrixFrame rawHand))
+            {
+                float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
+                float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge);
+                bool bites = kinetic > needed;
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "AXE_BITE {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", bites ? "bites" : "refused", hitPoint.Part, rawVelocity.Length, kinetic, needed));
+                if (bites)
+                {
+                    MatrixFrame shownHand = rawHand;
+                    shownHand.origin += contact - (start + (tip - start) * hitAlong);
+                    hand.Penetration.BeginBite(hit, hitPoint, contact, chop, player, BodyPenetration.TierOf(weapon.Item), shownHand, rawHand);
+                    if (hand.Penetration.Body != null) { StopEngineAttack(player); PhysicsInterop.Haptic(index, .9f, .07f); }
                 }
             }
             // A blade struck through a body it is not held in stops at the

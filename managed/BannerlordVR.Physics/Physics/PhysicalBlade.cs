@@ -37,6 +37,8 @@ namespace BannerlordVR.VR.Physics
             // Offset still shown after the blade came out, glided away.
             public Vec3 Residual; public long ResidualAt; public float Glide = GlideSeconds;
             public Vec3 Held; public bool Holding; // a shield's or a blade's hold on the hand
+            // An axe bitten into a part: the shown hand, fixed on it.
+            public MatrixFrame Bite; public long BiteAt;
             // A grabbing hand: offset from the controller hand to the
             // grabbed point, set by the physics each tick.
             public Vec3 Grip; public long GripAt;
@@ -115,9 +117,27 @@ namespace BannerlordVR.VR.Physics
             s.Residual = offset; s.ResidualAt = now; s.Glide = armour ? ArmourGlide : GlideSeconds;
         }
 
+        // The shown hand while an axe is bitten in (set every physics tick).
+        public static void SetBite(HandRole role, MatrixFrame shown)
+        {
+            State s = States[(int)role];
+            if (!InteractionMath.IsFinite(shown.origin)) return;
+            s.Bite = shown; s.BiteAt = Stopwatch.GetTimestamp();
+        }
+        private static bool Biting(State s, long now) => s.BiteAt != 0 && now - s.BiteAt <= Fresh;
+        // The controller's hand frame this frame (before any hold).
+        public static bool RawHand(HandRole role, out MatrixFrame raw)
+        {
+            State s = States[(int)role];
+            raw = s.Raw;
+            return s.At != 0 && Stopwatch.GetTimestamp() - s.At <= Fresh;
+        }
+
         public static void Clear(HandRole role)
         {
             State s = States[(int)role];
+            if (Biting(s, Stopwatch.GetTimestamp())) { s.Residual = s.Bite.origin - s.Raw.origin; s.ResidualAt = Stopwatch.GetTimestamp(); s.Glide = GlideSeconds; }
+            s.BiteAt = 0;
             if (s.Pierced) { s.Residual = s.Shown.origin - s.Raw.origin; s.ResidualAt = Stopwatch.GetTimestamp(); s.Glide = GlideSeconds; }
             s.Pierced = false;
         }
@@ -271,7 +291,7 @@ namespace BannerlordVR.VR.Physics
             {
                 __state = world;
                 State s = States[(int)role];
-                if (!EnemyPhysicsSettings.Enabled || !s.Pierced || Stopwatch.GetTimestamp() - s.At > Fresh) return true;
+                if (!EnemyPhysicsSettings.Enabled || (!s.Pierced && !Biting(s, Stopwatch.GetTimestamp())) || Stopwatch.GetTimestamp() - s.At > Fresh) return true;
                 __result = true;
                 return false;
             }
@@ -290,7 +310,14 @@ namespace BannerlordVR.VR.Physics
                     State s = States[(int)role];
                     long now = Stopwatch.GetTimestamp();
                     s.Raw = __state; s.At = now;
-                    if (EnemyPhysicsSettings.Enabled && s.Pierced)
+                    bool biting = EnemyPhysicsSettings.Enabled && Biting(s, now);
+                    if (biting)
+                    {
+                        // The axe stays where it bit; the hand holds it there.
+                        world = s.Bite;
+                        __result = true;
+                    }
+                    else if (EnemyPhysicsSettings.Enabled && s.Pierced)
                     {
                         // VrCollide would push the blade out of the body it is
                         // jointed into; the joint decides instead.
@@ -315,11 +342,11 @@ namespace BannerlordVR.VR.Physics
                     // VrCollide only turned the weapon about the grip.
                     Vec3 free = world.origin;
                     bool held = false;
-                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
+                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && !biting && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
                         ShieldBlock.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
                         __result = held = true;
                     // So does an enemy's blade (B&S weapons are rigidbodies).
-                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
+                    if (EnemyPhysicsSettings.Enabled && !s.Pierced && !biting && s.BladeAt != 0 && now - s.BladeAt <= Fresh &&
                         BladeClash.Apply(role, ref world, s.Shown, s.BladeGrip, s.BladeTip))
                         __result = held = true;
                     // Let go by the shield or the blade, the hand glides back to
