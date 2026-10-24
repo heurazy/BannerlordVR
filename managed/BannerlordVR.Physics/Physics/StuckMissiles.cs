@@ -37,8 +37,7 @@ namespace BannerlordVR.VR.Physics
         public static bool Holding(int hand) => hand >= 0 && hand < Hands.Length && Hands[hand].Active;
 
         // The shield BannerlordVR draws in the hand (VrSkinnedWeapon's copy)
-        // is not where the game's own shield entity sits, which carries the
-        // stuck arrows.
+        // is not where the game's own shield entity sits.
         private delegate bool MeshWorldFn(HandRole role, out MatrixFrame meshWorld, out EquipmentIndex slot);
         private static readonly MeshWorldFn MeshWorld = Bind();
         private static MeshWorldFn Bind()
@@ -55,26 +54,6 @@ namespace BannerlordVR.VR.Physics
             foreach (HandRole role in new[] { HandRole.Off, HandRole.Main })
                 if (MeshWorld(role, out meshWorld, out EquipmentIndex slot) && slot == off) return true;
             return false;
-        }
-
-        // BannerlordVR moves an arrow that crossed the drawn shield onto the
-        // shield (VrPhysicalCombat.RedirectStick), its frame local to the
-        // drawn copy; the engine draws it on its own shield entity with that
-        // frame, so it floated away from the shield shown. Made local to the
-        // engine's entity, it is drawn where it struck.
-        internal static void Restick(Agent attachedAgent, ref MatrixFrame attachLocalFrame)
-        {
-            Agent player = Mission.Current?.MainAgent;
-            if (player == null || attachedAgent != player || !DrawnShield(player, out MatrixFrame mesh)) return;
-            EquipmentIndex off = player.GetOffhandWieldedItemIndex();
-            WeakGameEntity entity = player.GetWeaponEntityFromEquipmentSlot(off);
-            if (!entity.IsValid) return;
-            MatrixFrame world = mesh.TransformToParent(attachLocalFrame);
-            MatrixFrame engine = entity.GetGlobalFrame();
-            attachLocalFrame = engine.TransformToLocalNonOrthogonal(world);
-            PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                "STUCK_MISSILE arrow in the player's shield drawn where it struck: the game's shield entity is {0:F2} m from the shield shown",
-                (engine.origin - mesh.origin).Length));
         }
 
         private struct Found { public int Index; public float Gap; public MatrixFrame World; public Agent Owner; public EquipmentIndex Shield; }
@@ -155,14 +134,12 @@ namespace BannerlordVR.VR.Physics
             WeakGameEntity entity = agent.GetWeaponEntityFromEquipmentSlot(off);
             if (!entity.IsValid) return;
             MatrixFrame frame = entity.GetGlobalFrame();
-            // Arrows BannerlordVR stuck before this was fixed are local to the
-            // shield it draws.
-            bool drawn = DrawnShield(agent, out MatrixFrame mesh) && agent == Mission.Current?.MainAgent;
+            // BannerlordVR takes the player's stuck arrows off the game's
+            // shield entity (2 m from the hand in a test) and draws them on
+            // its own copy, with the same local frames.
+            if (agent == Mission.Current?.MainAgent && DrawnShield(agent, out MatrixFrame mesh)) frame = mesh;
             for (int i = 0; i < count; i++)
-            {
                 Consider(shield.GetAttachedWeapon(i), frame.TransformToParent(shield.GetAttachedWeaponFrame(i)), hand, i, agent, off, ref best);
-                if (drawn) Consider(shield.GetAttachedWeapon(i), mesh.TransformToParent(shield.GetAttachedWeaponFrame(i)), hand, i, agent, off, ref best);
-            }
         }
 
         private static void Consider(MissionWeapon weapon, MatrixFrame world, Vec3 hand, int index, Agent owner, EquipmentIndex shield, ref Found best)
@@ -270,20 +247,6 @@ namespace BannerlordVR.VR.Physics
             held.Active = false; held.Count = 0;
             try { held.Entity?.Remove(79); } catch (Exception) { }
             held.Entity = null;
-        }
-
-        [HarmonyPatch(typeof(VrPhysicalCombat), "RedirectStick")]
-        internal static class RestickPatch
-        {
-            [HarmonyPrefix]
-            public static void Prefix(bool attachedToShield, out bool __state) => __state = attachedToShield;
-            [HarmonyPostfix]
-            public static void Postfix(ref MatrixFrame attachLocalFrame, Agent attachedAgent, bool attachedToShield, bool __state)
-            {
-                if (__state || !attachedToShield) return;
-                try { Restick(attachedAgent, ref attachLocalFrame); }
-                catch (Exception ex) { PhysicsLog.Error("Placing an arrow on the drawn shield failed.", ex); }
-            }
         }
 
         // A new mission: the last one's entities are gone with its scene.
