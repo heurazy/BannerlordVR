@@ -35,7 +35,7 @@ namespace BannerlordVR.VR.Physics
             public Vec3 CutN; public float CutMax;
             public float AngleLimit, AlongMin;
             // Offset still shown after the blade came out, glided away.
-            public Vec3 Residual; public long ResidualAt;
+            public Vec3 Residual; public long ResidualAt; public float Glide = GlideSeconds;
             public Vec3 Held; public bool Holding; // a shield's or a blade's hold on the hand
             // A grabbing hand: offset from the controller hand to the
             // grabbed point, set by the physics each tick.
@@ -85,13 +85,40 @@ namespace BannerlordVR.VR.Physics
         {
             State s = States[(int)role];
             if (s.GripAt == 0) return;
-            if (Stopwatch.GetTimestamp() - s.GripAt <= Fresh) { s.Residual = s.Grip; s.ResidualAt = Stopwatch.GetTimestamp(); }
+            if (Stopwatch.GetTimestamp() - s.GripAt <= Fresh) { s.Residual = s.Grip; s.ResidualAt = Stopwatch.GetTimestamp(); s.Glide = GlideSeconds; }
             s.GripAt = 0; s.Grip = Vec3.Zero;
         }
+        // Tales of Glory WepScript.OnCollisionEnter: the weapon is a
+        // rigidbody that cannot pass a body; struck, it takes a recoil of
+        // -0.4 x its velocity (a third on flesh and a body, half on armour),
+        // clamped at 5 m/s and damped x0.9 a step, while the hand joint pulls
+        // it back to the controller. A blade dealt through a fighting enemy
+        // (no joint, the AI keeps fighting) crossed the body between two
+        // frames, faster than VrCollide keeps it out: the shown blade is put
+        // back at the contact, kicked back by the recoil, and glides to the
+        // controller (B&S's hand joint catching up), longer off armour.
+        public const float RecoilMult = .4f, RecoilClamp = 5, RecoilSeconds = .2f, MaxImpactOffset = .35f, ArmourGlide = .2f;
+        public static void Impact(HandRole role, Vec3 stop, Vec3 velocity, bool armour)
+        {
+            State s = States[(int)role];
+            if (s.Pierced || !InteractionMath.IsFinite(stop) || !InteractionMath.IsFinite(velocity)) return;
+            Vec3 recoil = InteractionMath.ClampMagnitude(velocity * (-RecoilMult / (armour ? 2 : 3)), RecoilClamp);
+            // A velocity change damped x0.9 every 20 ms travels 0.2 s of it.
+            Vec3 offset = InteractionMath.ClampMagnitude(stop + recoil * (RecoilSeconds * .5f), MaxImpactOffset);
+            long now = Stopwatch.GetTimestamp();
+            // A shown offset still gliding back is not snapped away.
+            if (s.ResidualAt != 0)
+            {
+                float t = (float)((now - s.ResidualAt) / (double)Stopwatch.Frequency) / s.Glide;
+                if (t < 1 && (s.Residual * (1 - t)).Length > offset.Length) return;
+            }
+            s.Residual = offset; s.ResidualAt = now; s.Glide = armour ? ArmourGlide : GlideSeconds;
+        }
+
         public static void Clear(HandRole role)
         {
             State s = States[(int)role];
-            if (s.Pierced) { s.Residual = s.Shown.origin - s.Raw.origin; s.ResidualAt = Stopwatch.GetTimestamp(); }
+            if (s.Pierced) { s.Residual = s.Shown.origin - s.Raw.origin; s.ResidualAt = Stopwatch.GetTimestamp(); s.Glide = GlideSeconds; }
             s.Pierced = false;
         }
 
@@ -280,7 +307,7 @@ namespace BannerlordVR.VR.Physics
                     }
                     else if (s.ResidualAt != 0)
                     {
-                        float t = (float)((now - s.ResidualAt) / (double)Stopwatch.Frequency) / GlideSeconds;
+                        float t = (float)((now - s.ResidualAt) / (double)Stopwatch.Frequency) / s.Glide;
                         if (t >= 1) s.ResidualAt = 0;
                         else world.origin += s.Residual * (1 - t);
                     }
@@ -302,7 +329,7 @@ namespace BannerlordVR.VR.Physics
                     else if (s.Holding)
                     {
                         s.Holding = false;
-                        if (s.Held.Length > .01f && s.ResidualAt == 0) { s.Residual = s.Held; s.ResidualAt = now; world.origin += s.Residual; __result = true; }
+                        if (s.Held.Length > .01f && s.ResidualAt == 0) { s.Residual = s.Held; s.ResidualAt = now; s.Glide = GlideSeconds; world.origin += s.Residual; __result = true; }
                     }
                     s.Shown = world;
                 }

@@ -987,7 +987,7 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
-        private const float ReleaseHitDelay = .35f, HitCooldown = .2f;
+        private const float ReleaseHitDelay = .35f, HitCooldown = .2f, ImpactMinSpeed = 2;
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
         // motion over swing_speed (2 m/s, one per 250 ms). A blade held in a
@@ -1215,6 +1215,19 @@ namespace BannerlordVR.VR.Physics
                     hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
                 }
+            }
+            // A blade struck through a body it is not held in stops at the
+            // contact and recoils (TOG), instead of being drawn through it.
+            if (blade && usage != null && !usage.IsShield && !hit.IsCorpse && hand.Penetration.Body == null && velocity.Length >= ImpactMinSpeed)
+            {
+                PenetrationMaterial material = BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part);
+                Vec3 shownNow = start + (tip - start) * hitAlong;
+                PhysicalBlade.Impact(hand.Penetration.Role, contact - shownNow, velocity,
+                    material == PenetrationMaterial.Chainmail || material == PenetrationMaterial.Plate);
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "BLADE_IMPACT agent={0} part={1} material={2} speed={3:F1}: the shown blade stops {4:F2} m back at the contact and recoils",
+                        hit.Agent.Index, hitPoint.Part, material, velocity.Length, (contact - shownNow).Length));
             }
             if (usage == null)
             {
