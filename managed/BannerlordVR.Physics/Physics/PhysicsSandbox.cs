@@ -112,41 +112,48 @@ namespace BannerlordVR.VR.Physics
 
         // A spear for stab tests, in a free weapon slot (it is carried on the
         // back until drawn); the last slot is replaced when all four are full.
-        private static void GiveSpear(Agent player)
+        // A plain weapon of a class, of middling tier, the same every time: an
+        // axe to try the bite, a spear the stab.
+        private static void Give(Agent player, WeaponClass weaponClass, string name)
         {
             try
             {
-                ItemObject spear = null;
+                ItemObject chosen = null;
                 foreach (ItemObject item in TaleWorlds.ObjectSystem.MBObjectManager.Instance.GetObjectTypeList<ItemObject>())
                 {
                     WeaponComponentData usage = item.PrimaryWeapon;
-                    if (usage == null || usage.WeaponClass != WeaponClass.OneHandedPolearm || !usage.IsMeleeWeapon || usage.ThrustDamage <= 0 ||
+                    if (usage == null || usage.WeaponClass != weaponClass || !usage.IsMeleeWeapon ||
                         item.StringId.Contains("throwing") || item.StringId.StartsWith("bvr_")) continue;
-                    // A plain spear of middling tier, the same every time.
-                    bool named = item.StringId.Contains("spear");
-                    bool better = spear == null || (named && !spear.StringId.Contains("spear")) ||
-                        (named == spear.StringId.Contains("spear") && Math.Abs((int)item.Tier - 3) < Math.Abs((int)spear.Tier - 3)) ||
-                        (named == spear.StringId.Contains("spear") && Math.Abs((int)item.Tier - 3) == Math.Abs((int)spear.Tier - 3) &&
-                         string.CompareOrdinal(item.StringId, spear.StringId) < 0);
-                    if (better) spear = item;
+                    bool named = item.StringId.Contains(name);
+                    bool better = chosen == null || (named && !chosen.StringId.Contains(name)) ||
+                        (named == chosen.StringId.Contains(name) && Math.Abs((int)item.Tier - 3) < Math.Abs((int)chosen.Tier - 3)) ||
+                        (named == chosen.StringId.Contains(name) && Math.Abs((int)item.Tier - 3) == Math.Abs((int)chosen.Tier - 3) &&
+                         string.CompareOrdinal(item.StringId, chosen.StringId) < 0);
+                    if (better) chosen = item;
                 }
-                if (spear == null) { PhysicsLog.Info("SANDBOX no spear found among the items."); return; }
-                EquipmentIndex slot = EquipmentIndex.Weapon3;
+                if (chosen == null) { PhysicsLog.Info("SANDBOX no " + name + " found among the items."); return; }
+                EquipmentIndex slot = EquipmentIndex.None;
                 for (EquipmentIndex i = EquipmentIndex.Weapon0; i <= EquipmentIndex.Weapon3; i++)
                     if (player.Equipment[i].IsEmpty) { slot = i; break; }
-                if (slot == player.GetPrimaryWieldedItemIndex() || slot == player.GetOffhandWieldedItemIndex())
-                { PhysicsLog.Info("SANDBOX no free weapon slot for the spear."); return; }
-                var weapon = new MissionWeapon(spear, null, player.Origin?.Banner);
+                if (slot == EquipmentIndex.None)
+                {
+                    // Full: the last slot not in the hands makes room.
+                    for (EquipmentIndex i = EquipmentIndex.Weapon3; i >= EquipmentIndex.Weapon0; i--)
+                        if (i != player.GetPrimaryWieldedItemIndex() && i != player.GetOffhandWieldedItemIndex()) { slot = i; break; }
+                }
+                if (slot == EquipmentIndex.None) { PhysicsLog.Info("SANDBOX no free weapon slot for the " + name + "."); return; }
+                var weapon = new MissionWeapon(chosen, null, player.Origin?.Banner);
                 player.EquipWeaponWithNewEntity(slot, ref weapon);
-                PhysicsLog.Info("SANDBOX spear " + spear.StringId + " given in slot " + slot);
+                PhysicsLog.Info("SANDBOX " + name + " " + chosen.StringId + " given in slot " + slot);
             }
-            catch (Exception ex) { PhysicsLog.Error("SANDBOX spear could not be given.", ex); }
+            catch (Exception ex) { PhysicsLog.Error("SANDBOX " + name + " could not be given.", ex); }
         }
 
         private void Place(Agent player)
         {
             _placed = true;
-            GiveSpear(player);
+            Give(player, WeaponClass.OneHandedAxe, "axe");
+            Give(player, WeaponClass.OneHandedPolearm, "spear");
             Vec3 forward = player.LookDirection; forward.z = 0;
             if (forward.LengthSquared < 1e-4f) forward = Vec3.Forward;
             forward = forward.NormalizedCopy();
