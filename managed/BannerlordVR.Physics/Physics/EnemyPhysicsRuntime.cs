@@ -251,6 +251,7 @@ namespace BannerlordVR.VR.Physics
                 if ((player.WieldedWeapon.CurrentUsageItem?.IsRangedWeapon == true && MeleeUsage(player.WieldedWeapon) == null) ||
                     (player.WieldedOffhandWeapon.CurrentUsageItem?.IsRangedWeapon == true && MeleeUsage(player.WieldedOffhandWeapon) == null))
                 { ClearHands(); return; }
+                StuckMissiles.DrawOnPlayer(player);
                 UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
                 UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
                 if (EnemyPhysicsSettings.Choke) Choke.Tick(player, Hands[0].Grab, Hands[1].Grab, now);

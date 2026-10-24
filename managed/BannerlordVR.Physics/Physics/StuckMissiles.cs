@@ -320,9 +320,74 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
+        // Arrows stuck in the player's body: the game draws them on its own
+        // entities with the body BannerlordVR hides, and none was seen in a
+        // battle where three were pulled. Each is drawn here, with the item's
+        // mesh, where the hand finds it (the engine's bone and attach frame),
+        // and the game's own copy is hidden so it is never drawn twice.
+        private static readonly List<GameEntity> BodyCopies = new List<GameEntity>();
+        private static int _copiedCount = -1;
+        private static bool _copyBroken;
+        public static void DrawOnPlayer(Agent player)
+        {
+            if (_copyBroken || player?.AgentVisuals == null) return;
+            try
+            {
+                int count = player.GetAttachedWeaponsCount();
+                Skeleton skeleton = player.AgentVisuals.GetSkeleton();
+                Scene scene = Mission.Current?.Scene;
+                if (skeleton == null || scene == null) return;
+                if (count != _copiedCount)
+                {
+                    ClearCopies();
+                    _copiedCount = count;
+                    for (int i = 0; i < count; i++)
+                    {
+                        MissionWeapon weapon = player.GetAttachedWeapon(i);
+                        string name = !string.IsNullOrEmpty(weapon.Item?.MultiMeshName) ? weapon.Item.MultiMeshName : weapon.Item?.FlyingMeshName;
+                        MetaMesh mesh = string.IsNullOrEmpty(name) ? null : MetaMesh.GetCopy(name, false, true);
+                        GameEntity copy = null;
+                        if (mesh != null) { copy = GameEntity.CreateEmptyDynamic(scene, false); copy.AddMultiMesh(mesh); }
+                        BodyCopies.Add(copy);
+                        try
+                        {
+                            GameEntity own = player.AgentVisuals.GetAttachedWeaponEntity(i);
+                            if (own != null && own.Pointer != UIntPtr.Zero) own.SetVisibilityExcludeParents(false);
+                        }
+                        catch (Exception) { }
+                    }
+                    if (count > 0)
+                        PhysicsLog.Info("STUCK_MISSILE " + count + " arrow(s) in the player's body drawn where the hand finds them");
+                }
+                MatrixFrame visuals = player.AgentVisuals.GetGlobalFrame();
+                for (int i = 0; i < count && i < BodyCopies.Count; i++)
+                {
+                    GameEntity copy = BodyCopies[i];
+                    sbyte bone = player.GetAttachedWeaponBoneIndex(i);
+                    if (copy == null || bone < 0 || bone >= skeleton.GetBoneCount()) continue;
+                    MatrixFrame world = visuals.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone)).TransformToParent(player.GetAttachedWeaponFrame(i));
+                    world.rotation.Orthonormalize();
+                    copy.SetGlobalFrame(in world);
+                }
+            }
+            catch (Exception ex)
+            {
+                _copyBroken = true;
+                ClearCopies();
+                PhysicsLog.Error("Drawing the arrows stuck in the player failed; the game's own are left.", ex);
+            }
+        }
+        private static void ClearCopies()
+        {
+            foreach (GameEntity copy in BodyCopies) try { copy?.Remove(79); } catch (Exception) { }
+            BodyCopies.Clear();
+            _copiedCount = -1;
+        }
+
         // A new mission: the last one's entities are gone with its scene.
         public static void ForgetMission()
         {
+            BodyCopies.Clear(); _copiedCount = -1;
             foreach (Held held in Hands) { held.Entity = null; held.Active = false; held.Count = 0; }
         }
     }
