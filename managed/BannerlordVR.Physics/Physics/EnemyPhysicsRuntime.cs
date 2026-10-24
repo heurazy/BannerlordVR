@@ -1191,6 +1191,20 @@ namespace BannerlordVR.VR.Physics
                         hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
                             kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge));
                         if (hand.Penetration.Body != null) StopEngineAttack(player);
+                        // A rider has no ragdoll to hold on the blade: the
+                        // stab was entered and lost (3 into a rider's shoulder
+                        // dealt nothing). Its vital part kills, a limb takes
+                        // the engine's thrust, once per impact.
+                        else if (!hitCooled && hit.Agent.IsActive())
+                        {
+                            if (TogStab.Lethal(hitPoint.Part))
+                                PhysicalHit.ApplyPenetration(player, hit.Agent, hitPoint.Bone, hitPoint.Part, contact, hit.Agent.Health + 1, DamageTypes.Pierce);
+                            else PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+                            BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+                            if (EnemyPhysicsSettings.Trace)
+                                PhysicsLog.Info("TOG_STAB agent=" + hit.Agent.Index + " not held (" + (hit.Agent.MountAgent != null ? "a rider" : "no ragdoll") +
+                                    "): " + (TogStab.Lethal(hitPoint.Part) ? "killed" : "struck") + " at once");
+                        }
                     }
                 }
                 else if (thrust || !fighting)
