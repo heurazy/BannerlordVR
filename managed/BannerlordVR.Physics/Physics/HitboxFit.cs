@@ -102,7 +102,13 @@ namespace BannerlordVR.VR.Physics
                         HitboxProbe.Capsule c = capsules[i];
                         fit.Bones[i] = c.Bone;
                         List<float> d = distances[i];
-                        float grow = MaxGrow(c.Part);
+                        // The chest's capsules that end at the neck or a
+                        // clavicle are not widened: their rounded end round
+                        // the neck's base would take a cut at the neck (the
+                        // neck cut wants the neck part, and the blow counted
+                        // as a chest's).
+                        string child = c.Name.Substring(c.Name.IndexOf('>') + 1);
+                        float grow = c.Part == BoneBodyPartType.Chest && (child.Contains("neck") || child.Contains("clavicle")) ? 0 : MaxGrow(c.Part);
                         if (grow <= 0 || d.Count < MinVertices) continue;
                         float median = d[d.Count / 2];
                         float r = Math.Min(c.Radius + grow, median + Over);
