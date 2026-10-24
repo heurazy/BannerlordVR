@@ -19,7 +19,7 @@ namespace BannerlordVR.VR.Physics
     // speed (a missile of the player's, as VrThrow throws), or drops it.
     internal static class StuckMissiles
     {
-        public const float Reach = .12f, ShieldSearch = 2.5f, ThrowSpeed = 3, ThrowGain = 1.5f;
+        public const float Reach = .16f, ShieldSearch = 2.5f, ThrowSpeed = 3, ThrowGain = 1.5f;
         private static bool _broken;
 
         private sealed class Held
@@ -63,7 +63,7 @@ namespace BannerlordVR.VR.Physics
             if (_broken || player == null || Holding(handIndex)) return false;
             try
             {
-                var best = new Found { Index = -1, Gap = Reach };
+                var best = new Found { Index = -1, Gap = float.MaxValue };
                 FromBones(player, hand.origin, ref best);
                 FromShield(player, hand.origin, ref best);
                 Mission mission = Mission.Current;
@@ -71,6 +71,18 @@ namespace BannerlordVR.VR.Physics
                     foreach (Agent agent in mission.GetNearbyAgents(hand.origin.AsVec2, ShieldSearch, new MBList<Agent>()))
                         if (agent != player && agent.IsHuman) FromShield(agent, hand.origin, ref best);
                 if (best.Index < 0) return false;
+                // A grip that missed: how far the nearest arrow was, and on
+                // what (an arrow that could not be taken left no trace).
+                if (best.Gap > Reach)
+                {
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "STUCK_MISSILE none in reach ({0:F2} m): nearest {1} on {2} at {3:F2} m from the hand",
+                        Reach, (best.Shield == EquipmentIndex.None ? best.Owner.GetAttachedWeapon(best.Index) :
+                            best.Owner.Equipment[best.Shield].GetAttachedWeapon(best.Index)).Item?.StringId ?? "?",
+                        best.Shield == EquipmentIndex.None ? (best.Owner == player ? "the player's body" : "agent " + best.Owner.Index) :
+                            (best.Owner == player ? "the player's shield" : "agent " + best.Owner.Index + "'s shield"), best.Gap));
+                    return false;
+                }
 
                 MissionWeapon pulled;
                 string from;
