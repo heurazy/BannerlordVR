@@ -131,8 +131,40 @@ namespace BannerlordVR.VR.Physics
                 sbyte bone = agent.GetAttachedWeaponBoneIndex(i);
                 if (bone < 0 || bone >= skeleton.GetBoneCount()) continue;
                 MatrixFrame world = AttachedWorld(agent, skeleton, visuals, i, bone);
-                Consider(agent.GetAttachedWeapon(i), world, hand, i, agent, EquipmentIndex.None, ref best);
+                if (agent == Mission.Current?.MainAgent && DrawnShaft(i, out Vec3 a, out Vec3 b))
+                {
+                    float gap = SegmentGap(hand, a, b);
+                    if (gap < best.Gap) best = new Found { Index = i, Gap = gap, World = world, Owner = agent, Shield = EquipmentIndex.None };
+                }
+                else Consider(agent.GetAttachedWeapon(i), world, hand, i, agent, EquipmentIndex.None, ref best);
             }
+        }
+
+        // The shaft of the arrow drawn here, from its mesh's box: the long
+        // side, end to end. Measured from the attach frame's origin along its
+        // axes, the hand closed on the drawn arrow 0.2 to 0.35 m off it.
+        private static float SegmentGap(Vec3 p, Vec3 a, Vec3 b)
+        {
+            Vec3 ab = b - a;
+            float len2 = ab.LengthSquared;
+            float t = len2 < 1e-8f ? 0 : Math.Max(0, Math.Min(1, InteractionMath.Dot(p - a, ab) / len2));
+            return (p - (a + ab * t)).Length;
+        }
+        private static bool DrawnShaft(int index, out Vec3 a, out Vec3 b)
+        {
+            a = b = Vec3.Zero;
+            if (_copyBroken || index >= BodyCopies.Count || BodyCopies[index] == null) return false;
+            GameEntity copy = BodyCopies[index];
+            BoundingBox box = copy.GetLocalBoundingBox();
+            Vec3 size = box.max - box.min;
+            if (!InteractionMath.IsFinite(size) || size.Length < .05f) return false;
+            Vec3 centre = (box.min + box.max) * .5f, half;
+            if (size.x >= size.y && size.x >= size.z) half = new Vec3(size.x * .5f, 0, 0);
+            else if (size.y >= size.z) half = new Vec3(0, size.y * .5f, 0);
+            else half = new Vec3(0, 0, size.z * .5f);
+            MatrixFrame frame = copy.GetGlobalFrame();
+            a = frame.TransformToParent(centre - half); b = frame.TransformToParent(centre + half);
+            return InteractionMath.IsFinite(a) && InteractionMath.IsFinite(b);
         }
 
         // BannerlordVR turns the player's chest toward the head in the saddle
@@ -382,7 +414,7 @@ namespace BannerlordVR.VR.Physics
                         string name = !string.IsNullOrEmpty(weapon.Item?.MultiMeshName) ? weapon.Item.MultiMeshName : weapon.Item?.FlyingMeshName;
                         MetaMesh mesh = string.IsNullOrEmpty(name) ? null : MetaMesh.GetCopy(name, false, true);
                         GameEntity copy = null;
-                        if (mesh != null) { copy = GameEntity.CreateEmptyDynamic(scene, false); copy.AddMultiMesh(mesh); }
+                        if (mesh != null) { copy = GameEntity.CreateEmptyDynamic(scene, false); copy.AddMultiMesh(mesh); copy.RecomputeBoundingBox(); }
                         BodyCopies.Add(copy);
                         try
                         {
