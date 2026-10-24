@@ -114,7 +114,7 @@ namespace BannerlordVR.VR.Physics
         // back until drawn); the last slot is replaced when all four are full.
         // A plain weapon of a class, of middling tier, the same every time: an
         // axe to try the bite, a spear the stab.
-        private static void Give(Agent player, WeaponClass weaponClass, string name)
+        private static void Give(Agent player, WeaponClass weaponClass, string name, bool makeRoom)
         {
             try
             {
@@ -135,7 +135,7 @@ namespace BannerlordVR.VR.Physics
                 EquipmentIndex slot = EquipmentIndex.None;
                 for (EquipmentIndex i = EquipmentIndex.Weapon0; i <= EquipmentIndex.Weapon3; i++)
                     if (player.Equipment[i].IsEmpty) { slot = i; break; }
-                if (slot == EquipmentIndex.None)
+                if (slot == EquipmentIndex.None && makeRoom)
                 {
                     // Full: the last slot not in the hands makes room.
                     for (EquipmentIndex i = EquipmentIndex.Weapon3; i >= EquipmentIndex.Weapon0; i--)
@@ -152,8 +152,9 @@ namespace BannerlordVR.VR.Physics
         private void Place(Agent player)
         {
             _placed = true;
-            Give(player, WeaponClass.OneHandedAxe, "axe");
-            Give(player, WeaponClass.OneHandedPolearm, "spear");
+            // The axe first: with the four slots full the spear took its slot.
+            Give(player, WeaponClass.OneHandedAxe, "axe", true);
+            Give(player, WeaponClass.OneHandedPolearm, "spear", false);
             Vec3 forward = player.LookDirection; forward.z = 0;
             if (forward.LengthSquared < 1e-4f) forward = Vec3.Forward;
             forward = forward.NormalizedCopy();
