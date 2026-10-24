@@ -164,6 +164,9 @@ namespace BannerlordVR.VR.Physics
         {
             Held held = Hands[handIndex];
             Clear(held);
+            // The drawn shield's frame carries its scale: the arrow in the
+            // hand was drawn as a huge bar.
+            world.rotation.Orthonormalize();
             held.Active = true; held.Weapon = weapon; held.Count = 0;
             held.Local = hand.TransformToLocal(world);
             try
@@ -247,6 +250,59 @@ namespace BannerlordVR.VR.Physics
             held.Active = false; held.Count = 0;
             try { held.Entity?.Remove(79); } catch (Exception) { }
             held.Entity = null;
+        }
+
+        // Where an arrow sticks in the player. Stuck in the head or neck it
+        // sits in front of the eyes (the camera is in the head): it is not
+        // kept. Stuck in the shield, BannerlordVR puts it on the flight path
+        // nearest the shield's centre, often off its face, in the air: it is
+        // set on the face, or not kept past its edge.
+        public const float PlateMargin = .04f;
+        [HarmonyPatch(typeof(Mission), "HandleMissileCollisionReaction")]
+        internal static class PlayerStickPatch
+        {
+            [HarmonyPrefix]
+            [HarmonyAfter("com.bannerlordvr.mod")]
+            public static void Prefix(ref Mission.MissileCollisionReaction collisionReaction, ref MatrixFrame attachLocalFrame, bool isAttachedFrameLocal,
+                Agent attachedAgent, bool attachedToShield, sbyte attachedBoneIndex)
+            {
+                try
+                {
+                    Agent player = Mission.Current?.MainAgent;
+                    if (collisionReaction != Mission.MissileCollisionReaction.Stick || player == null || attachedAgent != player || !isAttachedFrameLocal) return;
+                    if (!attachedToShield)
+                    {
+                        Skeleton skeleton = player.AgentVisuals?.GetSkeleton();
+                        string bone = skeleton != null && attachedBoneIndex >= 0 && attachedBoneIndex < skeleton.GetBoneCount()
+                            ? (skeleton.GetBoneName(attachedBoneIndex) ?? "").ToLowerInvariant() : "";
+                        if (bone.Contains("head") || bone.Contains("neck"))
+                        {
+                            collisionReaction = Mission.MissileCollisionReaction.BecomeInvisible;
+                            PhysicsLog.Info("STUCK_MISSILE arrow in the player's " + bone + " not kept: it would sit in front of the eyes");
+                        }
+                        return;
+                    }
+                    if (!DrawnShield(player, out MatrixFrame mesh) || FastAccess.OwnPlate == null || !FastAccess.OwnPlate(player, out VrBlade.Plate plate) || !plate.Valid) return;
+                    MatrixFrame world = mesh.TransformToParent(attachLocalFrame);
+                    Vec3 a = plate.A.NormalizedCopy(), b = plate.B.NormalizedCopy(), n = plate.N.NormalizedCopy();
+                    Vec3 rel = world.origin - plate.Centre;
+                    float u = InteractionMath.Dot(rel, a), v = InteractionMath.Dot(rel, b), off = InteractionMath.Dot(rel, n);
+                    if (Math.Abs(u) > plate.HalfA + PlateMargin || Math.Abs(v) > plate.HalfB + PlateMargin)
+                    {
+                        collisionReaction = Mission.MissileCollisionReaction.BecomeInvisible;
+                        PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "STUCK_MISSILE arrow off the shield's face ({0:F2}, {1:F2} m from its centre, half {2:F2} x {3:F2}) not kept", u, v, plate.HalfA, plate.HalfB));
+                        return;
+                    }
+                    // The thicker side of the plate faces the shot: set on it.
+                    world.origin -= n * (off - Math.Sign(off) * Math.Min(Math.Abs(off), Math.Max(plate.HalfN, ShieldPlate.MinHalfThickness)));
+                    attachLocalFrame = mesh.TransformToLocalNonOrthogonal(world);
+                    if (EnemyPhysicsSettings.Trace)
+                        PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "STUCK_MISSILE arrow set on the shield's face, {0:F2} m off it", Math.Abs(off)));
+                }
+                catch (Exception ex) { PhysicsLog.Error("Checking where an arrow sticks in the player failed.", ex); }
+            }
         }
 
         // A new mission: the last one's entities are gone with its scene.
