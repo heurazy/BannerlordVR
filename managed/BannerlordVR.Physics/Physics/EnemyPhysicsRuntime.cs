@@ -1060,17 +1060,30 @@ namespace BannerlordVR.VR.Physics
         // stops at the contact and recoils (TOG), instead of being drawn
         // through it.
         private static void ShowImpact(Hand hand, EnemyBody hit, BodyPoint hitPoint, Vec3 contact, Vec3 start, Vec3 tip, float hitAlong,
-            Vec3 velocity, WeaponComponentData usage, bool blade)
+            Vec3 velocity, WeaponComponentData usage, bool blade) =>
+            ImpactAt(hand, hit.Agent, hitPoint.Part, contact, start, tip, hitAlong, velocity, usage, blade, hit.IsCorpse);
+        private static void ImpactAt(Hand hand, Agent agent, BoneBodyPartType part, Vec3 contact, Vec3 start, Vec3 tip, float hitAlong,
+            Vec3 velocity, WeaponComponentData usage, bool blade, bool corpse)
         {
             if (!blade || usage == null || usage.IsShield || hand.Penetration.Body != null || velocity.Length < ImpactMinSpeed) return;
-            PenetrationMaterial material = BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part);
+            PenetrationMaterial material = BodyPenetration.MaterialFor(agent, part);
             Vec3 shownNow = start + (tip - start) * hitAlong;
             PhysicalBlade.Impact(hand.Penetration.Role, contact - shownNow, velocity,
                 material == PenetrationMaterial.Chainmail || material == PenetrationMaterial.Plate);
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "BLADE_IMPACT agent={0}{1} part={2} material={3} speed={4:F1}: the shown blade stops {5:F2} m back at the contact and recoils",
-                    hit.Agent.Index, hit.IsCorpse ? " (corpse)" : "", hitPoint.Part, material, velocity.Length, (contact - shownNow).Length));
+                    agent.Index, corpse ? " (corpse)" : "", part, material, velocity.Length, (contact - shownNow).Length));
+        }
+        private static void Touch(EnemyBody body, sbyte bone, float fraction, float along, Vec3 previous, Vec3 current, float dt, Agent player,
+            ref Agent touched, ref Vec3 at, ref Vec3 velocity, ref float touchFraction, ref float touchAlong, ref BoneBodyPartType part)
+        {
+            if (bone < 0 || bone >= body.Skeleton.GetBoneCount()) return;
+            BodyPoint point = body.ReadContact(bone);
+            if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
+            touched = body.Agent; touchFraction = fraction; touchAlong = along; part = point.Part;
+            at = previous + (current - previous) * fraction;
+            velocity = HandMotion(player, (current - previous) * (1 / dt)) - point.Velocity;
         }
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
@@ -1118,6 +1131,11 @@ namespace BannerlordVR.VR.Physics
         {
             hand.DiagCasts++;
             EnemyBody hit = null; BodyPoint hitPoint = default; float earliest = 2, hitAlong = 0; bool hitCooled = false;
+            // A contact that deals nothing (inside the cooldown, just drawn
+            // out, or an enemy past the bodies simulated) still stops the
+            // shown blade: each was drawn through the body.
+            Agent touched = null; Vec3 touchAt = Vec3.Zero, touchVelocity = Vec3.Zero; float touchFraction = 2, touchAlong = 0;
+            BoneBodyPartType touchPart = BoneBodyPartType.Chest;
             Vec3 rawVelocity = Vec3.Zero;
             Vec3 contact = Vec3.Zero, velocity = Vec3.Zero;
             int samples = blade ? Math.Min(32, Math.Max(2, (int)Math.Ceiling((tip - start).Length / .06f))) : 1;
@@ -1144,8 +1162,22 @@ namespace BannerlordVR.VR.Physics
                 if (fraction >= earliest) continue;
                 EnemyBody body = null;
                 foreach (EnemyBody candidate in Bodies) if (candidate?.Agent == agent) { body = candidate; break; }
-                if (body == null) { Reject(hand, "agent_not_tracked"); continue; }
-                if (body == hand.ReleasedFrom && now >= hand.ReleasedAt && now - hand.ReleasedAt < ReleaseHitDelay) { Reject(hand, "just_withdrawn"); continue; }
+                if (body == null)
+                {
+                    Reject(hand, "agent_not_tracked");
+                    if (blade && fraction < touchFraction && agent.IsActive() && agent.IsHuman && EnemyBody.Hostile(agent, player))
+                    {
+                        touched = agent; touchFraction = fraction; touchAlong = along; touchAt = previous + (current - previous) * fraction;
+                        touchVelocity = HandMotion(player, (current - previous) * (1 / dt)) - agent.Velocity; touchPart = BoneBodyPartType.Chest;
+                    }
+                    continue;
+                }
+                if (body == hand.ReleasedFrom && now >= hand.ReleasedAt && now - hand.ReleasedAt < ReleaseHitDelay)
+                {
+                    Reject(hand, "just_withdrawn");
+                    if (blade && fraction < touchFraction) Touch(body, bone, fraction, along, previous, current, dt, player, ref touched, ref touchAt, ref touchVelocity, ref touchFraction, ref touchAlong, ref touchPart);
+                    continue;
+                }
                 if (bone >= body.Skeleton.GetBoneCount()) { Reject(hand, "bone_range"); continue; }
                 // A point driven along the blade is a new pierce attempt: B&S
                 // tries penetration on every contact. The cooldown only spaces
@@ -1160,7 +1192,12 @@ namespace BannerlordVR.VR.Physics
                 // 0.2 s: one swing crosses a body in under 0.1 s; at 0.35 s a
                 // quick second blow went through the enemy unfelt.
                 bool cooled = now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < HitCooldown;
-                if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
+                if (cooled && !piercing)
+                {
+                    Reject(hand, "cooldown");
+                    if (blade && fraction < touchFraction) Touch(body, bone, fraction, along, previous, current, dt, player, ref touched, ref touchAt, ref touchVelocity, ref touchFraction, ref touchAlong, ref touchPart);
+                    continue;
+                }
                 Vec3 c = previous + (current - previous) * fraction;
                 if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
                 // A blade lying in or across the shield is on the shield, not the
@@ -1188,7 +1225,12 @@ namespace BannerlordVR.VR.Physics
                 rawVelocity = StrikeMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
                 velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
-            if (hit == null) return;
+            if (hit == null)
+            {
+                if (touched != null)
+                    ImpactAt(hand, touched, touchPart, touchAt, start, tip, touchAlong, InteractionMath.ClampMagnitude(touchVelocity, 12), usage, blade, false);
+                return;
+            }
             hand.DiagHits++;
             float lastHitAge = now - Math.Max(hit.LastHitLeft, hit.LastHitRight);
             if (index == 0) hit.LastHitLeft = now; else hit.LastHitRight = now;
@@ -1202,6 +1244,8 @@ namespace BannerlordVR.VR.Physics
             if (zone != BladeZone.Edge)
             {
                 if (!hitCooled) BluntBladeHit(index, hand, zone, hit, hitPoint, contact, velocity, usage, weapon, slot, player);
+                // A haft, pommel or flat is as solid as the edge.
+                ShowImpact(hand, hit, hitPoint, contact, start, tip, hitAlong, velocity, usage, blade);
                 return;
             }
             // B&S dismemberment: a fast cut across a joint slices and kills.
@@ -1323,8 +1367,10 @@ namespace BannerlordVR.VR.Physics
                 // 3 mm deep and it slid off at once.
                 // Into a corpse only while its ragdoll is live: asleep, the
                 // blade was held 0.4 s for nothing and let go.
-                else if ((!hit.IsCorpse || hit.HasNativePhysics) &&
-                    (thrust || (!fighting && profile != PenetrationProfile.AxeSlash1H && profile != PenetrationProfile.AxeSlash2H)))
+                // A slash's joint (3 mm deep) ended cut_through 0.05 s in, 18
+                // times in 35, the blade drawn through the body with no stop:
+                // a blow that does not slice stops at the body instead.
+                else if ((!hit.IsCorpse || hit.HasNativePhysics) && thrust)
                 {
                     hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
