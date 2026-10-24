@@ -27,7 +27,7 @@ namespace BannerlordVR.VR.Physics
             public bool Active;
             public MissionWeapon Weapon;
             public GameEntity Entity;
-            public MatrixFrame Local;
+            public MatrixFrame Local, LastWorld;
             public readonly Vec3[] Positions = new Vec3[6];
             public readonly float[] Times = new float[6];
             public int Count;
@@ -249,6 +249,7 @@ namespace BannerlordVR.VR.Physics
             world.rotation.Orthonormalize();
             held.Active = true; held.Weapon = weapon; held.Count = 0;
             held.Local = hand.TransformToLocal(world);
+            held.LastWorld = world;
             try
             {
                 // The item's own mesh (arrow_bl_i): its flying mesh is a
@@ -275,6 +276,7 @@ namespace BannerlordVR.VR.Physics
             int slot = held.Count % held.Positions.Length;
             held.Positions[slot] = hand.origin; held.Times[slot] = now; held.Count++;
             MatrixFrame world = hand.TransformToParent(held.Local);
+            held.LastWorld = world;
             if (grip)
             {
                 try { held.Entity?.SetGlobalFrame(in world); } catch (Exception) { }
@@ -443,6 +445,21 @@ namespace BannerlordVR.VR.Physics
                 ClearCopies();
                 PhysicsLog.Error("Drawing the arrows stuck in the player failed; the game's own are left.", ex);
             }
+        }
+        // The physics paused (a menu, a wheel, the overlay) or the player
+        // gone: a held arrow is dropped where it was, not left in the air;
+        // the arrows on the body follow it, or go with it.
+        public static void Paused(Agent player)
+        {
+            for (int i = 0; i < Hands.Length; i++)
+                if (Hands[i].Active)
+                {
+                    Held held = Hands[i];
+                    Hands[i].Count = 0;
+                    Let(player, held, held.LastWorld, i);
+                }
+            if (player == null || !player.IsActive()) { if (BodyCopies.Count > 0) ClearCopies(); }
+            else DrawOnPlayer(player);
         }
         private static void ClearCopies()
         {

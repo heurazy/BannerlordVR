@@ -96,6 +96,14 @@ namespace BannerlordVR.VR.Physics
         private static readonly System.Collections.Generic.List<KillPush> KillPushes = new System.Collections.Generic.List<KillPush>();
         public const float KillPushGain = 25, KillPushWait = 1;
         public const int KillPushSteps = 4;
+        // A body the player's blow (in hand or thrown) just killed: ragdoll at
+        // once, and the blow's push given to it.
+        public static void Killed(Agent agent, sbyte bone, Vec3 velocity)
+        {
+            if (agent == null || Mission.Current == null) return;
+            CorpseKeeper.RagdollNow(agent);
+            QueueKillPush(agent, bone, velocity, Mission.Current.CurrentTime);
+        }
         private static void QueueKillPush(Agent agent, sbyte bone, Vec3 velocity, float now)
         {
             if (agent == null || bone < 0 || !InteractionMath.IsFinite(velocity) || velocity.Length < 1) return;
@@ -236,7 +244,11 @@ namespace BannerlordVR.VR.Physics
                         (player != null ? "; player mounted=" + player.HasMount : ""));
                     _blocked = blocked;
                 }
-                if (blocked != null) { Reset(); return; }
+                if (blocked != null)
+                {
+                    try { if (mission != null && !mission.MissionEnded) StuckMissiles.Paused(player); } catch (Exception) { }
+                    Reset(); return;
+                }
                 if (_mission != mission || _player != player)
                 {
                     // A new mission: the kept body handles belong to the old one
@@ -1265,7 +1277,7 @@ namespace BannerlordVR.VR.Physics
             }
             bool wasAlive = !hit.IsCorpse;
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
-            if (wasAlive && hit.IsCorpse) { CorpseKeeper.RagdollNow(hit.Agent); QueueKillPush(hit.Agent, hitPoint.Bone, velocity, now); }
+            if (wasAlive && hit.IsCorpse) Killed(hit.Agent, hitPoint.Bone, velocity);
             // A corpse struck is pushed over a few ticks, not one PhysX step.
             else if (!wasAlive && damages) QueueKillPush(hit.Agent, hitPoint.Bone, velocity * .5f, now);
             // A blade under the material's first push speed only touches: B&S

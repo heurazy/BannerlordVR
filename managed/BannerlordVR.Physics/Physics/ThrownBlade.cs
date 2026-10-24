@@ -162,7 +162,9 @@ namespace BannerlordVR.VR.Physics
             float damage = PenetrationDamage.DeepDamage(profile, BodyPenetration.ZoneFor(body, point), body.Agent.HealthLimit);
             PushEffect push = EnemyPhysicsRuntime.EvaluateThrownPush(body, point, velocity);
             PhysicalHit.ApplyPenetration(player, body.Agent, point.Bone, point.Part, contact, damage, DamageTypes.Pierce);
-            if (body.Agent.IsActive())
+            // Killed by the throw as by a blow in hand: ragdoll now, pushed.
+            if (!body.Agent.IsActive()) EnemyPhysicsRuntime.Killed(body.Agent, point.Bone, InteractionMath.ClampMagnitude(velocity, 12));
+            else
             {
                 EnemyPhysicsRuntime.ApplyLivingImpact(body, point, velocity, push, 1 + Math.Min(6, item.Weight));
                 Disarm.ArmStab(body.Agent, point.Bone, point.Part, body.Skeleton.GetBoneName(point.Bone));
