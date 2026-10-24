@@ -77,9 +77,20 @@ namespace BannerlordVR.VR.Physics
         public static bool Apply(HandRole role, ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal)
         {
             long perf = Perf.Start();
-            try { return ApplyCore(role, ref world, previous, gripLocal, tipLocal); }
+            try
+            {
+                bool moved = ApplyCore(role, ref world, previous, gripLocal, tipLocal);
+                if (moved) HeldAt[(int)role] = Stopwatch.GetTimestamp();
+                return moved;
+            }
             finally { Perf.Stop(Perf.Section.Clash, perf); }
         }
+        // A blade an enemy's blade holds back strikes nothing behind it, as
+        // one a shield holds (the controller's blade went on through the
+        // parry into the body).
+        private static readonly long[] HeldAt = new long[2];
+        public static bool Holding(HandRole role) =>
+            HeldAt[(int)role] != 0 && Stopwatch.GetTimestamp() - HeldAt[(int)role] < Stopwatch.Frequency / 10;
         private static bool ApplyCore(HandRole role, ref MatrixFrame world, MatrixFrame previous, Vec3 gripLocal, Vec3 tipLocal)
         {
             if (_broken || !EnemyPhysicsSettings.SolidWeapons) return false;

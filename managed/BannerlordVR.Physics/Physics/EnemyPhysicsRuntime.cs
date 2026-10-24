@@ -92,7 +92,7 @@ namespace BannerlordVR.VR.Physics
         // and the game's death ragdoll fell slack, the blade drawn through
         // it. The push is held until the corpse's ragdoll is active, then
         // given over KillPushSteps ticks.
-        private struct KillPush { public Agent Agent; public sbyte Bone; public Vec3 Force; public float Until; public int Left; }
+        private struct KillPush { public Agent Agent; public sbyte Bone; public Vec3 Force; public float Until; public int Left; public long Step; }
         private static readonly System.Collections.Generic.List<KillPush> KillPushes = new System.Collections.Generic.List<KillPush>();
         public const float KillPushGain = 25, KillPushWait = 1;
         public const int KillPushSteps = 4;
@@ -100,7 +100,7 @@ namespace BannerlordVR.VR.Physics
         {
             if (agent == null || bone < 0 || !InteractionMath.IsFinite(velocity) || velocity.Length < 1) return;
             KillPushes.Add(new KillPush { Agent = agent, Bone = bone, Force = InteractionMath.ClampMagnitude(velocity * KillPushGain, EnemyPhysicsSettings.MaxForce),
-                Until = now + KillPushWait, Left = KillPushSteps });
+                Until = now + KillPushWait, Left = KillPushSteps, Step = -1 });
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "KILL_PUSH agent={0} queued at {1:F1} m/s", agent.Index, velocity.Length));
@@ -115,7 +115,12 @@ namespace BannerlordVR.VR.Physics
                     Skeleton skeleton = push.Agent?.AgentVisuals?.GetSkeleton();
                     if (skeleton == null || now > push.Until || now < push.Until - KillPushWait - 1) { KillPushes.RemoveAt(i); continue; }
                     if (skeleton.GetCurrentRagdollState() != RagdollState.Active) continue;
+                    // Mission ticks run about twice per PhysX step: applied on
+                    // each, the push was doubled (PhysicsStepGate).
+                    long steps = PhysicsSteps;
+                    if (steps >= 0 && push.Step >= 0 && steps <= push.Step) continue;
                     push.Agent.ApplyForceOnRagdoll(push.Bone, in push.Force);
+                    push.Step = PhysicsSteps;
                     push.Left--;
                     if (push.Left <= 0) KillPushes.RemoveAt(i); else KillPushes[i] = push;
                 }
@@ -589,11 +594,20 @@ namespace BannerlordVR.VR.Physics
             hand.Penetration.Role = slot.Role;
             hand.Grab.Role = slot.Role;
             if (input.IsActive == 0 || !slot.Valid) { hand.Reset(); return; }
+            // The second hand on a two-handed weapon holds its haft: it is
+            // not an empty hand (it punched, grabbed bodies and pulled arrows
+            // with the haft in it).
+            if (FastAccess.TwoHandActive?.Invoke() == true &&
+                FastAccess.TwoHandGripping?.Invoke() == (index == 0 ? VrHand.Left : VrHand.Right))
+            { hand.Reset(); return; }
             MatrixFrame pose = VrCameraDriver.StageToHand(input.GripOrientation, input.GripPosition);
             Vec3 stage = new Vec3(input.GripPosition.X, input.GripPosition.Y, input.GripPosition.Z);
             Vec3 stageAxis = VrMath.ToBannerlord(input.GripOrientation, input.GripPosition).rotation.u;
             MissionWeapon weapon = slot.Equipment == EquipmentIndex.None ? MissionWeapon.Invalid : player.Equipment[slot.Equipment];
             WeaponComponentData usage = weapon.IsEmpty ? null : MeleeUsage(weapon) ?? weapon.CurrentUsageItem;
+            // A pulled arrow still held when the hand draws a weapon is let
+            // go: it stayed frozen in the air where the hand was.
+            if (usage != null && StuckMissiles.Holding(index)) StuckMissiles.Tick(player, index, pose, false, now);
             Vec3 basePoint = pose.origin, tip = basePoint;
             bool blade = usage != null && usage.IsMeleeWeapon && EnemyPhysicsSettings.WeaponDamage;
             hand.SuppressTrigger = usage == null || blade;
@@ -665,7 +679,7 @@ namespace BannerlordVR.VR.Physics
                 // A shield bashes (a blunt B&S item); a fist hits when closed.
                 bool shield = usage != null && usage.IsShield;
                 // A blade a shield holds back strikes nothing behind it.
-                bool held = blade && ShieldBlock.Blocked(slot.Role);
+                bool held = blade && (ShieldBlock.Blocked(slot.Role) || BladeClash.Holding(slot.Role));
                 if (!held && !embedded && !drawing && !hand.Grab.Held && gestureSpeed >= (blade ? .6f : 1.4f) &&
                     (blade || shield || (usage == null && input.Trigger >= .55f)))
                     TryHit(index, hand, basePoint, tip, usage, weapon, slot.Equipment, player, dt, now, blade);
@@ -1295,7 +1309,10 @@ namespace BannerlordVR.VR.Physics
                 }
                 // An axe's chop bites instead (below): the slash joint held it
                 // 3 mm deep and it slid off at once.
-                else if (thrust || (!fighting && profile != PenetrationProfile.AxeSlash1H && profile != PenetrationProfile.AxeSlash2H))
+                // Into a corpse only while its ragdoll is live: asleep, the
+                // blade was held 0.4 s for nothing and let go.
+                else if ((!hit.IsCorpse || hit.HasNativePhysics) &&
+                    (thrust || (!fighting && profile != PenetrationProfile.AxeSlash1H && profile != PenetrationProfile.AxeSlash2H)))
                 {
                     hand.Penetration.Begin(hit, hitPoint, contact, profile, velocity.Length, player, false, BodyPenetration.TierOf(weapon.Item), velocity);
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
