@@ -75,7 +75,7 @@ namespace BannerlordVR.VR.Physics
         // From the physics' admission: start reading this agent's surface.
         public static void Prepare(Agent agent)
         {
-            if (_broken || !EnemyPhysicsSettings.Wounds || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent)) return;
+            if (_broken || !(EnemyPhysicsSettings.Wounds || HitboxProbe.Enabled) || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent)) return;
             // A second after it is taken: a body just placed or equipping
             // rebuilds its visuals.
             Readers[agent] = new Reader { StartAt = (Mission.Current?.CurrentTime ?? 0) + SettleSeconds }; ReaderOrder.Add(agent);
@@ -300,6 +300,14 @@ namespace BannerlordVR.VR.Physics
         // In the mission tick, where the engine's meshes were read safely
         // (after the agents' async tick it crashed): a share of a body's
         // surface each frame.
+        // The bodies whose drawn surface has been read whole (rest pose).
+        public static IEnumerable<KeyValuePair<Agent, List<Vec3>>> ReadBodies()
+        {
+            foreach (Agent agent in ReaderOrder)
+                if (Readers.TryGetValue(agent, out Reader r) && r.Done && r.Vertices.Count > 0)
+                    yield return new KeyValuePair<Agent, List<Vec3>>(agent, r.Vertices);
+        }
+
         public static void ReadSurfaces()
         {
             if (_broken || ReaderOrder.Count == 0) return;

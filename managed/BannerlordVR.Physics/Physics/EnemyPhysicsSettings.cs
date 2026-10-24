@@ -45,6 +45,9 @@ namespace BannerlordVR.VR.Physics
         public static readonly int ActiveProbeBodies = Math.Max(1, Math.Min(12, VrConfig.Int("enemy_physics_active_probe_bodies", 1)));
         // Custom battle test range: player on foot, AI frozen, five dummies.
         public static readonly bool Sandbox = VrConfig.Bool("enemy_physics_sandbox", false);
+        // Measure the blade capsules against the drawn bodies (HitboxProbe):
+        // on in the sandbox unless set.
+        public static readonly bool HitboxProbe = VrConfig.Bool("enemy_physics_hitbox_probe", Sandbox);
         // Sandbox enemies that keep their AI and come to attack the player.
         public static readonly int SandboxDuelists = Math.Max(0, Math.Min(4, (int)VrConfig.Float("enemy_physics_sandbox_duelists", 1)));
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
