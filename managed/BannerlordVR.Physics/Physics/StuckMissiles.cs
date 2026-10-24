@@ -130,9 +130,44 @@ namespace BannerlordVR.VR.Physics
             {
                 sbyte bone = agent.GetAttachedWeaponBoneIndex(i);
                 if (bone < 0 || bone >= skeleton.GetBoneCount()) continue;
-                MatrixFrame world = visuals.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone)).TransformToParent(agent.GetAttachedWeaponFrame(i));
+                MatrixFrame world = AttachedWorld(agent, skeleton, visuals, i, bone);
                 Consider(agent.GetAttachedWeapon(i), world, hand, i, agent, EquipmentIndex.None, ref best);
             }
+        }
+
+        // BannerlordVR turns the player's chest toward the head in the saddle
+        // (VrUpperBody.TorsoTwist, up to mounted_torso_twist_deg, the hips
+        // with the horse, the spine a third more per bone) in the pose it
+        // draws, after the frames read here: an arrow in the chest stayed
+        // facing the horse's way. The same turn is given to it.
+        private static readonly float MountedTwist = Math.Max(0, Math.Min(150, VrConfig.Float("mounted_torso_twist_deg", 90))) * (float)Math.PI / 180;
+        private static readonly bool TwistOnFoot = VrConfig.Bool("torso_twist_on_foot", false);
+        private static float TwistWeight(string bone)
+        {
+            bone = (bone ?? "").ToLowerInvariant();
+            if (bone.Contains("clavicle") || bone.Contains("neck") || bone.Contains("head") || bone.Contains("chest") ||
+                bone.Contains("spine2") || bone.Contains("spine3")) return 1;
+            if (bone.Contains("spine1")) return 2f / 3;
+            if (bone.Contains("spine")) return 1f / 3;
+            return 0;
+        }
+        internal static MatrixFrame AttachedWorld(Agent agent, Skeleton skeleton, MatrixFrame visuals, int index, sbyte bone)
+        {
+            MatrixFrame world = visuals.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone)).TransformToParent(agent.GetAttachedWeaponFrame(index));
+            if (agent != Mission.Current?.MainAgent || MountedTwist <= 0 || !VrCameraDriver.HasPose || (!agent.HasMount && !TwistOnFoot)) return world;
+            float weight = TwistWeight(skeleton.GetBoneName(bone));
+            if (weight <= 0) return world;
+            Vec3 f = visuals.rotation.f, h = VrCameraDriver.HeadFrame.rotation.f;
+            float twist = (float)Math.Atan2(f.x * h.y - f.y * h.x, f.x * h.x + f.y * h.y);
+            twist = Math.Max(-MountedTwist, Math.Min(MountedTwist, twist)) * weight;
+            if (Math.Abs(twist) < 1e-3f) return world;
+            float c = (float)Math.Cos(twist), sn = (float)Math.Sin(twist);
+            Vec3 Turn(Vec3 v) => new Vec3(v.x * c - v.y * sn, v.x * sn + v.y * c, v.z);
+            Vec3 pivot = visuals.origin;
+            Vec3 rel = world.origin - pivot;
+            world.origin = pivot + Turn(new Vec3(rel.x, rel.y, rel.z));
+            world.rotation.s = Turn(world.rotation.s); world.rotation.f = Turn(world.rotation.f); world.rotation.u = Turn(world.rotation.u);
+            return world;
         }
 
         private static void FromShield(Agent agent, Vec3 hand, ref Found best)
@@ -365,7 +400,7 @@ namespace BannerlordVR.VR.Physics
                     GameEntity copy = BodyCopies[i];
                     sbyte bone = player.GetAttachedWeaponBoneIndex(i);
                     if (copy == null || bone < 0 || bone >= skeleton.GetBoneCount()) continue;
-                    MatrixFrame world = visuals.TransformToParent(skeleton.GetBoneEntitialFrameWithIndex(bone)).TransformToParent(player.GetAttachedWeaponFrame(i));
+                    MatrixFrame world = AttachedWorld(player, skeleton, visuals, i, bone);
                     world.rotation.Orthonormalize();
                     copy.SetGlobalFrame(in world);
                 }

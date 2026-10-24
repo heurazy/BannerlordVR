@@ -987,7 +987,7 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
-        private const float ReleaseHitDelay = .35f;
+        private const float ReleaseHitDelay = .35f, HitCooldown = .2f;
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
         // motion over swing_speed (2 m/s, one per 250 ms). A blade held in a
@@ -1073,7 +1073,9 @@ namespace BannerlordVR.VR.Physics
                 Vec3 sampleVelocity = StrikeMotion(player, (current - previous) * (1 / dt), early.Velocity, bladeAxis, atTip);
                 bool piercing = atTip &&
                     InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
-                bool cooled = now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < .35f;
+                // 0.2 s: one swing crosses a body in under 0.1 s; at 0.35 s a
+                // quick second blow went through the enemy unfelt.
+                bool cooled = now - (index == 0 ? body.LastHitLeft : body.LastHitRight) < HitCooldown;
                 if (cooled && !piercing) { Reject(hand, "cooldown"); continue; }
                 Vec3 c = previous + (current - previous) * fraction;
                 if (!Visible(previous, c, body)) { Reject(hand, "occluded"); continue; }
