@@ -1170,12 +1170,29 @@ namespace BannerlordVR.VR.Physics
                     BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item));
                 damages = velocity.Length >= damageRow.DamageMinVelocity * Threshold(player);
             }
+            // An axe's chop that beats TOG's cut test (kinetic over 40 J x the
+            // threshold modifier: half in the saddle, x2 mail, x3 plate)
+            // bites and stays in the part (below). Its blow staggers at most:
+            // knocked down by it, the body fell off the axe at once.
+            bool axeBites = false; PenetrationProfile chop = PenetrationProfile.AxeSlash1H; MatrixFrame rawHand = MatrixFrame.Identity;
+            if (blade && !thrust && usage != null && !hit.IsCorpse && hand.Penetration.Body == null && hit.Agent.MountAgent == null &&
+                hit.Agent.IsActive() && EnemyPhysicsSettings.ActiveRagdoll && BodyPenetration.ProfileFor(usage, false, out chop) &&
+                (chop == PenetrationProfile.AxeSlash1H || chop == PenetrationProfile.AxeSlash2H) && PhysicalBlade.RawHand(hand.Penetration.Role, out rawHand))
+            {
+                float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
+                float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge);
+                axeBites = kinetic > needed;
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "AXE_BITE {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", axeBites ? "bites" : "refused", hitPoint.Part, rawVelocity.Length, kinetic, needed));
+                if (axeBites && push > PushEffect.StaggerLight) push = PushEffect.StaggerLight;
+            }
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             // A blade under the material's first push speed only touches: B&S
             // resolves it as a plain contact. Its impulses lifted a body
             // over a blade drawn slowly across the head.
             bool pushes = usage == null || velocity.Length > PushReaction.Thresholds(PhysicalHit.Material(usage, thrust))[0];
-            if (!hit.IsCorpse && pushes) ApplyLivingImpact(hit, hitPoint, velocity, push,
+            if (!hit.IsCorpse && pushes && !axeBites) ApplyLivingImpact(hit, hitPoint, velocity, push,
                 2 + (weapon.IsEmpty || weapon.Item == null ? 0 : Math.Min(6, weapon.Item.Weight)), usage == null);
             if ((hit.IsCorpse || EnemyPhysicsSettings.LivingRagdolls || EnemyPhysicsSettings.ActiveRagdoll) &&
                 (!thrust || atPoint) && BodyPenetration.ProfileFor(usage, thrust, out PenetrationProfile profile))
@@ -1218,20 +1235,9 @@ namespace BannerlordVR.VR.Physics
                     if (hand.Penetration.Body != null) StopEngineAttack(player);
                 }
             }
-            // An axe's chop that beats TOG's cut test (kinetic over 40 J x the
-            // threshold modifier: half in the saddle, x2 mail, x3 plate)
-            // bites and stays in the part.
-            if (blade && !thrust && usage != null && !hit.IsCorpse && hand.Penetration.Body == null && hit.Agent.MountAgent == null &&
-                hit.Agent.IsActive() && EnemyPhysicsSettings.ActiveRagdoll && BodyPenetration.ProfileFor(usage, false, out PenetrationProfile chop) &&
-                (chop == PenetrationProfile.AxeSlash1H || chop == PenetrationProfile.AxeSlash2H) && PhysicalBlade.RawHand(hand.Penetration.Role, out MatrixFrame rawHand))
+            // The axe bites.
+            if (axeBites && hand.Penetration.Body == null && hit.Agent.IsActive())
             {
-                float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
-                float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge);
-                bool bites = kinetic > needed;
-                if (EnemyPhysicsSettings.Trace)
-                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "AXE_BITE {0} part={1} speed={2:F2} kinetic={3:F1} J needed={4:F1} J", bites ? "bites" : "refused", hitPoint.Part, rawVelocity.Length, kinetic, needed));
-                if (bites)
                 {
                     MatrixFrame shownHand = rawHand;
                     shownHand.origin += contact - (start + (tip - start) * hitAlong);
