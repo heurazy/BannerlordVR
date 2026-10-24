@@ -64,7 +64,7 @@ namespace BannerlordVR.VR.Physics
         // BannerlordVR's capsules for this agent in its rest pose, in Fill's
         // order (bone 1 up, then the head sphere), and the drawn vertices'
         // distances to the nearest axis, per capsule.
-        internal static bool Build(Agent agent, List<Vec3> vertices, out List<Capsule> capsules, out List<float>[] distances, out int outside)
+        internal static bool Build(Agent agent, List<Vec3> vertices, out List<Capsule> capsules, out List<float>[] distances, out int outside, int stride = 1)
         {
             capsules = null; distances = null; outside = 0;
             MBAgentVisuals visuals = agent.AgentVisuals;
@@ -94,8 +94,9 @@ namespace BannerlordVR.VR.Physics
             if (capsules.Count == 0) return false;
             distances = new List<float>[capsules.Count];
             for (int i = 0; i < capsules.Count; i++) distances[i] = new List<float>();
-            foreach (Vec3 v in vertices)
+            for (int k = 0; k < vertices.Count; k += Math.Max(1, stride))
             {
+                Vec3 v = vertices[k];
                 int best = -1; float bestAxis = float.MaxValue, bestSurface = float.MaxValue;
                 for (int i = 0; i < capsules.Count; i++)
                 {

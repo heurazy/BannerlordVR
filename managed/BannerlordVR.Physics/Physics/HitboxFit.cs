@@ -24,7 +24,7 @@ namespace BannerlordVR.VR.Physics
     // keeps BannerlordVR's.
     internal static class HitboxFit
     {
-        private const int MinVertices = 30;
+        private const int MinVertices = 8, FitStride = 4;
         private const float Over = .005f;
         private static float MaxGrow(BoneBodyPartType part)
         {
@@ -90,7 +90,10 @@ namespace BannerlordVR.VR.Physics
                 Fits[key] = null; // tried, whatever comes of it
                 try
                 {
-                    if (!HitboxProbe.Build(pair.Key, pair.Value, out List<HitboxProbe.Capsule> capsules, out List<float>[] distances, out _)) continue;
+                    // One vertex in four (a median needs no more), one outfit
+                    // a frame: all of a body against 28 capsules was a 5-11 ms
+                    // frame.
+                    if (!HitboxProbe.Build(pair.Key, pair.Value, out List<HitboxProbe.Capsule> capsules, out List<float>[] distances, out _, FitStride)) return;
                     var fit = new Fit { Bones = new sbyte[capsules.Count], Radii = new float[capsules.Count] };
                     var grown = new System.Text.StringBuilder();
                     int widened = 0;
@@ -113,6 +116,7 @@ namespace BannerlordVR.VR.Physics
                     PhysicsLog.Info("HITBOX_FIT outfit " + key + ": " + widened + " of " + capsules.Count + " capsules widened to the drawn body (cm):" + grown);
                 }
                 catch (Exception ex) { PhysicsLog.Error("Fitting the hitbox of " + key + " failed; it keeps BannerlordVR's.", ex); }
+                return;
             }
         }
 

@@ -120,7 +120,9 @@ namespace BannerlordVR.VR.Physics
                         r.Ops = ManagedMeshEditOperations.Create(r.Copy);
                         r.Ops.AddSkinnedMeshWithColor(source, MatrixFrame.Identity, new Vec3(1, 1, 1), true);
                         r.Count = FastAccess.VertexCount(r.Ops); r.Vertex = 0;
-                        budget -= 50;
+                        // One mesh copy a frame: several in one frame were a
+                        // 4-11 ms frame while a body was read.
+                        return;
                     }
                     for (; r.Vertex < r.Count && budget > 0 && r.Vertices.Count < MaxVertices; r.Vertex += Stride, budget--)
                         r.Vertices.Add(r.Ops.GetPositionOfVertex(r.Vertex));
