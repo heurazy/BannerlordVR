@@ -271,7 +271,7 @@ namespace BannerlordVR.VR.Physics
                     {
                         ActiveBodies++;
                         // Within reach a corpse stays physical (not filed).
-                        if (body.IsCorpse && CorpseKeeper.Keep(body.Agent)) CorpseKeeper.KeepAwake(body, _time);
+                        if (body.IsCorpse && CorpseKeeper.Keep(body.Agent, mission.CurrentTime)) CorpseKeeper.KeepAwake(body, _time);
                         // A blade held against its shield pushes it aside.
                         else if (!body.IsCorpse && _living != null && ShieldBlock.Pressing(body.Agent.Index, out Vec3 press))
                             _living.ShieldPress(body, press);
@@ -1228,7 +1228,7 @@ namespace BannerlordVR.VR.Physics
             }
             bool wasAlive = !hit.IsCorpse;
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
-            if (wasAlive && hit.IsCorpse) QueueKillPush(hit.Agent, hitPoint.Bone, velocity, now);
+            if (wasAlive && hit.IsCorpse) { CorpseKeeper.RagdollNow(hit.Agent); QueueKillPush(hit.Agent, hitPoint.Bone, velocity, now); }
             // A blade under the material's first push speed only touches: B&S
             // resolves it as a plain contact. Its impulses lifted a body
             // over a blade drawn slowly across the head.

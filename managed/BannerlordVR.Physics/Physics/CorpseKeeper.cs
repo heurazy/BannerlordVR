@@ -19,7 +19,16 @@ namespace BannerlordVR.VR.Physics
     internal static class CorpseKeeper
     {
         // A new mission: the last one's agents and entities are gone.
-        internal static void ForgetMission() { Nudged.Clear(); Awake.Clear(); }
+        internal static void ForgetMission() { Nudged.Clear(); Awake.Clear(); DiedAt.Clear(); }
+        // When each corpse was first seen dead: it is kept physical
+        // CorpseSeconds from then (or for good with KeepNearCorpses).
+        private static readonly System.Collections.Generic.Dictionary<Agent, float> DiedAt = new System.Collections.Generic.Dictionary<Agent, float>();
+        public static bool Fresh(Agent agent, float now)
+        {
+            if (EnemyPhysicsSettings.KeepNearCorpses) return true;
+            if (!DiedAt.TryGetValue(agent, out float died) || now < died) { DiedAt[agent] = now; died = now; }
+            return now - died < EnemyPhysicsSettings.CorpseSeconds;
+        }
         private const int TimerStart = 0xbd8, TimerClock = 0xbe0, TimerDuration = 0xbe8, Filed = 0xc50;
         private const long ClockTable = 0xda29b0;
         private static readonly FieldInfo AgentPointer = typeof(Agent).GetField("_pointer", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -37,10 +46,10 @@ namespace BannerlordVR.VR.Physics
         }
 
         // Keep this corpse from being filed; false when it cannot be.
-        public static bool Keep(Agent agent)
+        public static bool Keep(Agent agent, float missionTime)
         {
-            if (_off || !EnemyPhysicsSettings.KeepNearCorpses || agent == null || AgentPointer == null ||
-                (agent.State != AgentState.Killed && agent.State != AgentState.Unconscious)) return false;
+            if (_off || agent == null || AgentPointer == null ||
+                (agent.State != AgentState.Killed && agent.State != AgentState.Unconscious) || !Fresh(agent, missionTime)) return false;
             try
             {
                 long module = Module();
@@ -71,6 +80,36 @@ namespace BannerlordVR.VR.Physics
                 return true;
             }
             catch (Exception ex) { _off = true; PhysicsLog.Error("Keeping a corpse physical failed; corpses are filed as usual.", ex); return false; }
+        }
+
+        // A body the player's blow just killed goes ragdoll at once: the
+        // death timer is set to its end, past which the engine starts the
+        // ragdoll and drops the weapons (0x1805d34e0). It played its death
+        // animation first, a second or more with the blade passing through.
+        public static void RagdollNow(Agent agent)
+        {
+            if (_off || agent == null || AgentPointer == null || EnemyPhysicsSettings.CorpseSeconds <= 0 ||
+                (agent.State != AgentState.Killed && agent.State != AgentState.Unconscious)) return;
+            try
+            {
+                long module = Module();
+                long ptr = (long)(ulong)(UIntPtr)AgentPointer.GetValue(agent);
+                if (module == 0 || ptr == 0 || Marshal.ReadByte(new IntPtr(ptr + Filed)) != 0) return;
+                int clock = Marshal.ReadInt32(new IntPtr(ptr + TimerClock));
+                if (clock < 0 || clock > 15) { Stop("clock index " + clock); return; }
+                long now = Marshal.ReadInt64(new IntPtr(module + ClockTable + clock * 8L));
+                long start = Marshal.ReadInt64(new IntPtr(ptr + TimerStart));
+                float duration = BitConverter.ToSingle(BitConverter.GetBytes(Marshal.ReadInt32(new IntPtr(ptr + TimerDuration))), 0);
+                double elapsed = (now - start) * 1e-5;
+                if (elapsed < -1 || elapsed > 3600 || float.IsNaN(duration) || duration < 0 || duration > 3600)
+                { Stop(string.Format(CultureInfo.InvariantCulture, "timer elapsed={0:F1} duration={1:F1}", elapsed, duration)); return; }
+                if (elapsed >= duration) return;
+                Marshal.WriteInt64(new IntPtr(ptr + TimerStart), now - (long)(duration * 1e5));
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
+                        "CORPSE agent={0} ragdoll now, {1:F1} s of death animation skipped", agent.Index, duration - elapsed));
+            }
+            catch (Exception ex) { _off = true; PhysicsLog.Error("Starting a corpse's ragdoll failed; corpses are filed as usual.", ex); }
         }
 
         // The ragdoll of a body lying still goes to sleep and the engine

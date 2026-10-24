@@ -71,6 +71,9 @@ namespace BannerlordVR.VR.Physics
         // Restart a nearby corpse's death timer so the engine keeps it physical.
         // Off: lifting corpses never worked (their ragdoll would not restart).
         public static readonly bool KeepNearCorpses = VrConfig.Bool("enemy_physics_keep_near_corpses", false);
+        // A body stays a physical object this long after its death, near the
+        // player, for every weapon (B&S: a body within reach is physical).
+        public static readonly float CorpseSeconds = Read("enemy_physics_corpse_seconds", 8, 0, 30);
         // Turn a thrown blade point first in flight (B&S flyRotationSpeed).
         public static readonly bool ThrownAlign = VrConfig.Bool("enemy_physics_thrown_align", false);
         // Shields stop the shown weapon and hand, not only turn the weapon.
