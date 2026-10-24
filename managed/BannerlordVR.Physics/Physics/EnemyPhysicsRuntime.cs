@@ -262,7 +262,7 @@ namespace BannerlordVR.VR.Physics
                 DismemberFx.Tick();
                 WoundFlow.Tick();
                 WoundDecal.ReadSurfaces();
-                try { HitboxProbe.Tick(); } catch (Exception) { }
+                try { HitboxProbe.Tick(); HitboxFit.Tick(); } catch (Exception) { }
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
                 _time = now;

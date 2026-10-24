@@ -75,7 +75,8 @@ namespace BannerlordVR.VR.Physics
         // From the physics' admission: start reading this agent's surface.
         public static void Prepare(Agent agent)
         {
-            if (_broken || !(EnemyPhysicsSettings.Wounds || HitboxProbe.Enabled) || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent)) return;
+            if (_broken || FastAccess.VertexCount == null || agent == null || Readers.ContainsKey(agent) ||
+                !(EnemyPhysicsSettings.Wounds || HitboxProbe.Enabled || HitboxFit.Wants(agent))) return;
             // A second after it is taken: a body just placed or equipping
             // rebuilds its visuals.
             Readers[agent] = new Reader { StartAt = (Mission.Current?.CurrentTime ?? 0) + SettleSeconds }; ReaderOrder.Add(agent);

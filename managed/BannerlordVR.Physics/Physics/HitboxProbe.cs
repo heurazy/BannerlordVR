@@ -26,10 +26,10 @@ namespace BannerlordVR.VR.Physics
         private static Mission _mission;
         private static int _saved;
 
-        private struct Capsule { public Vec3 A, B; public float Radius; public sbyte Bone; public BoneBodyPartType Part; public string Name; }
+        internal struct Capsule { public Vec3 A, B; public float Radius; public sbyte Bone; public BoneBodyPartType Part; public string Name; }
 
         // BannerlordVR's PartRadius.
-        private static float PartRadius(BoneBodyPartType part)
+        internal static float PartRadius(BoneBodyPartType part)
         {
             switch (part)
             {
@@ -61,16 +61,21 @@ namespace BannerlordVR.VR.Physics
             }
         }
 
-        private static void Measure(Agent agent, List<Vec3> vertices)
+        // BannerlordVR's capsules for this agent in its rest pose, in Fill's
+        // order (bone 1 up, then the head sphere), and the drawn vertices'
+        // distances to the nearest axis, per capsule.
+        internal static bool Build(Agent agent, List<Vec3> vertices, out List<Capsule> capsules, out List<float>[] distances, out int outside)
         {
+            capsules = null; distances = null; outside = 0;
             MBAgentVisuals visuals = agent.AgentVisuals;
             Skeleton skeleton = visuals?.GetSkeleton();
-            if (skeleton == null || vertices.Count < 100) return;
+            if (skeleton == null || vertices.Count < 100) return false;
             int count = skeleton.GetBoneCount();
+            if (count < 2 || count > 64) return false;
             var rest = new Vec3[count];
             for (sbyte b = 0; b < count; b++) rest[b] = skeleton.GetBoneEntitialRestFrame(b).origin;
             sbyte pelvis = agent.Monster != null ? agent.Monster.PelvisBoneIndex : (sbyte)-1;
-            var capsules = new List<Capsule>();
+            capsules = new List<Capsule>();
             for (sbyte b = 1; b < count; b++)
             {
                 sbyte parent = skeleton.GetParentBoneIndex(b);
@@ -86,11 +91,9 @@ namespace BannerlordVR.VR.Physics
                 Vec3 c = rest[head] + new Vec3(0, 0, .1f);
                 capsules.Add(new Capsule { A = c, B = c, Radius = .11f, Bone = head, Part = BoneBodyPartType.Head, Name = "head sphere" });
             }
-            if (capsules.Count == 0) return;
-            // Each vertex to its nearest capsule axis.
-            var distances = new List<float>[capsules.Count];
+            if (capsules.Count == 0) return false;
+            distances = new List<float>[capsules.Count];
             for (int i = 0; i < capsules.Count; i++) distances[i] = new List<float>();
-            int outside = 0;
             foreach (Vec3 v in vertices)
             {
                 int best = -1; float bestAxis = float.MaxValue, bestSurface = float.MaxValue;
@@ -103,6 +106,13 @@ namespace BannerlordVR.VR.Physics
                 if (best >= 0) distances[best].Add(bestAxis);
                 if (bestSurface > .02f) outside++;
             }
+            foreach (List<float> d in distances) d.Sort();
+            return true;
+        }
+
+        private static void Measure(Agent agent, List<Vec3> vertices)
+        {
+            if (!Build(agent, vertices, out List<Capsule> capsules, out List<float>[] distances, out int outside)) return;
             PhysicsLog.Info(string.Format(CultureInfo.InvariantCulture,
                 "HITBOX_FIT agent={0} ({1}): {2} drawn vertices, {3} capsules; {4:F0}% of the drawn surface lies over 2 cm outside every capsule (a blade there passes through)",
                 agent.Index, agent.Character?.StringId ?? "?", vertices.Count, capsules.Count, 100f * outside / vertices.Count));
@@ -111,7 +121,6 @@ namespace BannerlordVR.VR.Physics
             {
                 List<float> d = distances[i];
                 if (d.Count < 10) continue;
-                d.Sort();
                 float p50 = d[d.Count / 2], p90 = d[(int)(d.Count * .9f)];
                 string verdict = capsules[i].Radius < p50 - .02f ? "THIN: blades pass through the drawn body" :
                     capsules[i].Radius > p90 + .03f ? "FAT: strikes empty air" : "fits";
