@@ -942,7 +942,9 @@ namespace BannerlordVR.VR.Physics
 
         // Tested on its drawn bones: a filed corpse (no engine limbs) or a
         // body whose ragdoll the physics drives.
-        private static bool DrawnOnly(EnemyBody body) => Filed(body) || (_living != null && _living.HasLease(body.Agent));
+        // A corpse lies where its ragdoll fell, the engine's limbs where its
+        // animation was: tested on its drawn points, weapons went through it.
+        private static bool DrawnOnly(EnemyBody body) => body.IsCorpse || (_living != null && _living.HasLease(body.Agent));
         private static bool Filed(EnemyBody body) => body.IsCorpse && (body.Agent.AgentVisuals == null || !body.Agent.AgentVisuals.IsValid());
 
         private static Agent CastLimbs(Vec3 from, Vec3 to, int excluded, float thickness, out float distance, out sbyte bone)
@@ -1026,7 +1028,24 @@ namespace BannerlordVR.VR.Physics
             return best;
         }
 
-        private const float ReleaseHitDelay = .35f, HitCooldown = .2f, ImpactMinSpeed = 2, AxeBite = 40;
+        private const float ReleaseHitDelay = .35f, HitCooldown = .2f, ImpactMinSpeed = 2, AxeBite = 40, AxeBoost = 30;
+
+        // A blade struck through a body it is not held in, living or dead,
+        // stops at the contact and recoils (TOG), instead of being drawn
+        // through it.
+        private static void ShowImpact(Hand hand, EnemyBody hit, BodyPoint hitPoint, Vec3 contact, Vec3 start, Vec3 tip, float hitAlong,
+            Vec3 velocity, WeaponComponentData usage, bool blade)
+        {
+            if (!blade || usage == null || usage.IsShield || hand.Penetration.Body != null || velocity.Length < ImpactMinSpeed) return;
+            PenetrationMaterial material = BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part);
+            Vec3 shownNow = start + (tip - start) * hitAlong;
+            PhysicalBlade.Impact(hand.Penetration.Role, contact - shownNow, velocity,
+                material == PenetrationMaterial.Chainmail || material == PenetrationMaterial.Plate);
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "BLADE_IMPACT agent={0}{1} part={2} material={3} speed={4:F1}: the shown blade stops {5:F2} m back at the contact and recoils",
+                    hit.Agent.Index, hit.IsCorpse ? " (corpse)" : "", hitPoint.Part, material, velocity.Length, (contact - shownNow).Length));
+        }
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
         // motion over swing_speed (2 m/s, one per 250 ms). A blade held in a
@@ -1197,8 +1216,10 @@ namespace BannerlordVR.VR.Physics
                 (EnemyPhysicsSettings.TogStab
                     ? TogEnters(player, hit, hitPoint, rawVelocity, tip - start, weapon, lastHitAge)
                     : velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player));
-            // Inside the impact cooldown only an actual entry counts.
-            if (hitCooled && !enters) return;
+            // Inside the impact cooldown only an actual entry counts; the
+            // blade is still stopped at the body (a quick second blow was
+            // drawn through the enemy).
+            if (hitCooled && !enters) { ShowImpact(hand, hit, hitPoint, contact, start, tip, hitAlong, velocity, usage, blade); return; }
             // DamageModifier minVelocity: a slower contact (a blade resting or
             // dragged against a body) deals no damage; it still pushes.
             bool damages = true;
@@ -1218,7 +1239,9 @@ namespace BannerlordVR.VR.Physics
                 hit.Agent.IsActive() && EnemyPhysicsSettings.ActiveRagdoll && BodyPenetration.ProfileFor(usage, false, out chop) &&
                 (chop == PenetrationProfile.AxeSlash1H || chop == PenetrationProfile.AxeSlash2H) && PhysicalBlade.RawHand(hand.Penetration.Role, out rawHand))
             {
-                float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity);
+                // An axe is made to bite, as a spear to stab (TOG StabBoost):
+                // a moving soldier in plate needed 120 J, his blows gave 56-88.
+                float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity) + AxeBoost;
                 float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge);
                 axeBites = kinetic > needed;
                 if (EnemyPhysicsSettings.Trace)
@@ -1229,6 +1252,8 @@ namespace BannerlordVR.VR.Physics
             bool wasAlive = !hit.IsCorpse;
             if (!enters && damages) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
             if (wasAlive && hit.IsCorpse) { CorpseKeeper.RagdollNow(hit.Agent); QueueKillPush(hit.Agent, hitPoint.Bone, velocity, now); }
+            // A corpse struck is pushed over a few ticks, not one PhysX step.
+            else if (!wasAlive && damages) QueueKillPush(hit.Agent, hitPoint.Bone, velocity * .5f, now);
             // A blade under the material's first push speed only touches: B&S
             // resolves it as a plain contact. Its impulses lifted a body
             // over a blade drawn slowly across the head.
@@ -1286,19 +1311,7 @@ namespace BannerlordVR.VR.Physics
                     if (hand.Penetration.Body != null) { StopEngineAttack(player); PhysicsInterop.Haptic(index, .9f, .07f); }
                 }
             }
-            // A blade struck through a body it is not held in stops at the
-            // contact and recoils (TOG), instead of being drawn through it.
-            if (blade && usage != null && !usage.IsShield && !hit.IsCorpse && hand.Penetration.Body == null && velocity.Length >= ImpactMinSpeed)
-            {
-                PenetrationMaterial material = BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part);
-                Vec3 shownNow = start + (tip - start) * hitAlong;
-                PhysicalBlade.Impact(hand.Penetration.Role, contact - shownNow, velocity,
-                    material == PenetrationMaterial.Chainmail || material == PenetrationMaterial.Plate);
-                if (EnemyPhysicsSettings.Trace)
-                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "BLADE_IMPACT agent={0} part={1} material={2} speed={3:F1}: the shown blade stops {4:F2} m back at the contact and recoils",
-                        hit.Agent.Index, hitPoint.Part, material, velocity.Length, (contact - shownNow).Length));
-            }
+            ShowImpact(hand, hit, hitPoint, contact, start, tip, hitAlong, velocity, usage, blade);
             if (usage == null)
             {
                 // Damager_Punch intensity (2 to 9 m/s) drives the effect.
