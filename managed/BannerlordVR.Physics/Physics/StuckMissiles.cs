@@ -146,9 +146,10 @@ namespace BannerlordVR.VR.Physics
         {
             float length = Math.Max(.3f, (weapon.CurrentUsageItem?.WeaponLength ?? 80) * .01f);
             // The shaft's direction in the attach frame is not known here:
-            // the nearest of its axes both ways.
+            // the nearest of its three axes both ways (with only two, an
+            // arrow could only be taken by its point).
             float gap = float.MaxValue;
-            foreach (Vec3 axis in new[] { world.rotation.u, -world.rotation.u, world.rotation.f, -world.rotation.f })
+            foreach (Vec3 axis in new[] { world.rotation.u, -world.rotation.u, world.rotation.f, -world.rotation.f, world.rotation.s, -world.rotation.s })
             {
                 if (axis.Length < 1e-4f) continue;
                 Vec3 dir = axis.NormalizedCopy();
@@ -171,7 +172,9 @@ namespace BannerlordVR.VR.Physics
             held.Local = hand.TransformToLocal(world);
             try
             {
-                string mesh = !string.IsNullOrEmpty(weapon.Item?.FlyingMeshName) ? weapon.Item.FlyingMeshName : weapon.Item?.MultiMeshName;
+                // The item's own mesh (arrow_bl_i): its flying mesh is a
+                // plain brown stick drawn only in flight.
+                string mesh = !string.IsNullOrEmpty(weapon.Item?.MultiMeshName) ? weapon.Item.MultiMeshName : weapon.Item?.FlyingMeshName;
                 Scene scene = Mission.Current?.Scene;
                 MetaMesh copy = string.IsNullOrEmpty(mesh) || scene == null ? null : MetaMesh.GetCopy(mesh, false, true);
                 if (copy != null)
