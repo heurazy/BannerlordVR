@@ -58,7 +58,7 @@ namespace BannerlordVR.VR.Physics
         // pommel are the blunt part, the guard is metal on the blade's side.
         // An uncrafted weapon keeps a fifth.
         private static readonly Dictionary<ItemObject, float> Handles = new Dictionary<ItemObject, float>();
-        public const float DefaultHandle = .2f;
+        public const float DefaultHandle = .2f, AxeHandle = .75f;
         public static float HandleFraction(ItemObject item)
         {
             if (item == null) return 0;
@@ -77,6 +77,11 @@ namespace BannerlordVR.VR.Physics
                         if (type == CraftingPiece.PieceTypes.Handle || type == CraftingPiece.PieceTypes.Pommel) handle += piece.ScaledLength;
                     }
                     if (handle > 0) fraction = Math.Max(.05f, Math.Min(.9f, handle / design.TotalLength));
+                    // An axe's haft runs through its head: counted as handle,
+                    // a battle axe was 90% blunt and its head 10 cm of edge.
+                    WeaponClass cls = item.PrimaryWeapon?.WeaponClass ?? WeaponClass.Undefined;
+                    if (cls == WeaponClass.OneHandedAxe || cls == WeaponClass.TwoHandedAxe || cls == WeaponClass.LowGripPolearm)
+                        fraction = Math.Min(fraction, AxeHandle);
                 }
             }
             catch (Exception) { }

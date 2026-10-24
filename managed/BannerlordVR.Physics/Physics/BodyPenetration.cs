@@ -192,7 +192,12 @@ namespace BannerlordVR.VR.Physics
         // fixed in the part where it struck; pulling on it drags the part;
         // it comes out when the controller is drawn BitePull from the axe
         // shown, or with the victim's death.
-        public const float BitePull = .3f;
+        // TOG AllowCutJointBreak: the joint cannot break for 0.2 s; the
+        // swing's follow-through left the hand 0.3-0.6 m past the axe and it
+        // came out in 0.04 s. After that it comes out drawn BitePull further
+        // than the hand has been from it since.
+        public const float BitePull = .3f, BiteGrace = .25f, BiteMaxPull = 1.2f;
+        private float _biteNearest;
         private bool _bite;
         private MatrixFrame _biteLocal, _biteHand;
         public bool Biting => Body != null && _bite;
@@ -201,7 +206,7 @@ namespace BannerlordVR.VR.Physics
         {
             Begin(body, point, contact);
             if (Body == null) return;
-            _bite = true;
+            _bite = true; _biteNearest = float.MaxValue;
             _profile = profile; _material = MaterialFor(body.Agent, point.Part); _tier = tier; _source = source;
             _zone = ZoneFor(body, point); _part = point.Part;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
@@ -221,7 +226,8 @@ namespace BannerlordVR.VR.Physics
             if (!PhysicalBlade.RawHand(Role, out MatrixFrame raw)) { End("no_hand"); return false; }
             float pull = (raw.origin - shown.origin).Length;
             _maxSeparation = Math.Max(_maxSeparation, pull);
-            if (pull > BitePull)
+            if (_age >= BiteGrace) _biteNearest = Math.Min(_biteNearest, pull);
+            if (pull > BiteMaxPull || (_age >= BiteGrace && pull > _biteNearest + BitePull))
             {
                 Vec3 at = bone.TransformToParent(_localContact);
                 BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
