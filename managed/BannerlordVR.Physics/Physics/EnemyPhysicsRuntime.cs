@@ -264,6 +264,7 @@ namespace BannerlordVR.VR.Physics
                 WoundFlow.Tick();
                 WoundDecal.ReadSurfaces();
                 try { HitboxProbe.Tick(); HitboxFit.Tick(); } catch (Exception) { }
+                try { BodyPenetration.SweepHolds(a => { foreach (Hand h in Hands) if (h.Penetration.Body?.Agent == a) return true; return false; }); } catch (Exception) { }
                 if (now <= _time) { ClearHands(); return; }
                 float elapsed = _time < 0 ? 0 : now - _time;
                 _time = now;

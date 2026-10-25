@@ -256,6 +256,24 @@ namespace BannerlordVR.VR.Physics
         // horses part. B&S holds a killing stab's victim at one point until
         // the blade leaves (Damager: the damage lands on UnPenetrate).
         private bool _mounted;
+        // Victims held at one point: one let go by any way but its blade
+        // leaving (a rider stabbed in the chest lived 2 minutes at one point,
+        // no end logged) dies as it would have.
+        private struct Hold { public Agent Source; public sbyte Bone; public BoneBodyPartType Part; public Vec3 At; }
+        private static readonly System.Collections.Generic.Dictionary<Agent, Hold> HeldAtOne = new System.Collections.Generic.Dictionary<Agent, Hold>();
+        public static void SweepHolds(Func<Agent, bool> held)
+        {
+            if (HeldAtOne.Count == 0) return;
+            foreach (Agent agent in new System.Collections.Generic.List<Agent>(HeldAtOne.Keys))
+            {
+                if (agent != null && agent.IsActive() && held(agent)) continue;
+                Hold hold = HeldAtOne[agent];
+                HeldAtOne.Remove(agent);
+                if (agent == null || !agent.IsActive()) continue;
+                PhysicalHit.ApplyPenetration(hold.Source, agent, hold.Bone, hold.Part, hold.At, agent.Health + 1, DamageTypes.Pierce);
+                PhysicsLog.Info("PENETRATION hold of agent " + agent.Index + " lost without its blade leaving: dealt now, alive=" + agent.IsActive());
+            }
+        }
         // Two riders crossing part at 5-11 m/s: at the bite's 1.2 m the blade
         // came out 0.17-0.28 s in. A rider dying on it reins in, and the
         // blade holds 2 m of reach and half a second before drawing it out.
@@ -285,6 +303,7 @@ namespace BannerlordVR.VR.Physics
                 if (now >= 1) PhysicalHit.ApplyPenetration(source, victim, point.Bone, point.Part, contact, now, DamageTypes.Pierce);
                 if (!victim.IsActive()) { Release(); return; }
                 _pending = victim.Health + 1; _pendingVictim = victim;
+                HeldAtOne[victim] = new Hold { Source = source, Bone = point.Bone, Part = point.Part, At = contact };
                 StopAttack(victim);
                 _reined = victim.MountAgent;
                 try { _reined?.SetMaximumSpeedLimit(DyingRideSpeed, false); } catch (Exception) { _reined = null; }
@@ -448,8 +467,10 @@ namespace BannerlordVR.VR.Physics
             // penetrationPierceDeepDepth 0.02 m) pours once the blade is out.
             if (Body != null && !Body.IsCorpse && _part == BoneBodyPartType.Neck && _maxDepth > NeckDeepDepth)
                 WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
-            Release();
+            _ending = true;
+            try { Release(); } finally { _ending = false; }
         }
+        private bool _ending;
         public const float RideThroughSpeed = 3;
         private const float RideThroughAge = .15f;
         // TOG's anchor follows the part out five times faster than in: the
@@ -463,10 +484,14 @@ namespace BannerlordVR.VR.Physics
         public float PendingDamage => _pending;
 
         // Out of the body with nothing dealt (the victim is killed elsewhere).
-        public void Abandon() { _pending = 0; _pendingVictim = null; _woundLost = 0; _woundBody = null; Release(); }
+        public void Abandon() { if (_pendingVictim != null) HeldAtOne.Remove(_pendingVictim); _pending = 0; _pendingVictim = null; _woundLost = 0; _woundBody = null; Release(); }
 
-        public void Release()
+        public void Release([System.Runtime.CompilerServices.CallerMemberName] string by = null)
         {
+            if (Body != null && !_ending && EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "PENETRATION released by {0} age={1:F2} agent={2} held_damage={3:F1}", by, _age, Body.Agent?.Index ?? -1, _pending));
+            if (_pendingVictim != null) HeldAtOne.Remove(_pendingVictim);
             if (_reined != null)
             {
                 try { if (_reined.IsActive()) _reined.SetMaximumSpeedLimit(-1, false); } catch (Exception) { }
