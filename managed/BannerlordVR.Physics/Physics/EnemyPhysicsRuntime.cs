@@ -25,6 +25,7 @@ namespace BannerlordVR.VR.Physics
             public EnemyBody PressBody; public sbyte PressBone; public Vec3 PressLocal; public float PressAge;
             // The body the blade last came out of, and when.
             public EnemyBody ReleasedFrom; public float ReleasedAt = -10;
+            public float NextStabNote = -10;
             public Vec3 Previous, PreviousBase, PreviousTip, Stage, Axis;
             public ItemObject Item;
             public EquipmentIndex Slot;
@@ -587,7 +588,17 @@ namespace BannerlordVR.VR.Physics
             MissionWeapon weapon, float lastHitAge)
         {
             if (TogStab.Hand(body, point.Bone) || velocity.Length < 1e-3f || bladeAxis.Length < 1e-3f) return false;
-            if (InteractionMath.Dot(velocity.NormalizedCopy(), bladeAxis.NormalizedCopy()) <= TogStab.Align) return false;
+            // In the saddle the stab is told at 0.7 (the thrust test's): told a
+            // thrust and refused here unlogged at 0.7-0.8, mounted stabs into
+            // infantry dealt nothing.
+            float align = InteractionMath.Dot(velocity.NormalizedCopy(), bladeAxis.NormalizedCopy());
+            if (align <= (player?.MountAgent != null ? .7f : TogStab.Align))
+            {
+                if (EnemyPhysicsSettings.Trace)
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "TOG_STAB refused part={0} speed={1:F2}: moving {2:F2} along the blade", point.Part, velocity.Length, align));
+                return false;
+            }
             float kinetic = TogStab.Kinetic(weapon.Item, velocity);
             float boost = TogStab.StabBoost(MeleeUsage(weapon));
             float needed = TogStab.Threshold * TogStab.ThresholdModifier(player, body, point.Part, lastHitAge);
@@ -1306,6 +1317,13 @@ namespace BannerlordVR.VR.Physics
                 (EnemyPhysicsSettings.TogStab
                     ? TogEnters(player, hit, hitPoint, stabVelocity, tip - start, weapon, lastHitAge)
                     : velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player));
+            if (thrust && !atPoint && !hit.IsCorpse && EnemyPhysicsSettings.Trace && now >= hand.NextStabNote)
+            {
+                hand.NextStabNote = now + .25f;
+                PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "TOG_STAB not at the point part={0} speed={1:F2}: the body met the blade {2:F2} along it, the point is from {3:F2}{4}",
+                    hitPoint.Part, stab.Length, hitAlong, PointFrom(player), player.MountAgent != null ? " (mounted)" : ""));
+            }
             // Inside the impact cooldown only an actual entry counts; the
             // blade is still stopped at the body (a quick second blow was
             // drawn through the enemy).
