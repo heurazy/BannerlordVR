@@ -1382,7 +1382,11 @@ namespace BannerlordVR.VR.Physics
                     if (enters)
                     {
                         float kinetic = TogStab.Kinetic(weapon.Item, stabVelocity);
-                        hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
+                        // Riding past, TOG's joint breaks 0.15 s in (all 9
+                        // stabs into infantry from the saddle ended so, limbs
+                        // dealt 1-2.6 points): the blade is held as in a rider.
+                        bool ridePast = player.MountAgent != null && RiderSpeed(player) > BodyPenetration.RideThroughSpeed;
+                        if (!ridePast) hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
                             kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge));
                         if (hand.Penetration.Body != null) StopEngineAttack(player);
                         // A rider has no ragdoll to hold on the blade: the
@@ -1397,7 +1401,7 @@ namespace BannerlordVR.VR.Physics
                         {
                             hit.LastEntry = now;
                             // A rider keeps the blade in the part it entered.
-                            if (hit.Agent.MountAgent != null && PhysicalBlade.RawHand(hand.Penetration.Role, out MatrixFrame stabHand))
+                            if ((hit.Agent.MountAgent != null || ridePast) && PhysicalBlade.RawHand(hand.Penetration.Role, out MatrixFrame stabHand))
                             {
                                 MatrixFrame shownStab = stabHand;
                                 shownStab.origin += contact - (start + (tip - start) * hitAlong);

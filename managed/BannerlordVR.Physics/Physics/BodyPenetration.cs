@@ -450,7 +450,8 @@ namespace BannerlordVR.VR.Physics
                 WoundFlow.Begin(Body.Agent, _bone, _lastAnchor);
             Release();
         }
-        private const float RideThroughSpeed = 3, RideThroughAge = .15f;
+        public const float RideThroughSpeed = 3;
+        private const float RideThroughAge = .15f;
         // TOG's anchor follows the part out five times faster than in: the
         // blade drags the part ahead of it going in, slides out nearly free.
         private const float TogPushInDrag = 1500, TogWithdrawDrag = 300f / TogStab.StabOut * TogStab.StabIn;
