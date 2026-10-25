@@ -1378,6 +1378,18 @@ namespace BannerlordVR.VR.Physics
                         else if (now - hit.LastEntry >= HitCooldown && hit.Agent.IsActive())
                         {
                             hit.LastEntry = now;
+                            // A rider keeps the blade in the part it entered.
+                            if (hit.Agent.MountAgent != null && PhysicalBlade.RawHand(hand.Penetration.Role, out MatrixFrame stabHand))
+                            {
+                                MatrixFrame shownStab = stabHand;
+                                shownStab.origin += contact - (start + (tip - start) * hitAlong);
+                                float limb = Math.Min(TogStab.Kinetic(weapon.Item, stabVelocity), TogStab.LimbKineticCap) / 20 *
+                                    TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge);
+                                hand.Penetration.BeginMounted(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item),
+                                    shownStab, stabHand, velocity, limb, TogStab.Lethal(hitPoint.Part));
+                                if (hand.Penetration.Body != null) { StopEngineAttack(player); PhysicsInterop.Haptic(index, .9f, .07f); return; }
+                                if (!hit.Agent.IsActive()) return;
+                            }
                             if (TogStab.Lethal(hitPoint.Part))
                                 PhysicalHit.ApplyPenetration(player, hit.Agent, hitPoint.Bone, hitPoint.Part, contact, hit.Agent.Health + 1, DamageTypes.Pierce);
                             else PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);

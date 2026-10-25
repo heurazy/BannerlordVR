@@ -235,8 +235,9 @@ namespace BannerlordVR.VR.Physics
                 return false;
             }
             PhysicalBlade.SetBite(Role, shown);
-            EnemyPhysicsRuntime.TouchLiving(Body);
             _lastAnchor = bone.TransformToParent(_localContact);
+            if (_mounted) { if (_pending >= .5f) StopAttack(Body.Agent); return true; }
+            EnemyPhysicsRuntime.TouchLiving(Body);
             // The hand pulls the part by the axe (the joint drags it).
             Vec3 target = raw.TransformToParent(_biteHand.origin);
             Vec3 force = InteractionMath.SpringForce(target - _lastAnchor, p.Velocity - _bladeVelocity,
@@ -248,15 +249,70 @@ namespace BannerlordVR.VR.Physics
             return true;
         }
 
-        public void Begin(EnemyBody body, BodyPoint point, Vec3 contact)
+        // A stab into a rider: no ragdoll starts in the saddle, so no joint
+        // holds the part. The shown blade stays where it entered and rides
+        // with the part, as the axe's bite, until it is drawn out or the
+        // horses part. B&S holds a killing stab's victim at one point until
+        // the blade leaves (Damager: the damage lands on UnPenetrate).
+        private bool _mounted;
+        public void BeginMounted(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, Agent source, int tier,
+            MatrixFrame shownHand, MatrixFrame rawHand, Vec3 velocity, float damage, bool lethal)
         {
-            _tog = false; _togDeathAt = -1; _bite = false;
+            Begin(body, point, contact, false);
+            _bite = true; _mounted = true; _biteNearest = float.MaxValue;
+            _profile = profile; _material = MaterialFor(body.Agent, point.Part); _tier = tier; _source = source;
+            _zone = ZoneFor(body, point); _part = point.Part; _lastAnchor = contact;
+            MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
+            _biteLocal = bone.TransformToLocalNonOrthogonal(shownHand);
+            _biteHand = rawHand.TransformToLocalNonOrthogonal(new MatrixFrame(Mat3.Identity, contact));
+            _maxDepth = 0; _maxSeparation = 0;
+            BloodFx.Burst(BloodFx.Kind.Enter, contact, Vec3.Up);
+            WoundDecal.Stab(body.Agent, point.Bone, contact, velocity);
+            Disarm.ArmStab(body.Agent, point.Bone, point.Part, body.Skeleton.GetBoneName(point.Bone));
+            Agent victim = body.Agent;
+            string effect;
+            if (lethal || damage >= victim.Health - .5f)
+            {
+                // Down to one point now (the blow's hurt and blood), dead as
+                // the blade comes out.
+                float now = (float)Math.Floor(victim.Health - 1);
+                if (now >= 1) PhysicalHit.ApplyPenetration(source, victim, point.Bone, point.Part, contact, now, DamageTypes.Pierce);
+                if (!victim.IsActive()) { Release(); return; }
+                _pending = victim.Health + 1; _pendingVictim = victim;
+                StopAttack(victim);
+                effect = "held at " + victim.Health.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " point(s) until withdrawn";
+            }
+            else
+            {
+                float lost = PhysicalHit.ApplyPenetration(source, victim, point.Bone, point.Part, contact, damage, DamageTypes.Pierce);
+                if (lost > 0) RecordLimbWound(lost);
+                effect = "limb damage=" + damage.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (EnemyPhysicsSettings.Trace)
+                PhysicsLog.Info("PENETRATION begin model=mounted profile=" + profile + " zone=" + _zone + " material=" + _material +
+                    " part=" + point.Part + " agent=" + victim.Index + ": " + effect);
+        }
+        // A rider dying on the blade attacks no more.
+        private static void StopAttack(Agent agent)
+        {
+            try
+            {
+                Agent.ActionStage stage = agent.GetCurrentActionStage(1);
+                if (stage == Agent.ActionStage.AttackReady || stage == Agent.ActionStage.AttackQuickReady || stage == Agent.ActionStage.AttackRelease)
+                    agent.SetActionChannel(1, ActionIndexCache.act_none, ignorePriority: true, blendInPeriod: .2f);
+            }
+            catch (Exception) { }
+        }
+
+        public void Begin(EnemyBody body, BodyPoint point, Vec3 contact, bool grab = true)
+        {
+            _tog = false; _togDeathAt = -1; _bite = false; _mounted = false;
             Body = body; _bone = point.Bone; _sampled = false; _anchorSampled = false; _bladeSampled = false; _bladeVelocity = Vec3.Zero; _age = 0; _lastDepth = 0; _rumbleDepth = 0; _effectDepth = 0; LastResistance = 0; _gate.Reset();
             _deepDone = _skewerDone = false; _source = null; _zone = BodyZone.Torso; _part = point.Part; _depthBase = -1; _prevSigned = float.NaN;
             MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(_bone));
             _localContact = bone.TransformToLocalNonOrthogonal(contact);
             _hasLocalAxis = false; _cut = false;
-            if (!body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
+            if (grab && !body.IsCorpse && !EnemyPhysicsRuntime.BeginLivingGrab(body)) Release();
         }
         // Damage that would kill while the blade is still inside is held back
         // and dealt when it leaves the body: the victim dies on withdrawal.
@@ -482,6 +538,7 @@ namespace BannerlordVR.VR.Physics
             // No time limit: Damager.UpdatePenetration keeps a blade in as long
             // as it is not pulled out (the 8 s cut ended held stabs).
             if (!Body.IsCorpse && !Body.Agent.IsActive()) { End("victim_inactive"); return false; }
+            if (_mounted) return TickBite();
             // Let a newly killed target enter the engine's corpse state itself.
             if (!Body.HasNativePhysics)
             {
