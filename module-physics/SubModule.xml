@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Module>
+  <Name value="Bannerlord VR - Enemy Physics" />
+  <Id value="BannerlordVR.Physics" />
+  <Version value="v0.1.0" />
+  <SingleplayerModule value="true" />
+  <MultiplayerModule value="false" />
+
+  <!-- Loads after the official BannerlordVR release, which it reads and
+       never replaces. -->
+  <DependedModules>
+    <DependedModule Id="Native" />
+    <DependedModule Id="Bannerlord.Harmony" />
+    <DependedModule Id="BannerlordVR" />
+  </DependedModules>
+
+  <SubModules>
+    <SubModule>
+      <Name value="BannerlordVR.Physics" />
+      <DLLName value="BannerlordVR.Physics.dll" />
+      <SubModuleClassType value="BannerlordVR.Physics.PhysicsSubModule" />
+      <Tags>
+        <Tag key="DedicatedServerType" value="none" />
+        <Tag key="IsNoRenderModeElement" value="false" />
+      </Tags>
+    </SubModule>
+  </SubModules>
+
+  <!-- bvr_severed_head: the meshless head armour a beheaded agent wears. -->
+  <Xmls>
+    <XmlNode>
+      <XmlName id="Items" path="bvr_items" />
+      <IncludedGameTypes>
+        <GameType value="Campaign" />
+        <GameType value="CampaignStoryMode" />
+        <GameType value="CustomGame" />
+      </IncludedGameTypes>
+    </XmlNode>
+  </Xmls>
+</Module>

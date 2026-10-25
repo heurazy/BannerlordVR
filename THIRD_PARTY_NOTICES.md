@@ -17,6 +17,13 @@ Nothing here changes the license of BannerlordVR's own source code; see
 | OpenXR SDK loader | The Khronos Group Inc. | Apache-2.0 | Compiled into `BannerlordVR.Native.dll` |
 | JsonCpp | Baptiste Lepilleur and The JsonCpp Authors | Public Domain or MIT | Bundled inside the OpenXR loader |
 
+### Design references
+
+The enemy physics module reproduces combat mechanics and tuning values from
+**Blade & Sorcery** (Warpfrog) and **Tales of Glory** (BlackTale Games). No
+code, models, sounds or other assets from either game are included or
+redistributed; see the Credits section of [README.md](README.md#credits).
+
 ### Not redistributed
 
 These are referenced at build time or resolved from the user's own installation

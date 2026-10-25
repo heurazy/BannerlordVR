@@ -2,6 +2,11 @@
 
 **Play Mount & Blade II: Bannerlord in PCVR with tracked hands, physical combat, and OpenXR.**
 
+> Fork development: [nearby enemy physics prototype](docs/physical-enemies.md).
+> Opt-in, compiled and mathematically tested; not yet validated in VR. Full living
+> enemy ragdoll validation and Blade & Sorcery feature parity are still unfinished. The
+> remainder of this README is the upstream project's documentation.
+
 Swing your sword, raise your shield, draw a bow by hand, and reach for weapons on your body. Look around naturally with six degrees of freedom (6DoF) head tracking, with stereo views produced by the game's renderer.
 
 Disclaimer: The mod is build with the help of Claude Code.
@@ -24,6 +29,7 @@ Disclaimer: The mod is build with the help of Claude Code.
 - [Troubleshooting](#troubleshooting)
 - [Bug reports and feedback](#bug-reports-and-feedback)
 - [Updating and uninstalling](#updating-and-uninstalling)
+- [Credits](#credits)
 - [Development and license](#development-and-license)
 
 ## Features
@@ -326,6 +332,15 @@ Logs are rewritten each launch. Copy them before relaunching; the previous run m
 **Disable:** untick **Bannerlord VR** in the launcher and restart the game.
 
 **Uninstall:** close the game and remove `Modules\BannerlordVR`. Optionally remove its personal config and logs from Documents. Leave Harmony installed if other mods need it.
+
+## Credits
+
+The enemy physics module (`BannerlordVR.Physics`) is modelled on two VR melee games, whose mechanics and tuning it reproduces for Bannerlord:
+
+- **[Blade & Sorcery](https://warpfrog.com/)** by **Warpfrog**: damagers and penetration, material and armour modifiers, dismemberment, blade stops on shields and weapons, grabbing, and the push and stagger reactions.
+- **Tales of Glory** by **BlackTale Games**: the stab entry test (kinetic energy and thresholds by armour, helmet and mount), the stab joint, axe bites, blade recoil, killing-blow pushes, and the mounted hand-speed model.
+
+All thanks to their developers. No code, models, sounds or other assets from either game are included or redistributed. BannerlordVR is not affiliated with, approved by, or endorsed by Warpfrog or BlackTale Games.
 
 ## Development and license
 

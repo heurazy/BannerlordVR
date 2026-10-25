@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <vector>
 
@@ -34,11 +35,13 @@ struct InputState
     XrAction primary = XR_NULL_HANDLE;     /* A / X */
     XrAction secondary = XR_NULL_HANDLE;   /* B / Y */
     XrAction menu = XR_NULL_HANDLE;
+    XrAction haptic = XR_NULL_HANDLE;
+    std::atomic<uint32_t> hapticRequest[kHands]{};
 
     XrSpace aimSpace[kHands] = {};
     XrSpace gripSpace[kHands] = {};
 
-    bool ready = false;
+    std::atomic<bool> ready{false};
 
     /* Single writer on the render thread, single reader on the managed thread.
        Same double-buffer arrangement the eye poses use: the reader takes the
@@ -46,6 +49,7 @@ struct InputState
        previous one. */
     BvrInputState buffers[2] = {};
     std::atomic<int> index{ 0 };
+    std::atomic<int64_t> publishedMilliseconds{0};
 
     bool loggedProfile = false;
     bool loggedTracking = false;
@@ -53,6 +57,12 @@ struct InputState
 };
 
 InputState g_in;
+
+int64_t monotonic_milliseconds()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 bool ok(XrResult r, const char* what)
 {
@@ -106,7 +116,7 @@ void suggest(XrInstance instance, const char* profile,
         return;
 
     std::vector<XrActionSuggestedBinding> bindings;
-    bindings.reserve(pairs.size());
+    bindings.reserve(pairs.size() + kHands);
 
     for (const auto& pair : pairs)
     {
@@ -118,6 +128,12 @@ void suggest(XrInstance instance, const char* profile,
             continue;
 
         bindings.push_back(XrActionSuggestedBinding{ pair.first, bound });
+    }
+
+    if (g_in.haptic != XR_NULL_HANDLE)
+    {
+        bindings.push_back({g_in.haptic, path_of(instance, "/user/hand/left/output/haptic")});
+        bindings.push_back({g_in.haptic, path_of(instance, "/user/hand/right/output/haptic")});
     }
 
     if (bindings.empty())
@@ -180,7 +196,9 @@ void locate_hand(XrSpace space, XrSpace baseSpace, XrTime time,
     }
 
     if (tracked != nullptr)
-        *tracked = haveOrientation && havePosition;
+        *tracked = haveOrientation && havePosition &&
+            (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT) != 0 &&
+            (loc.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) != 0;
 }
 
 float read_float(XrSession session, XrAction action, XrPath hand)
@@ -274,6 +292,7 @@ bool input_create(XrInstance instance, XrSession session)
         return true;
 
     g_in.instance = instance;
+    for (auto& pending : g_in.hapticRequest) pending.store(0, std::memory_order_relaxed);
 
     XrActionSetCreateInfo setInfo{ XR_TYPE_ACTION_SET_CREATE_INFO };
     std::strncpy(setInfo.actionSetName, "gameplay", XR_MAX_ACTION_SET_NAME_SIZE - 1);
@@ -310,6 +329,8 @@ bool input_create(XrInstance instance, XrSession session)
                                   "menu", "Menu", hands, kHands);
     g_in.thumbClick = make_action(g_in.actionSet, XR_ACTION_TYPE_BOOLEAN_INPUT,
                                   "thumb_click", "Thumbstick click", hands, kHands);
+    g_in.haptic = make_action(g_in.actionSet, XR_ACTION_TYPE_VIBRATION_OUTPUT,
+                             "contact_haptic", "Physical contact", hands, kHands);
 
     if (g_in.aimPose == XR_NULL_HANDLE || g_in.gripPose == XR_NULL_HANDLE)
         return false;
@@ -437,12 +458,31 @@ void input_sync(XrSession session, XrSpace baseSpace, XrTime displayTime)
     sync.activeActionSets = &active;
 
     const XrResult synced = xrSyncActions(session, &sync);
-    if (XR_FAILED(synced))
+    if (XR_FAILED(synced) || synced == XR_SESSION_NOT_FOCUSED)
+    {
+        for (auto& pending : g_in.hapticRequest) pending.store(0, std::memory_order_relaxed);
+        const int empty = 1 - g_in.index.load(std::memory_order_relaxed);
+        std::memset(&g_in.buffers[empty], 0, sizeof(BvrInputState));
+        g_in.index.store(empty, std::memory_order_release);
+        g_in.publishedMilliseconds.store(monotonic_milliseconds(), std::memory_order_release);
         return;
+    }
 
-    /* XR_SESSION_NOT_FOCUSED is a success code, and it means the runtime is
-       deliberately withholding input - a system menu is up. Everything below
-       would read zeros, which is correct, so there is nothing to special-case. */
+    for (uint32_t hand = 0; hand < kHands; ++hand)
+    {
+        const uint32_t request = g_in.hapticRequest[hand].exchange(0, std::memory_order_acquire);
+        if (request == 0 || g_in.haptic == XR_NULL_HANDLE) continue;
+        XrHapticActionInfo action{XR_TYPE_HAPTIC_ACTION_INFO};
+        action.action = g_in.haptic;
+        action.subactionPath = g_in.handPath[hand];
+        XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};
+        vibration.amplitude = static_cast<float>(request & 0xffffu) / 65535.0f;
+        vibration.duration = static_cast<XrDuration>(request >> 16) * 1000000;
+        vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+        xrApplyHapticFeedback(session, &action, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    }
+
+    /* Only a focused session may publish active controller poses. */
 
     const int next = 1 - g_in.index.load(std::memory_order_relaxed);
     BvrInputState& out = g_in.buffers[next];
@@ -454,14 +494,15 @@ void input_sync(XrSession session, XrSpace baseSpace, XrTime displayTime)
     for (uint32_t hand = 0; hand < kHands; ++hand)
     {
         BvrHandState& state = *hands[hand];
-        bool tracked = false;
+        bool tracked = false, gripTracked = false;
 
         locate_hand(g_in.aimSpace[hand], baseSpace, displayTime,
                     &state.aimOrientation, &state.aimPosition, nullptr, &tracked);
 
         locate_hand(g_in.gripSpace[hand], baseSpace, displayTime,
                     &state.gripOrientation, &state.gripPosition,
-                    &state.linearVelocity, nullptr);
+                    &state.linearVelocity, &gripTracked);
+        tracked = tracked && gripTracked;
 
         state.trigger = read_float(session, g_in.trigger, g_in.handPath[hand]);
         state.grip = read_float(session, g_in.squeeze, g_in.handPath[hand]);
@@ -484,6 +525,7 @@ void input_sync(XrSession session, XrSpace baseSpace, XrTime displayTime)
     }
 
     g_in.index.store(next, std::memory_order_release);
+    g_in.publishedMilliseconds.store(monotonic_milliseconds(), std::memory_order_release);
 
     if (anyTracked && !g_in.loggedTracking)
     {
@@ -516,7 +558,8 @@ void input_sync(XrSession session, XrSpace baseSpace, XrTime displayTime)
 
 bool input_read(BvrInputState* out)
 {
-    if (out == nullptr || !g_in.ready)
+    if (out == nullptr || !g_in.ready ||
+        monotonic_milliseconds() - g_in.publishedMilliseconds.load(std::memory_order_acquire) > 250)
         return false;
 
     const int current = g_in.index.load(std::memory_order_acquire);
@@ -524,10 +567,24 @@ bool input_read(BvrInputState* out)
     return true;
 }
 
+bool input_haptic(int hand, float amplitude, float durationSeconds)
+{
+    if (hand < 0 || hand >= static_cast<int>(kHands) || !std::isfinite(amplitude) ||
+        !std::isfinite(durationSeconds) || amplitude <= 0 || durationSeconds <= 0) return false;
+    if (amplitude > 1) amplitude = 1;
+    if (durationSeconds > .25f) durationSeconds = .25f;
+    const uint32_t strength = static_cast<uint32_t>(amplitude * 65535.0f);
+    uint32_t milliseconds = static_cast<uint32_t>(durationSeconds * 1000.0f);
+    if (milliseconds == 0) milliseconds = 1;
+    g_in.hapticRequest[hand].store((milliseconds << 16) | strength, std::memory_order_release);
+    return true;
+}
+
 void input_destroy()
 {
     for (uint32_t hand = 0; hand < kHands; ++hand)
     {
+        g_in.hapticRequest[hand].store(0, std::memory_order_relaxed);
         if (g_in.aimSpace[hand] != XR_NULL_HANDLE)
         {
             xrDestroySpace(g_in.aimSpace[hand]);
@@ -547,6 +604,7 @@ void input_destroy()
     }
 
     g_in.ready = false;
+    g_in.publishedMilliseconds.store(0, std::memory_order_release);
     g_in.loggedProfile = false;
     g_in.loggedTracking = false;
 }

@@ -637,9 +637,14 @@ int32_t BVR_CALL bvr_get_input_state(BvrInputState* outState)
 #endif
 }
 
-int32_t BVR_CALL bvr_trigger_haptic(int32_t /*hand*/, float /*amplitude*/, float /*durationSeconds*/)
+int32_t BVR_CALL bvr_trigger_haptic(int32_t hand, float amplitude, float durationSeconds)
 {
+    if (!g_initialized) return BVR_NOT_INITIALIZED;
+#ifdef BVR_ENABLE_OPENXR
+    return bvr::input_haptic(hand, amplitude, durationSeconds) ? BVR_OK : BVR_SESSION_NOT_READY;
+#else
     return BVR_SESSION_NOT_READY;
+#endif
 }
 
 /* --- teardown ------------------------------------------------------------ */

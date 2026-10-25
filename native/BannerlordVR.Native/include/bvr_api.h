@@ -44,6 +44,20 @@ typedef enum BvrStatus {
     BVR_XR_ERROR           = -6
 } BvrStatus;
 
+/* Experimental version-bound living ragdoll release, independent of OpenXR.
+   Prepare requires a managed full-module identity check first. Main thread only. */
+BVR_API int32_t BVR_CALL bvr_ragdoll_prepare(void);
+BVR_API int32_t BVR_CALL bvr_ragdoll_release(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
+BVR_API int32_t BVR_CALL bvr_ragdoll_validate(uintptr_t mission, uintptr_t agent, uintptr_t skeleton);
+/* Read-only developer evidence: module-relative implementations reached by
+   ApplyForceOnRagdoll's two virtual calls. Does not call either method. */
+BVR_API int32_t BVR_CALL bvr_ragdoll_force_api(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone, uintptr_t* vectorMethodRva, uintptr_t* scalarMethodRva);
+BVR_API int32_t BVR_CALL bvr_ragdoll_mass(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone_count, float* total_mass, int32_t* body_count);
+BVR_API int32_t BVR_CALL bvr_ragdoll_bone_masses(uintptr_t mission, uintptr_t agent, uintptr_t skeleton,
+    int32_t bone_count, float* bone_mass, float* total_mass, int32_t* body_count);
+
 typedef enum BvrEye {
     BVR_EYE_LEFT  = 0,
     BVR_EYE_RIGHT = 1
