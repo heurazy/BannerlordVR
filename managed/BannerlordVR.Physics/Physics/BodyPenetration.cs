@@ -577,6 +577,8 @@ namespace BannerlordVR.VR.Physics
             // No time limit: Damager.UpdatePenetration keeps a blade in as long
             // as it is not pulled out (the 8 s cut ended held stabs).
             if (!Body.IsCorpse && !Body.Agent.IsActive()) { End("victim_inactive"); return false; }
+            // Killed at one point by another blow, the body falls off the blade.
+            if (_mounted && Body.IsCorpse) { End("victim_killed"); return false; }
             if (_mounted) return TickBite();
             // Let a newly killed target enter the engine's corpse state itself.
             if (!Body.HasNativePhysics)
