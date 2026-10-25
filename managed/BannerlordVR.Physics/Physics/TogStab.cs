@@ -67,10 +67,37 @@ namespace BannerlordVR.VR.Physics
             EnemyPhysicsRuntime.IsDying(body) || EnemyPhysicsRuntime.HasLivingLease(body.Agent);
 
         // GetThresholdModifier.
-        public static float ThresholdModifier(Agent player, EnemyBody body, BoneBodyPartType part, float lastHitAge)
+        // TOG's TestHelmetDetection: the helmet counts only where the blade's
+        // line meets it before the head; an open face is the head's own
+        // collider, with no helmet x20 and no metal. Every helmet worn made
+        // the whole head 180-600 J, a face stab out of reach. Bannerlord
+        // helmets cover the crown, the back and the sides; a closed one (its
+        // beard covered whole in mail or plate: visors, face masks, full
+        // helms) the face too.
+        public const float FaceTop = .04f, FaceCos = .5f;
+        public static bool FaceExposed(EnemyBody body, BoneBodyPartType part, Vec3? at)
+        {
+            if (part != BoneBodyPartType.Head || !at.HasValue || body?.Agent == null) return false;
+            Agent agent = body.Agent;
+            ArmorComponent armor = agent.SpawnEquipment?[EquipmentIndex.Head].Item?.ArmorComponent;
+            if (armor != null && armor.BeardCoverType == ArmorComponent.BeardCoverTypes.All &&
+                (armor.MaterialType == ArmorComponent.ArmorMaterialTypes.Chainmail || armor.MaterialType == ArmorComponent.ArmorMaterialTypes.Plate))
+                return false;
+            sbyte head = agent.Monster != null ? agent.Monster.HeadLookDirectionBoneIndex : (sbyte)-1;
+            if (head < 0 || head >= body.Skeleton.GetBoneCount()) return false;
+            MatrixFrame bone = body.Frame.TransformToParent(body.Skeleton.GetBoneEntitialFrameWithIndex(head));
+            // BannerlordVR's head sphere sits 0.1 m over the head bone, at the eyes.
+            Vec3 d = at.Value - (bone.origin + new Vec3(0, 0, .1f));
+            Vec2 flat = d.AsVec2, look = agent.LookDirection.AsVec2;
+            if (d.z > FaceTop || flat.Length < 1e-3f || look.Length < 1e-3f) return false;
+            return (flat.x * look.x + flat.y * look.y) / (flat.Length * look.Length) > FaceCos;
+        }
+
+        public static float ThresholdModifier(Agent player, EnemyBody body, BoneBodyPartType part, float lastHitAge, Vec3? at = null)
         {
             float m = 1;
-            bool helmet = Helmet(body.Agent, part);
+            bool face = FaceExposed(body, part, at);
+            bool helmet = !face && Helmet(body.Agent, part);
             if (body.IsCorpse || Down(body))
             {
                 m *= .5f;
@@ -83,7 +110,7 @@ namespace BannerlordVR.VR.Physics
             // plate pieces are scaled under it: at x5 every armoured soldier
             // needed 100 J (9 m/s with a 1.5 kg spear) and 93 stabs in 103
             // were refused.
-            switch (BodyPenetration.MaterialFor(body.Agent, part))
+            switch (face ? PenetrationMaterial.Flesh : BodyPenetration.MaterialFor(body.Agent, part))
             {
                 case PenetrationMaterial.Flesh: m *= .9f; break;
                 case PenetrationMaterial.Chainmail: m *= ChainmailThreshold; break;
@@ -94,13 +121,14 @@ namespace BannerlordVR.VR.Physics
         }
 
         // GetDamageModifier.
-        public static float DamageModifier(EnemyBody body, BoneBodyPartType part, float lastHitAge)
+        public static float DamageModifier(EnemyBody body, BoneBodyPartType part, float lastHitAge, Vec3? at = null)
         {
             float m = 1;
-            bool helmet = Helmet(body.Agent, part);
+            bool face = FaceExposed(body, part, at);
+            bool helmet = !face && Helmet(body.Agent, part);
             if (Down(body)) return helmet ? 1.5f : 3;
             if (lastHitAge < RecentHit) m *= 1.5f;
-            switch (BodyPenetration.MaterialFor(body.Agent, part))
+            switch (face ? PenetrationMaterial.Flesh : BodyPenetration.MaterialFor(body.Agent, part))
             {
                 case PenetrationMaterial.Leather: m *= .75f; break;
                 case PenetrationMaterial.Chainmail:

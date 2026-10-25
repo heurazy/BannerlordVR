@@ -621,7 +621,7 @@ namespace BannerlordVR.VR.Physics
         }
 
         // TOG OnCollisionEnter: along the blade, kinetic over 20 J x threshold.
-        private static bool TogEnters(Agent player, EnemyBody body, BodyPoint point, Vec3 velocity, Vec3 bladeAxis,
+        private static bool TogEnters(Agent player, EnemyBody body, BodyPoint point, Vec3 contact, Vec3 velocity, Vec3 bladeAxis,
             MissionWeapon weapon, float lastHitAge)
         {
             if (TogStab.Hand(body, point.Bone) || velocity.Length < 1e-3f || bladeAxis.Length < 1e-3f) return false;
@@ -638,12 +638,13 @@ namespace BannerlordVR.VR.Physics
             }
             float kinetic = TogStab.Kinetic(weapon.Item, velocity);
             float boost = TogStab.StabBoost(MeleeUsage(weapon));
-            float needed = TogStab.Threshold * TogStab.ThresholdModifier(player, body, point.Part, lastHitAge);
+            float needed = TogStab.Threshold * TogStab.ThresholdModifier(player, body, point.Part, lastHitAge, contact);
             bool enters = kinetic + boost > needed;
             if (EnemyPhysicsSettings.Trace)
                 PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "TOG_STAB {0} part={1} speed={2:F2} kinetic={3:F1} J boost={4:F1} J needed={5:F1} J", enters ? "enters" : "refused", point.Part,
-                    velocity.Length, kinetic, boost, needed));
+                    "TOG_STAB {0} part={1} speed={2:F2} kinetic={3:F1} J boost={4:F1} J needed={5:F1} J{6}", enters ? "enters" : "refused", point.Part,
+                    velocity.Length, kinetic, boost, needed,
+                    point.Part == BoneBodyPartType.Head ? (TogStab.FaceExposed(body, point.Part, contact) ? " (open face)" : " (helmet or skull)") : ""));
             return enters;
         }
 
@@ -1352,7 +1353,7 @@ namespace BannerlordVR.VR.Physics
             bool enters = thrust && atPoint && !hit.IsCorpse && EnemyPhysicsSettings.ActiveRagdoll &&
                 BodyPenetration.ProfileFor(usage, true, out PenetrationProfile entering) && PenetrationJoint.Get(entering).Pierce &&
                 (EnemyPhysicsSettings.TogStab
-                    ? TogEnters(player, hit, hitPoint, stabVelocity, tip - start, weapon, lastHitAge)
+                    ? TogEnters(player, hit, hitPoint, contact, stabVelocity, tip - start, weapon, lastHitAge)
                     : velocity.Length >= PenetrationJoint.MinVelocity(entering, BodyPenetration.MaterialFor(hit.Agent, hitPoint.Part), BodyPenetration.TierOf(weapon.Item)) * Threshold(player));
             if (thrust && !atPoint && !hit.IsCorpse && EnemyPhysicsSettings.Trace && now >= hand.NextStabNote)
             {
@@ -1387,7 +1388,7 @@ namespace BannerlordVR.VR.Physics
                 // An axe is made to bite, as a spear to stab (TOG StabBoost):
                 // a moving soldier in plate needed 120 J, his blows gave 56-88.
                 float kinetic = TogStab.Kinetic(weapon.Item, rawVelocity) + AxeBoost;
-                float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge);
+                float needed = AxeBite * TogStab.ThresholdModifier(player, hit, hitPoint.Part, lastHitAge, contact);
                 axeBites = kinetic > needed;
                 if (EnemyPhysicsSettings.Trace)
                     PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -1424,7 +1425,7 @@ namespace BannerlordVR.VR.Physics
                         // dealt 1-2.6 points): the blade is held as in a rider.
                         bool ridePast = player.MountAgent != null && RiderSpeed(player) > BodyPenetration.RideThroughSpeed;
                         if (!ridePast) hand.Penetration.BeginTog(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item), velocity,
-                            kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge));
+                            kinetic, TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge, contact));
                         if (hand.Penetration.Body != null) StopEngineAttack(player);
                         // A rider has no ragdoll to hold on the blade: the
                         // stab was entered and lost (3 into a rider's shoulder
