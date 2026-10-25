@@ -70,10 +70,54 @@ namespace BannerlordVR.VR.Physics
             _mission = Mission.Current; Keys.Clear();
         }
 
+        // Measured in battle, each armour mesh copied to be read was an 8-9 ms
+        // frame, one every 0.3-0.5 s for as long as new outfits came (a
+        // battle froze for half a minute, 37 ms at worst). The radii below
+        // come from six outfits measured so (imperial veterans with mail,
+        // lamellar or padding, imperial archers in leather), a little under
+        // the drawn medians, by the capsule's parent bone; the reading stays
+        // behind enemy_physics_fit_hitbox_measure.
+        private static float Generic(string bone)
+        {
+            switch (bone)
+            {
+                case "l_thigh": case "r_thigh": return .12f;          // drawn 17.8, capped 13
+                case "pelvis": return .15f;                            // hips 15.0-15.3, belly 16.9
+                case "spine": return .16f;                             // 16.4
+                case "spine1": return .19f;                            // 18.8-21.4
+                case "l_clavicle": case "r_clavicle": return .11f;     // 13.0
+                case "l_upperarm_twist": case "r_upperarm_twist": return .10f; // 10.0-12.2
+                case "neck": return .085f;                             // 9.5-10.4
+                default: return 0;
+            }
+        }
+        private static readonly Dictionary<Monster, float[]> GenericByBone = new Dictionary<Monster, float[]>();
+        private static readonly float[] Radii = new float[65];
+        private static float[] GenericFor(Agent agent)
+        {
+            Monster monster = agent.Monster;
+            if (monster == null) return null;
+            if (GenericByBone.TryGetValue(monster, out float[] byBone)) return byBone;
+            byBone = null;
+            try
+            {
+                TaleWorlds.Engine.Skeleton skeleton = agent.AgentVisuals?.GetSkeleton();
+                if (skeleton != null)
+                {
+                    int count = Math.Min(64, (int)skeleton.GetBoneCount());
+                    byBone = new float[64];
+                    for (sbyte b = 0; b < count; b++) byBone[b] = Generic(skeleton.GetBoneName(b) ?? "");
+                }
+            }
+            catch (Exception) { byBone = null; }
+            GenericByBone[monster] = byBone;
+            return byBone;
+        }
+
         // Whether this agent's outfit still needs its surface read.
         public static bool Wants(Agent agent)
         {
-            if (!EnemyPhysicsSettings.FitHitbox || _broken || agent == null || !agent.IsHuman) return false;
+            if (!EnemyPhysicsSettings.FitHitbox || !EnemyPhysicsSettings.FitHitboxMeasure || _broken || agent == null || !agent.IsHuman) return false;
             NewMission();
             return !Fits.ContainsKey(KeyOf(agent));
         }
@@ -81,7 +125,7 @@ namespace BannerlordVR.VR.Physics
         // Fits the outfits whose surface has been read.
         public static void Tick()
         {
-            if (!EnemyPhysicsSettings.FitHitbox || _broken) return;
+            if (!EnemyPhysicsSettings.FitHitbox || !EnemyPhysicsSettings.FitHitboxMeasure || _broken) return;
             NewMission();
             foreach (KeyValuePair<Agent, List<Vec3>> pair in WoundDecal.ReadBodies())
             {
@@ -133,12 +177,22 @@ namespace BannerlordVR.VR.Physics
         {
             if (!EnemyPhysicsSettings.FitHitbox || _broken || body == null || agent == null || !agent.IsHuman) return;
             NewMission();
-            if (!Fits.TryGetValue(KeyOf(agent), out Fit fit) || fit == null) return;
             if (!Compiled(body.GetType())) return;
             int count = _bones(body, Seen);
-            if (count != fit.Bones.Length) return;
-            for (int i = 0; i < count; i++) if (Seen[i] != fit.Bones[i]) return;
-            _widen(body, fit.Radii);
+            if (EnemyPhysicsSettings.FitHitboxMeasure && Fits.TryGetValue(KeyOf(agent), out Fit fit) && fit != null)
+            {
+                if (count != fit.Bones.Length) return;
+                for (int i = 0; i < count; i++) if (Seen[i] != fit.Bones[i]) return;
+                _widen(body, fit.Radii);
+                return;
+            }
+            // The measured outfits' radii, by each capsule's parent bone; the
+            // chest's capsules from spine2 (to the neck and the clavicles)
+            // are never in the table.
+            float[] byBone = GenericFor(agent);
+            if (byBone == null) return;
+            for (int i = 0; i < Radii.Length; i++) Radii[i] = i < count && Seen[i] >= 0 && Seen[i] < byBone.Length ? byBone[Seen[i]] : 0;
+            _widen(body, Radii);
         }
 
         [HarmonyPatch]

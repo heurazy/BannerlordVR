@@ -50,6 +50,9 @@ namespace BannerlordVR.VR.Physics
         public static readonly bool HitboxProbe = VrConfig.Bool("enemy_physics_hitbox_probe", false);
         // Widen the blade capsules to the drawn body, per outfit (HitboxFit).
         public static readonly bool FitHitbox = VrConfig.Bool("enemy_physics_fit_hitbox", true);
+        // Measure each outfit's drawn body instead of the table (8-9 ms per
+        // armour mesh read: froze big battles).
+        public static readonly bool FitHitboxMeasure = VrConfig.Bool("enemy_physics_fit_hitbox_measure", false);
         // Sandbox enemies that keep their AI and come to attack the player.
         public static readonly int SandboxDuelists = Math.Max(0, Math.Min(4, (int)VrConfig.Float("enemy_physics_sandbox_duelists", 1)));
         public static readonly bool RuntimeProbe = VrConfig.Bool("enemy_physics_runtime_probe", false);
