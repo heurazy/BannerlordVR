@@ -284,7 +284,7 @@ namespace BannerlordVR.VR.Physics
             }
             else
             {
-                float lost = PhysicalHit.ApplyPenetration(source, victim, point.Bone, point.Part, contact, damage, DamageTypes.Pierce);
+                float lost = damage > 0 ? PhysicalHit.ApplyPenetration(source, victim, point.Bone, point.Part, contact, damage, DamageTypes.Pierce) : 0;
                 if (lost > 0) RecordLimbWound(lost);
                 effect = "limb damage=" + damage.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
             }

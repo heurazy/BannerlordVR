@@ -1383,10 +1383,13 @@ namespace BannerlordVR.VR.Physics
                             {
                                 MatrixFrame shownStab = stabHand;
                                 shownStab.origin += contact - (start + (tip - start) * hitAlong);
-                                float limb = Math.Min(TogStab.Kinetic(weapon.Item, stabVelocity), TogStab.LimbKineticCap) / 20 *
-                                    TogStab.DamageModifier(hit, hitPoint.Part, lastHitAge);
-                                hand.Penetration.BeginMounted(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item),
-                                    shownStab, stabHand, velocity, limb, TogStab.Lethal(hitPoint.Part));
+                                // A limb takes the engine's thrust, as before the
+                                // hold: TOG's kinetic/20 dealt it 0.3-2.6 points.
+                                bool lethalStab = TogStab.Lethal(hitPoint.Part);
+                                if (!lethalStab) PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
+                                if (hit.Agent.IsActive())
+                                    hand.Penetration.BeginMounted(hit, hitPoint, contact, profile, player, BodyPenetration.TierOf(weapon.Item),
+                                        shownStab, stabHand, velocity, 0, lethalStab);
                                 if (hand.Penetration.Body != null) { StopEngineAttack(player); PhysicsInterop.Haptic(index, .9f, .07f); return; }
                                 if (!hit.Agent.IsActive()) return;
                             }
