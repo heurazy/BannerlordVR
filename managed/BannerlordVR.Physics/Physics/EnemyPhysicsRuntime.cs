@@ -311,6 +311,7 @@ namespace BannerlordVR.VR.Physics
                 { ClearHands(); return; }
                 StuckMissiles.DrawOnPlayer(player);
                 TickKillPushes(now);
+                SampleRig(player, dt);
                 UpdateHand(0, input.Left, input.Right, main.Controller == VrHand.Left ? main : off, player, dt, now);
                 UpdateHand(1, input.Right, input.Left, main.Controller == VrHand.Right ? main : off, player, dt, now);
                 if (EnemyPhysicsSettings.Choke) Choke.Tick(player, Hands[0].Grab, Hands[1].Grab, now);
@@ -465,11 +466,46 @@ namespace BannerlordVR.VR.Physics
             Vec3 v = mount.Velocity;
             return new Vec2(v.x, v.y).Length;
         }
-        public static Vec3 HandMotion(Agent player, Vec3 world)
+        // TOG's CtrlVelocity is the controller's motion in the rig: the
+        // horse carrying, turning and rocking it is taken out, and only its
+        // speed along the hand's motion is added back (AvatarBoost). Taking
+        // out the horse's velocity alone left its turns (1-2 m/s at the hand
+        // in a turn) and its gait in the hand's motion, and turned stabs
+        // sideways. The rig is BannerlordVR's stage anchor, sampled once a
+        // tick; where it does not ride with the horse, the horse's velocity.
+        private static MatrixFrame _rigPrev, _rigNow;
+        private static float _rigDt;
+        private static bool _rigSampled, _rigValid, _rigLogged;
+        private static void SampleRig(Agent player, float dt)
+        {
+            MatrixFrame anchor = VrCameraDriver.Anchor;
+            bool finite = InteractionMath.IsFinite(anchor.origin) && InteractionMath.IsFinite(anchor.rotation.f) && InteractionMath.IsFinite(anchor.rotation.u);
+            _rigValid = _rigSampled && finite && dt > 1e-4f;
+            _rigPrev = _rigNow; _rigNow = anchor; _rigDt = dt; _rigSampled = finite;
+            // A recentre or a pause between samples is not a motion.
+            if (_rigValid && player != null && RigCarried(player.Position).Length > 30) _rigValid = false;
+            Agent mount = player?.MountAgent;
+            if (_rigValid && mount != null)
+            {
+                Vec3 horse = mount.Velocity, carried = RigCarried(player.Position);
+                // The anchor must ride with the horse to stand for it.
+                if (horse.Length > 2 && (carried.Length < horse.Length * .5f || carried.Length > horse.Length * 2 + 4)) _rigValid = false;
+                if (!_rigLogged && horse.Length > 2)
+                {
+                    _rigLogged = true;
+                    PhysicsLog.Info(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "RIG mounted hand motion from {0}: horse {1:F1} m/s, rig carries the rider at {2:F1} m/s",
+                        _rigValid ? "the stage anchor" : "the horse's velocity", horse.Length, carried.Length));
+                }
+            }
+        }
+        private static Vec3 RigCarried(Vec3 previous) =>
+            (_rigNow.TransformToParent(_rigPrev.TransformToLocalNonOrthogonal(previous)) - previous) * (1 / _rigDt);
+        public static Vec3 HandMotion(Agent player, Vec3 world, Vec3 from)
         {
             Agent mount = player?.MountAgent;
             if (mount == null) return world;
-            Vec3 avatar = mount.Velocity, own = world - avatar;
+            Vec3 avatar = mount.Velocity, own = world - (_rigValid ? RigCarried(from) : avatar);
             float length = own.Length;
             if (length < 1e-3f) return own;
             Vec3 dir = own * (1 / length);
@@ -492,15 +528,15 @@ namespace BannerlordVR.VR.Physics
         // stepped back or swayed in its animation took 26 stabs of 33 down
         // to 1-3 m/s, neither a thrust nor enough to enter. The part's motion
         // counts only when it drives the point in harder (a charge onto it).
-        private static Vec3 StabMotion(Agent player, Vec3 world, Vec3 target, Vec3 bladeAxis, bool point)
+        private static Vec3 StabMotion(Agent player, Vec3 world, Vec3 from, Vec3 target, Vec3 bladeAxis, bool point)
         {
-            Vec3 relative = StrikeMotion(player, world, target, bladeAxis, point);
-            Vec3 own = StrikeMotion(player, world, Vec3.Zero, bladeAxis, point);
+            Vec3 relative = StrikeMotion(player, world, from, target, bladeAxis, point);
+            Vec3 own = StrikeMotion(player, world, from, Vec3.Zero, bladeAxis, point);
             return InteractionMath.Dot(relative, bladeAxis) > InteractionMath.Dot(own, bladeAxis) ? relative : own;
         }
-        private static Vec3 StrikeMotion(Agent player, Vec3 world, Vec3 target, Vec3 bladeAxis, bool point)
+        private static Vec3 StrikeMotion(Agent player, Vec3 world, Vec3 from, Vec3 target, Vec3 bladeAxis, bool point)
         {
-            Vec3 motion = HandMotion(player, world) - target;
+            Vec3 motion = HandMotion(player, world, from) - target;
             if (!point || player?.MountAgent == null) return motion;
             Vec3 carried = world - target;
             float length = carried.Length;
@@ -773,7 +809,7 @@ namespace BannerlordVR.VR.Physics
             { hand.Cut.Reset(); return false; }
             if (hand.Cut.Sample(agent.Index, start - point.World, axis, trackedTravel, now))
             {
-                Vec3 velocity = HandMotion(player, (start - hand.PreviousBase) * (1 / dt)) - point.Velocity;
+                Vec3 velocity = HandMotion(player, (start - hand.PreviousBase) * (1 / dt), hand.PreviousBase) - point.Velocity;
                 PhysicalHit.ApplyDrawCut(player, body, point, contact, velocity, weapon, slot);
                 if (index == 0) body.LastHitLeft = now; else body.LastHitRight = now;
                 PhysicsInterop.Haptic(index, .35f, .045f);
@@ -923,7 +959,7 @@ namespace BannerlordVR.VR.Physics
             int tier = BodyPenetration.TierOf(hand.Item);
             PenetrationMaterial material = body.IsCorpse ? PenetrationMaterial.Flesh : BodyPenetration.MaterialFor(body.Agent, point.Part);
             PenetrationModifiers.Row row = PenetrationModifiers.Get(profile, material, tier);
-            float relativeSpeed = (HandMotion(player, motion * (1 / dt)) - point.Velocity).Length;
+            float relativeSpeed = (HandMotion(player, motion * (1 / dt), hand.PreviousTip) - point.Velocity).Length;
             float pressure = PenetrationJoint.Pressure(InteractionMath.Dot(motion, axisN) / dt, overshoot, hand.Item?.Weight ?? 1.5f);
             float threshold = PenetrationJoint.PressureThreshold(profile, relativeSpeed) * row.PressureForceMultiplier;
             if (pressure < threshold) return;
@@ -1113,7 +1149,7 @@ namespace BannerlordVR.VR.Physics
             if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) return;
             touched = body.Agent; touchFraction = fraction; touchAlong = along; part = point.Part;
             at = previous + (current - previous) * fraction;
-            velocity = HandMotion(player, (current - previous) * (1 / dt)) - point.Velocity;
+            velocity = HandMotion(player, (current - previous) * (1 / dt), previous) - point.Velocity;
         }
 
         // BannerlordVR's VrMelee starts an engine attack from every hand
@@ -1198,7 +1234,7 @@ namespace BannerlordVR.VR.Physics
                     if (blade && fraction < touchFraction && agent.IsActive() && agent.IsHuman && EnemyBody.Hostile(agent, player))
                     {
                         touched = agent; touchFraction = fraction; touchAlong = along; touchAt = previous + (current - previous) * fraction;
-                        touchVelocity = HandMotion(player, (current - previous) * (1 / dt)) - agent.Velocity; touchPart = BoneBodyPartType.Chest;
+                        touchVelocity = HandMotion(player, (current - previous) * (1 / dt), previous) - agent.Velocity; touchPart = BoneBodyPartType.Chest;
                     }
                     continue;
                 }
@@ -1216,7 +1252,7 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint early = body.ReadContact(bone);
                 Vec3 bladeAxis = (tip - start).NormalizedCopy();
                 bool atTip = blade && usage.ThrustDamage > 0 && along >= PointFrom(player);
-                Vec3 sampleVelocity = StabMotion(player, (current - previous) * (1 / dt), early.Velocity, bladeAxis, atTip);
+                Vec3 sampleVelocity = StabMotion(player, (current - previous) * (1 / dt), previous, early.Velocity, bladeAxis, atTip);
                 bool piercing = atTip &&
                     InteractionMath.Dot(sampleVelocity, bladeAxis) > sampleVelocity.Length * .7f;
                 // 0.2 s: one swing crosses a body in under 0.1 s; at 0.35 s a
@@ -1252,8 +1288,8 @@ namespace BannerlordVR.VR.Physics
                 BodyPoint point = body.ReadContact(bone);
                 if (point.Part == BoneBodyPartType.None || !InteractionMath.IsFinite(point.World)) continue;
                 earliest = fraction; hit = body; hitPoint = point; contact = c; hitAlong = along; hitCooled = cooled;
-                rawVelocity = StrikeMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
-                stabVelocity = StabMotion(player, (current - previous) * (1 / dt), point.Velocity, bladeAxis, atTip);
+                rawVelocity = StrikeMotion(player, (current - previous) * (1 / dt), previous, point.Velocity, bladeAxis, atTip);
+                stabVelocity = StabMotion(player, (current - previous) * (1 / dt), previous, point.Velocity, bladeAxis, atTip);
                 velocity = InteractionMath.ClampMagnitude(rawVelocity, 12);
             }
             if (hit == null)
