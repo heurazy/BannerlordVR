@@ -23,6 +23,8 @@ namespace BannerlordVR.VR.Physics
         public readonly BodyPoint[] Points = new BodyPoint[16];
         public int Count;
         public float LastHitLeft = -10, LastHitRight = -10;
+        // When a stab that could not be held last struck this body.
+        public float LastEntry = -10;
         public MatrixFrame Frame;
         private bool _sampled;
         public void Clear()
@@ -68,7 +70,7 @@ namespace BannerlordVR.VR.Physics
             if (Skeleton == null) { LastFailure = "no_skeleton " + CorpseVisuals.Describe(agent); return false; }
             LastFailure = "no_bones";
             Count = 0; _sampled = false;
-            LastHitLeft = LastHitRight = -10;
+            LastHitLeft = LastHitRight = LastEntry = -10;
             int bones = Skeleton.GetBoneCount();
             for (sbyte i = 0; i < bones && i >= 0 && Count < Points.Length; i++)
             {

@@ -1370,9 +1370,14 @@ namespace BannerlordVR.VR.Physics
                         // A rider has no ragdoll to hold on the blade: the
                         // stab was entered and lost (3 into a rider's shoulder
                         // dealt nothing). Its vital part kills, a limb takes
-                        // the engine's thrust, once per impact.
-                        else if (!hitCooled && hit.Agent.IsActive())
+                        // the engine's thrust, once per stab: the point driven
+                        // in right after the stroke's first touch (a cut or a
+                        // glance, 20-60 ms before) is inside that touch's
+                        // cooldown, and all 5 stabs entered into riders in a
+                        // mounted test dealt nothing.
+                        else if (now - hit.LastEntry >= HitCooldown && hit.Agent.IsActive())
                         {
+                            hit.LastEntry = now;
                             if (TogStab.Lethal(hitPoint.Part))
                                 PhysicalHit.ApplyPenetration(player, hit.Agent, hitPoint.Bone, hitPoint.Part, contact, hit.Agent.Health + 1, DamageTypes.Pierce);
                             else PhysicalHit.Apply(player, hit, hitPoint, contact, velocity, weapon, slot, thrust, push);
