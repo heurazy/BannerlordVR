@@ -226,8 +226,9 @@ namespace BannerlordVR.VR.Physics
             if (!PhysicalBlade.RawHand(Role, out MatrixFrame raw)) { End("no_hand"); return false; }
             float pull = (raw.origin - shown.origin).Length;
             _maxSeparation = Math.Max(_maxSeparation, pull);
-            if (_age >= BiteGrace) _biteNearest = Math.Min(_biteNearest, pull);
-            if (pull > BiteMaxPull || (_age >= BiteGrace && pull > _biteNearest + BitePull))
+            float grace = _mounted ? MountedGrace : BiteGrace;
+            if (_age >= grace) _biteNearest = Math.Min(_biteNearest, pull);
+            if (pull > (_mounted ? MountedMaxPull : BiteMaxPull) || (_age >= grace && pull > _biteNearest + BitePull))
             {
                 Vec3 at = bone.TransformToParent(_localContact);
                 BloodFx.Burst(BloodFx.Kind.Exit, at, Vec3.Up);
@@ -255,6 +256,11 @@ namespace BannerlordVR.VR.Physics
         // horses part. B&S holds a killing stab's victim at one point until
         // the blade leaves (Damager: the damage lands on UnPenetrate).
         private bool _mounted;
+        // Two riders crossing part at 5-11 m/s: at the bite's 1.2 m the blade
+        // came out 0.17-0.28 s in. A rider dying on it reins in, and the
+        // blade holds 2 m of reach and half a second before drawing it out.
+        public const float MountedGrace = .5f, MountedMaxPull = 2, DyingRideSpeed = 2;
+        private Agent _reined;
         public void BeginMounted(EnemyBody body, BodyPoint point, Vec3 contact, PenetrationProfile profile, Agent source, int tier,
             MatrixFrame shownHand, MatrixFrame rawHand, Vec3 velocity, float damage, bool lethal)
         {
@@ -280,6 +286,8 @@ namespace BannerlordVR.VR.Physics
                 if (!victim.IsActive()) { Release(); return; }
                 _pending = victim.Health + 1; _pendingVictim = victim;
                 StopAttack(victim);
+                _reined = victim.MountAgent;
+                try { _reined?.SetMaximumSpeedLimit(DyingRideSpeed, false); } catch (Exception) { _reined = null; }
                 effect = "held at " + victim.Health.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " point(s) until withdrawn";
             }
             else
@@ -458,6 +466,11 @@ namespace BannerlordVR.VR.Physics
 
         public void Release()
         {
+            if (_reined != null)
+            {
+                try { if (_reined.IsActive()) _reined.SetMaximumSpeedLimit(-1, false); } catch (Exception) { }
+                _reined = null;
+            }
             Agent victim = _pendingVictim;
             float pending = _pending, woundLost = _woundLost;
             EnemyBody woundBody = _woundBody;
